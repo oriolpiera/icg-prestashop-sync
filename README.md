@@ -100,6 +100,12 @@ python manage.py check --settings=config.settings.test
 python -m pytest
 ```
 
+Run the current typing baseline:
+
+```bash
+.venv/bin/mypy
+```
+
 Generate a local coverage baseline:
 
 ```bash
@@ -115,6 +121,12 @@ Recommended rule:
 - use `pre-commit run --all-files` before opening a PR
 - use `ruff format .` when you want repo-wide formatting
 - use `ruff check .` when you want the raw lint output without hook wrapping
+- use `.venv/bin/mypy` for the current service/config typing baseline
+
+Current typing policy:
+- checker: `mypy`
+- baseline scope: `apps/icg/services.py`, `apps/prestashop/client.py`, and `config/settings/`
+- CI integration is a clear next step, but not part of this issue
 
 ## First scope
 

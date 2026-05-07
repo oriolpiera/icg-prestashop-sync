@@ -24,12 +24,29 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "mypy>=1.11,<2",
   "pre-commit>=4.0,<5",
   "pytest>=8.3,<9",
   "pytest-cov>=5.0,<6",
   "pytest-django>=4.9,<5",
   "ruff>=0.6,<0.7",
 ]
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+  "apps/icg/services.py",
+  "apps/prestashop/client.py",
+  "config/settings",
+]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["celery", "django.conf"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
