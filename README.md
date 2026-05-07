@@ -51,6 +51,33 @@ celery -A config worker -l info
 celery -A config beat -l info
 ```
 
+## Tmux launcher
+
+If you use `tmux`, the repository includes `bin/dev-tmux` to open the whole development setup in one session.
+
+It creates these windows:
+- `services`: `docker-compose up`
+- `web`: `migrate` and `runserver`
+- `worker`: Celery worker
+- `beat`: Celery beat
+
+Usage:
+
+```bash
+bin/dev-tmux
+```
+
+Optional custom session name:
+
+```bash
+bin/dev-tmux my-session
+```
+
+Requirements:
+- `tmux` installed on the machine
+- `.venv` already created with `pip install -e .[dev]`
+- `.env` present in the repository root
+
 ## Documentation
 
 - `docs/architecture.md`: initial architecture, app boundaries and operational model
