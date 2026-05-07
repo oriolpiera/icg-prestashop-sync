@@ -81,6 +81,8 @@ Requirements:
 ## Documentation
 
 - `docs/architecture.md`: initial architecture, app boundaries and operational model
+- `AGENTS.md`: repository conventions for contributors and AI agents
+- `openspec/README.md`: git-tracked planning artifacts and when to use Engram, OpenSpec, or hybrid mode
 
 ## First scope
 
