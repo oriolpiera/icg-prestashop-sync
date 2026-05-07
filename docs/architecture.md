@@ -132,9 +132,9 @@ Examples:
 - missing category mapping
 - broken manufacturer mapping
 
-## Initial folder direction
+## Current folder direction
 
-This is the intended shape once implementation starts:
+This is the shape created in the repository skeleton:
 
 ```text
 icg-prestashop-sync/

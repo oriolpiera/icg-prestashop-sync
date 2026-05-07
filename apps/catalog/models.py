@@ -1,0 +1,121 @@
+from django.db import models
+
+from apps.core.models import SyncTrackedModel, TimeStampedModel
+
+
+class Manufacturer(TimeStampedModel):
+    icg_code = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Product(SyncTrackedModel):
+    icg_id = models.PositiveIntegerField(unique=True)
+    reference = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=255)
+    manufacturer = models.ForeignKey(
+        Manufacturer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+    )
+    visible_web = models.BooleanField(default=True)
+    discontinued = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["reference"]
+
+    def __str__(self) -> str:
+        return f"{self.reference} - {self.name}"
+
+
+class Combination(SyncTrackedModel):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="combinations")
+    icg_size = models.CharField(max_length=64, blank=True)
+    icg_color = models.CharField(max_length=64, blank=True)
+    ean13 = models.CharField(max_length=32, blank=True)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["product__reference", "icg_size", "icg_color"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "icg_size", "icg_color"],
+                name="catalog_unique_product_combination",
+            )
+        ]
+
+    def __str__(self) -> str:
+        label = " / ".join(filter(None, [self.icg_size, self.icg_color]))
+        return f"{self.product.reference} - {label or 'default'}"
+
+
+class Price(SyncTrackedModel):
+    combination = models.OneToOneField(
+        Combination,
+        on_delete=models.CASCADE,
+        related_name="price",
+    )
+    amount_ex_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=21)
+    currency = models.CharField(max_length=3, default="EUR")
+
+    class Meta:
+        ordering = ["combination__product__reference"]
+
+    def __str__(self) -> str:
+        return f"{self.combination}: {self.amount_ex_vat} {self.currency}"
+
+
+class Stock(SyncTrackedModel):
+    combination = models.OneToOneField(
+        Combination,
+        on_delete=models.CASCADE,
+        related_name="stock",
+    )
+    warehouse_code = models.CharField(max_length=32, blank=True)
+    quantity = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["combination__product__reference"]
+
+    def __str__(self) -> str:
+        return f"{self.combination}: {self.quantity}"
+
+
+class PrestashopMapping(TimeStampedModel):
+    product = models.OneToOneField(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="prestashop_mapping",
+        null=True,
+        blank=True,
+    )
+    combination = models.OneToOneField(
+        Combination,
+        on_delete=models.CASCADE,
+        related_name="prestashop_mapping",
+        null=True,
+        blank=True,
+    )
+    prestashop_product_id = models.PositiveIntegerField(blank=True, null=True)
+    prestashop_combination_id = models.PositiveIntegerField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(product__isnull=False) | models.Q(combination__isnull=False)),
+                name="catalog_mapping_has_target",
+            )
+        ]
+
+    def __str__(self) -> str:
+        if self.combination_id:
+            return f"Combination mapping #{self.prestashop_combination_id or 'new'}"
+        return f"Product mapping #{self.prestashop_product_id or 'new'}"

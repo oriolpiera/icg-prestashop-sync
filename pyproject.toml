@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icg-prestashop-sync"
+version = "0.1.0"
+description = "ICG Manager to Prestashop synchronization service"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "Django>=5.1,<5.2",
+  "celery>=5.4,<6",
+  "redis>=5.0,<6",
+  "psycopg[binary]>=3.2,<4",
+  "pyodbc>=5.1,<6",
+  "requests>=2.32,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-django>=4.9,<5",
+  "ruff>=0.6,<0.7",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
