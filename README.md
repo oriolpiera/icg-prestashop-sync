@@ -97,8 +97,19 @@ pre-commit run --all-files
 ruff check .
 ruff format .
 python manage.py check --settings=config.settings.test
-pytest
+python -m pytest
 ```
+
+Generate a local coverage baseline:
+
+```bash
+python -m pytest --cov --cov-report=term-missing --cov-report=xml
+```
+
+Current policy:
+- publish the coverage baseline first
+- do not enforce a minimum threshold yet
+- use the XML report in CI as an artifact for later tracking
 
 Recommended rule:
 - use `pre-commit run --all-files` before opening a PR
