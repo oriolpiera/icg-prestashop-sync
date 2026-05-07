@@ -5,46 +5,90 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='SyncCursor',
+            name="SyncCursor",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('source', models.CharField(choices=[('products', 'Products'), ('prices', 'Prices'), ('stock', 'Stock')], max_length=32, unique=True)),
-                ('last_modified_at', models.DateTimeField(blank=True, null=True)),
-                ('last_source_key', models.CharField(blank=True, max_length=128)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "source",
+                    models.CharField(
+                        choices=[
+                            ("products", "Products"),
+                            ("prices", "Prices"),
+                            ("stock", "Stock"),
+                        ],
+                        max_length=32,
+                        unique=True,
+                    ),
+                ),
+                ("last_modified_at", models.DateTimeField(blank=True, null=True)),
+                ("last_source_key", models.CharField(blank=True, max_length=128)),
             ],
             options={
-                'ordering': ['source'],
+                "ordering": ["source"],
             },
         ),
         migrations.CreateModel(
-            name='SyncJob',
+            name="SyncJob",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('job_type', models.CharField(choices=[('import_products', 'Import products'), ('import_prices', 'Import prices'), ('import_stock', 'Import stock'), ('export_product', 'Export product'), ('export_price', 'Export price'), ('export_stock', 'Export stock')], max_length=32)),
-                ('entity_type', models.CharField(max_length=32)),
-                ('entity_key', models.CharField(max_length=128)),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('succeeded', 'Succeeded'), ('failed', 'Failed')], default='pending', max_length=16)),
-                ('payload', models.JSONField(blank=True, default=dict)),
-                ('attempts', models.PositiveIntegerField(default=0)),
-                ('available_at', models.DateTimeField(default=django.utils.timezone.now)),
-                ('started_at', models.DateTimeField(blank=True, null=True)),
-                ('finished_at', models.DateTimeField(blank=True, null=True)),
-                ('last_error', models.TextField(blank=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "job_type",
+                    models.CharField(
+                        choices=[
+                            ("import_products", "Import products"),
+                            ("import_prices", "Import prices"),
+                            ("import_stock", "Import stock"),
+                            ("export_product", "Export product"),
+                            ("export_price", "Export price"),
+                            ("export_stock", "Export stock"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                ("entity_type", models.CharField(max_length=32)),
+                ("entity_key", models.CharField(max_length=128)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("running", "Running"),
+                            ("succeeded", "Succeeded"),
+                            ("failed", "Failed"),
+                        ],
+                        default="pending",
+                        max_length=16,
+                    ),
+                ),
+                ("payload", models.JSONField(blank=True, default=dict)),
+                ("attempts", models.PositiveIntegerField(default=0)),
+                ("available_at", models.DateTimeField(default=django.utils.timezone.now)),
+                ("started_at", models.DateTimeField(blank=True, null=True)),
+                ("finished_at", models.DateTimeField(blank=True, null=True)),
+                ("last_error", models.TextField(blank=True)),
             ],
             options={
-                'ordering': ['status', 'available_at', 'created_at'],
+                "ordering": ["status", "available_at", "created_at"],
             },
         ),
     ]

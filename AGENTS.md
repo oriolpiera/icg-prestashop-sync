@@ -77,12 +77,20 @@ That launcher expects:
 Run these before asking for review:
 
 ```bash
+pre-commit run --all-files
 pytest
 ruff check .
-python manage.py check
+ruff format .
+python manage.py check --settings=config.settings.test
 ```
 
 If you touch models, settings, Celery wiring, or startup behavior, also verify the affected command path directly.
+
+Install hooks once per clone:
+
+```bash
+pre-commit install
+```
 
 ## Testing expectations
 

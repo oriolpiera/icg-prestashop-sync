@@ -5,121 +5,206 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Combination',
+            name="Combination",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('sync_required', models.BooleanField(default=True)),
-                ('last_synced_at', models.DateTimeField(blank=True, null=True)),
-                ('last_sync_error', models.TextField(blank=True)),
-                ('icg_size', models.CharField(blank=True, max_length=64)),
-                ('icg_color', models.CharField(blank=True, max_length=64)),
-                ('ean13', models.CharField(blank=True, max_length=32)),
-                ('active', models.BooleanField(default=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("sync_required", models.BooleanField(default=True)),
+                ("last_synced_at", models.DateTimeField(blank=True, null=True)),
+                ("last_sync_error", models.TextField(blank=True)),
+                ("icg_size", models.CharField(blank=True, max_length=64)),
+                ("icg_color", models.CharField(blank=True, max_length=64)),
+                ("ean13", models.CharField(blank=True, max_length=32)),
+                ("active", models.BooleanField(default=True)),
             ],
             options={
-                'ordering': ['product__reference', 'icg_size', 'icg_color'],
+                "ordering": ["product__reference", "icg_size", "icg_color"],
             },
         ),
         migrations.CreateModel(
-            name='Manufacturer',
+            name="Manufacturer",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('icg_code', models.CharField(max_length=64, unique=True)),
-                ('name', models.CharField(max_length=255)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("icg_code", models.CharField(max_length=64, unique=True)),
+                ("name", models.CharField(max_length=255)),
             ],
             options={
-                'ordering': ['name'],
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='Price',
+            name="Price",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('sync_required', models.BooleanField(default=True)),
-                ('last_synced_at', models.DateTimeField(blank=True, null=True)),
-                ('last_sync_error', models.TextField(blank=True)),
-                ('amount_ex_vat', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('vat_rate', models.DecimalField(decimal_places=2, default=21, max_digits=5)),
-                ('currency', models.CharField(default='EUR', max_length=3)),
-                ('combination', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='price', to='catalog.combination')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("sync_required", models.BooleanField(default=True)),
+                ("last_synced_at", models.DateTimeField(blank=True, null=True)),
+                ("last_sync_error", models.TextField(blank=True)),
+                ("amount_ex_vat", models.DecimalField(decimal_places=2, max_digits=10)),
+                ("vat_rate", models.DecimalField(decimal_places=2, default=21, max_digits=5)),
+                ("currency", models.CharField(default="EUR", max_length=3)),
+                (
+                    "combination",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="price",
+                        to="catalog.combination",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['combination__product__reference'],
+                "ordering": ["combination__product__reference"],
             },
         ),
         migrations.CreateModel(
-            name='Product',
+            name="Product",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('sync_required', models.BooleanField(default=True)),
-                ('last_synced_at', models.DateTimeField(blank=True, null=True)),
-                ('last_sync_error', models.TextField(blank=True)),
-                ('icg_id', models.PositiveIntegerField(unique=True)),
-                ('reference', models.CharField(max_length=64, unique=True)),
-                ('name', models.CharField(max_length=255)),
-                ('visible_web', models.BooleanField(default=True)),
-                ('discontinued', models.BooleanField(default=False)),
-                ('manufacturer', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='products', to='catalog.manufacturer')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("sync_required", models.BooleanField(default=True)),
+                ("last_synced_at", models.DateTimeField(blank=True, null=True)),
+                ("last_sync_error", models.TextField(blank=True)),
+                ("icg_id", models.PositiveIntegerField(unique=True)),
+                ("reference", models.CharField(max_length=64, unique=True)),
+                ("name", models.CharField(max_length=255)),
+                ("visible_web", models.BooleanField(default=True)),
+                ("discontinued", models.BooleanField(default=False)),
+                (
+                    "manufacturer",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="products",
+                        to="catalog.manufacturer",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['reference'],
+                "ordering": ["reference"],
             },
         ),
         migrations.AddField(
-            model_name='combination',
-            name='product',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='combinations', to='catalog.product'),
+            model_name="combination",
+            name="product",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="combinations",
+                to="catalog.product",
+            ),
         ),
         migrations.CreateModel(
-            name='Stock',
+            name="Stock",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('sync_required', models.BooleanField(default=True)),
-                ('last_synced_at', models.DateTimeField(blank=True, null=True)),
-                ('last_sync_error', models.TextField(blank=True)),
-                ('warehouse_code', models.CharField(blank=True, max_length=32)),
-                ('quantity', models.IntegerField(default=0)),
-                ('combination', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='stock', to='catalog.combination')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("sync_required", models.BooleanField(default=True)),
+                ("last_synced_at", models.DateTimeField(blank=True, null=True)),
+                ("last_sync_error", models.TextField(blank=True)),
+                ("warehouse_code", models.CharField(blank=True, max_length=32)),
+                ("quantity", models.IntegerField(default=0)),
+                (
+                    "combination",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="stock",
+                        to="catalog.combination",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['combination__product__reference'],
+                "ordering": ["combination__product__reference"],
             },
         ),
         migrations.CreateModel(
-            name='PrestashopMapping',
+            name="PrestashopMapping",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('prestashop_product_id', models.PositiveIntegerField(blank=True, null=True)),
-                ('prestashop_combination_id', models.PositiveIntegerField(blank=True, null=True)),
-                ('combination', models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='prestashop_mapping', to='catalog.combination')),
-                ('product', models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='prestashop_mapping', to='catalog.product')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("prestashop_product_id", models.PositiveIntegerField(blank=True, null=True)),
+                ("prestashop_combination_id", models.PositiveIntegerField(blank=True, null=True)),
+                (
+                    "combination",
+                    models.OneToOneField(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="prestashop_mapping",
+                        to="catalog.combination",
+                    ),
+                ),
+                (
+                    "product",
+                    models.OneToOneField(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="prestashop_mapping",
+                        to="catalog.product",
+                    ),
+                ),
             ],
             options={
-                'constraints': [models.CheckConstraint(condition=models.Q(('product__isnull', False), ('combination__isnull', False), _connector='OR'), name='catalog_mapping_has_target')],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            ("product__isnull", False),
+                            ("combination__isnull", False),
+                            _connector="OR",
+                        ),
+                        name="catalog_mapping_has_target",
+                    )
+                ],
             },
         ),
         migrations.AddConstraint(
-            model_name='combination',
-            constraint=models.UniqueConstraint(fields=('product', 'icg_size', 'icg_color'), name='catalog_unique_product_combination'),
+            model_name="combination",
+            constraint=models.UniqueConstraint(
+                fields=("product", "icg_size", "icg_color"),
+                name="catalog_unique_product_combination",
+            ),
         ),
     ]

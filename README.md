@@ -82,6 +82,29 @@ Requirements:
 
 - `docs/architecture.md`: initial architecture, app boundaries and operational model
 
+## Local quality workflow
+
+Install the local hooks once after `pip install -e .[dev]`:
+
+```bash
+pre-commit install
+```
+
+Run the default quality pass manually:
+
+```bash
+pre-commit run --all-files
+ruff check .
+ruff format .
+python manage.py check --settings=config.settings.test
+pytest
+```
+
+Recommended rule:
+- use `pre-commit run --all-files` before opening a PR
+- use `ruff format .` when you want repo-wide formatting
+- use `ruff check .` when you want the raw lint output without hook wrapping
+
 ## First scope
 
 The first iteration will focus only on:
