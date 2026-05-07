@@ -1,0 +1,19 @@
+# Specification
+
+## Requirements
+
+### Requirement 1
+
+Describe the expected behavior.
+
+#### Scenario: happy path
+
+- **Given** ...
+- **When** ...
+- **Then** ...
+
+#### Scenario: failure path
+
+- **Given** ...
+- **When** ...
+- **Then** ...
