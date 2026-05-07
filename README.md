@@ -11,7 +11,7 @@ The main use cases are:
 - give shop staff a backoffice to inspect sync status and errors
 - allow manual reprocessing of a specific product when data issues are fixed in ICG
 
-## Planned stack
+## Stack
 
 - Django 5
 - PostgreSQL
@@ -19,6 +19,26 @@ The main use cases are:
 - Celery + Celery Beat
 - pyodbc for Microsoft SQL Server access
 - Prestashop Webservice API client
+
+## Bootstrap
+
+1. Create a virtual environment.
+2. Install the project in editable mode with dev dependencies.
+3. Copy `.env.example` to `.env` and adjust credentials.
+4. Run migrations.
+5. Create an admin user.
+
+Example:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+cp .env.example .env
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
 
 ## Documentation
 
@@ -33,3 +53,16 @@ The first iteration will focus only on:
 - operational backoffice in Django admin
 
 Orders from Prestashop to ICG are intentionally out of scope for now.
+
+## Current structure
+
+```text
+config/          Django project, settings split, Celery wiring
+apps/core/       Shared base models and common building blocks
+apps/icg/        ICG access layer placeholders
+apps/catalog/    Catalog and Prestashop mapping models
+apps/sync/       Synchronization cursors, jobs and Celery tasks
+apps/prestashop/ Prestashop client placeholders
+apps/operations/ Django admin configuration for operations
+tests/           Repository smoke tests
+```
