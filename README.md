@@ -1,5 +1,8 @@
 # icg-prestashop-sync
 
+[![Quality](https://github.com/oriolpiera/icg-prestashop-sync/actions/workflows/quality.yml/badge.svg)](https://github.com/oriolpiera/icg-prestashop-sync/actions/workflows/quality.yml)
+[![codecov](https://codecov.io/gh/oriolpiera/icg-prestashop-sync/graph/badge.svg)](https://codecov.io/gh/oriolpiera/icg-prestashop-sync)
+
 ICG Manager -> Prestashop catalog synchronization with a Django admin for operations.
 
 ## Goal
