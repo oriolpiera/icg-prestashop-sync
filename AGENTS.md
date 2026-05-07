@@ -80,6 +80,7 @@ Run these before asking for review:
 pre-commit run --all-files
 python -m pytest
 python -m pytest --cov --cov-report=term-missing --cov-report=xml
+.venv/bin/mypy
 ruff check .
 ruff format .
 python manage.py check --settings=config.settings.test
@@ -99,6 +100,7 @@ pre-commit install
 - Prefer small, behavior-oriented tests over broad fragile integration tests.
 - For bug fixes, add or update a regression test when the scenario can be reproduced.
 - Coverage baseline is informative for now; there is no enforced minimum threshold yet.
+- Typing baseline is intentionally narrow for now: service seams plus configuration modules.
 - Do not skip quality checks just because the change is documentation-heavy; at minimum, verify the changed docs still match the repo.
 
 ## AI-agent instructions
