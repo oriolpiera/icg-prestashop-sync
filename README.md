@@ -23,22 +23,60 @@ The main use cases are:
 ## Bootstrap
 
 1. Create a virtual environment.
-2. Install the project in editable mode with dev dependencies.
-3. Copy `.env.example` to `.env` and adjust credentials.
-4. Run migrations.
-5. Create an admin user.
+2. Start PostgreSQL and Redis.
+3. Install the project in editable mode with dev dependencies.
+4. Copy `.env.example` to `.env` and adjust credentials.
+5. Run migrations.
+6. Create an admin user.
 
 Example:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+docker-compose up -d
 pip install -e .[dev]
 cp .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
+
+The project loads environment variables from `.env` automatically.
+
+Optional worker processes:
+
+```bash
+celery -A config worker -l info
+celery -A config beat -l info
+```
+
+## Tmux launcher
+
+If you use `tmux`, the repository includes `bin/dev-tmux` to open the whole development setup in one session.
+
+It creates these windows:
+- `services`: `docker-compose up`
+- `web`: `migrate` and `runserver`
+- `worker`: Celery worker
+- `beat`: Celery beat
+
+Usage:
+
+```bash
+bin/dev-tmux
+```
+
+Optional custom session name:
+
+```bash
+bin/dev-tmux my-session
+```
+
+Requirements:
+- `tmux` installed on the machine
+- `.venv` already created with `pip install -e .[dev]`
+- `.env` present in the repository root
 
 ## Documentation
 

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SESSION_NAME="${1:-icg-prestashop-sync}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PYTHON="$ROOT_DIR/.venv/bin/python"
+VENV_CELERY="$ROOT_DIR/.venv/bin/celery"
+
+if ! command -v tmux >/dev/null 2>&1; then
+  printf 'tmux is not installed. Install it first, for example: sudo apt install tmux\n' >&2
+  exit 1
+fi
+
+if ! command -v docker-compose >/dev/null 2>&1; then
+  printf 'docker-compose is not installed or not in PATH.\n' >&2
+  exit 1
+fi
+
+if [[ ! -x "$VENV_PYTHON" ]]; then
+  printf 'Missing virtualenv at %s\n' "$ROOT_DIR/.venv" >&2
+  printf 'Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e .[dev]\n' >&2
+  exit 1
+fi
+
+if [[ ! -f "$ROOT_DIR/.env" ]]; then
+  printf 'Missing .env file. Run: cp .env.example .env\n' >&2
+  exit 1
+fi
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  printf 'Session %s already exists. Attaching...\n' "$SESSION_NAME"
+  exec tmux attach -t "$SESSION_NAME"
+fi
+
+tmux new-session -d -s "$SESSION_NAME" -n services -c "$ROOT_DIR"
+tmux send-keys -t "$SESSION_NAME:services" 'docker-compose up' C-m
+
+tmux new-window -t "$SESSION_NAME" -n web -c "$ROOT_DIR"
+tmux send-keys -t "$SESSION_NAME:web" "$VENV_PYTHON manage.py migrate" C-m
+tmux send-keys -t "$SESSION_NAME:web" "$VENV_PYTHON manage.py runserver" C-m
+
+tmux new-window -t "$SESSION_NAME" -n worker -c "$ROOT_DIR"
+tmux send-keys -t "$SESSION_NAME:worker" "$VENV_CELERY -A config worker -l info" C-m
+
+tmux new-window -t "$SESSION_NAME" -n beat -c "$ROOT_DIR"
+tmux send-keys -t "$SESSION_NAME:beat" "$VENV_CELERY -A config beat -l info" C-m
+
+tmux select-window -t "$SESSION_NAME:web"
+exec tmux attach -t "$SESSION_NAME"
