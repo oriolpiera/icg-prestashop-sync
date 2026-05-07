@@ -78,7 +78,8 @@ Run these before asking for review:
 
 ```bash
 pre-commit run --all-files
-pytest
+python -m pytest
+python -m pytest --cov --cov-report=term-missing --cov-report=xml
 ruff check .
 ruff format .
 python manage.py check --settings=config.settings.test
@@ -97,6 +98,7 @@ pre-commit install
 - Put automated coverage in `tests/`.
 - Prefer small, behavior-oriented tests over broad fragile integration tests.
 - For bug fixes, add or update a regression test when the scenario can be reproduced.
+- Coverage baseline is informative for now; there is no enforced minimum threshold yet.
 - Do not skip quality checks just because the change is documentation-heavy; at minimum, verify the changed docs still match the repo.
 
 ## AI-agent instructions
