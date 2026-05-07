@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "pre-commit>=4.0,<5",
   "pytest>=8.3,<9",
   "pytest-django>=4.9,<5",
   "ruff>=0.6,<0.7",
