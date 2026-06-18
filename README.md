@@ -37,7 +37,7 @@ Example:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-docker-compose up -d
+docker compose up -d
 pip install -e .[dev]
 cp .env.example .env
 python manage.py migrate
@@ -59,7 +59,7 @@ celery -A config beat -l info
 If you use `tmux`, the repository includes `bin/dev-tmux` to open the whole development setup in one session.
 
 It creates these windows:
-- `services`: `docker-compose up`
+- `services`: `docker compose up`
 - `web`: `migrate` and `runserver`
 - `worker`: Celery worker
 - `beat`: Celery beat
