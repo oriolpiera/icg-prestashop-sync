@@ -57,14 +57,13 @@ class ICGCatalogReader:
             db_cursor = conn.cursor()
             if cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado > ? "
+                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
                     "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_articles "
-                    "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC"
+                    "SELECT * FROM view_imp_articles ORDER BY Fecha_Modificado ASC, CODARTICULO ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
@@ -77,13 +76,13 @@ class ICGCatalogReader:
             db_cursor = conn.cursor()
             if cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado > ? "
+                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
                     "ORDER BY Fecha_modificado ASC, Codarticulo ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_preus " "ORDER BY Fecha_modificado ASC, Codarticulo ASC"
+                    "SELECT * FROM view_imp_preus ORDER BY Fecha_modificado ASC, Codarticulo ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
@@ -96,14 +95,13 @@ class ICGCatalogReader:
             db_cursor = conn.cursor()
             if cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado > ? "
+                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
                     "ORDER BY Fecha_Modificado ASC, Codarticulo ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_stocks "
-                    "ORDER BY Fecha_Modificado ASC, Codarticulo ASC"
+                    "SELECT * FROM view_imp_stocks ORDER BY Fecha_Modificado ASC, Codarticulo ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False

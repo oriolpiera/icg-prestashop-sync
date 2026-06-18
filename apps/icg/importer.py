@@ -50,7 +50,7 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 defaults={"name": manufacturer_name or manufacturer_code},
             )
 
-        product, created = Product.objects.update_or_create(
+        product, created = Product.objects.get_or_create(
             icg_id=icg_id,
             defaults={
                 "reference": reference,
@@ -82,7 +82,7 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 product.sync_required = True
                 product.save()
 
-        combination, comb_created = Combination.objects.update_or_create(
+        combination, comb_created = Combination.objects.get_or_create(
             product=product,
             icg_size=icg_size,
             icg_color=icg_color,
@@ -104,17 +104,17 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 combination.sync_required = True
                 combination.save()
 
-    SyncJob.objects.create(
-        job_type=SyncJobType.IMPORT_PRODUCTS,
-        entity_type="combination",
-        entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-        payload={
-            "icg_id": icg_id,
-            "reference": reference,
-            "product_id": product.pk,
-            "combination_id": combination.pk,
-        },
-    )
+        SyncJob.objects.create(
+            job_type=SyncJobType.IMPORT_PRODUCTS,
+            entity_type="combination",
+            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+            payload={
+                "icg_id": icg_id,
+                "reference": reference,
+                "product_id": product.pk,
+                "combination_id": combination.pk,
+            },
+        )
 
     return f"{icg_id}/{icg_size}/{icg_color}", modified_at
 
@@ -149,7 +149,7 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
             )
             return None, modified_at
 
-        price, created = Price.objects.update_or_create(
+        price, created = Price.objects.get_or_create(
             combination=combination,
             defaults={
                 "amount_ex_vat": amount_ex_vat,
@@ -169,16 +169,16 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
                 price.sync_required = True
                 price.save()
 
-    SyncJob.objects.create(
-        job_type=SyncJobType.IMPORT_PRICES,
-        entity_type="price",
-        entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-        payload={
-            "icg_id": icg_id,
-            "combination_id": combination.pk,
-            "amount_ex_vat": str(amount_ex_vat),
-        },
-    )
+        SyncJob.objects.create(
+            job_type=SyncJobType.IMPORT_PRICES,
+            entity_type="price",
+            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+            payload={
+                "icg_id": icg_id,
+                "combination_id": combination.pk,
+                "amount_ex_vat": str(amount_ex_vat),
+            },
+        )
 
     return f"{icg_id}/{icg_size}/{icg_color}", modified_at
 
@@ -217,7 +217,7 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
             )
             return None, modified_at
 
-        stock, created = Stock.objects.update_or_create(
+        stock, created = Stock.objects.get_or_create(
             combination=combination,
             defaults={
                 "warehouse_code": warehouse_code,
@@ -237,16 +237,16 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
                 stock.sync_required = True
                 stock.save()
 
-    SyncJob.objects.create(
-        job_type=SyncJobType.IMPORT_STOCK,
-        entity_type="stock",
-        entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-        payload={
-            "icg_id": icg_id,
-            "combination_id": combination.pk,
-            "quantity": quantity,
-        },
-    )
+        SyncJob.objects.create(
+            job_type=SyncJobType.IMPORT_STOCK,
+            entity_type="stock",
+            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+            payload={
+                "icg_id": icg_id,
+                "combination_id": combination.pk,
+                "quantity": quantity,
+            },
+        )
 
     return f"{icg_id}/{icg_size}/{icg_color}", modified_at
 
