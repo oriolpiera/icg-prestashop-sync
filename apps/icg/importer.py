@@ -191,7 +191,8 @@ def _persist_stock_row(row) -> tuple[str | None, datetime, str | None]:
     icg_size = _escape(str(row[1]))
     icg_color = _escape(str(row[2]))
     warehouse_code = str(row[3]).strip() if row[3] else ""
-    quantity = int(row[7]) if row[7] else 0
+    raw_quantity = int(row[7]) if row[7] else 0
+    quantity = raw_quantity if raw_quantity > 0 else 0
 
     if not icg_id:
         logger.warning("Skipping stock row with missing icg_id")
@@ -223,14 +224,14 @@ def _persist_stock_row(row) -> tuple[str | None, datetime, str | None]:
             combination=combination,
             defaults={
                 "warehouse_code": warehouse_code,
-                "quantity": quantity if quantity > 0 else 0,
+                "quantity": quantity,
                 "sync_required": True,
             },
         )
         changed = created
         if not created:
             if stock.quantity != quantity:
-                stock.quantity = quantity if quantity > 0 else 0
+                stock.quantity = quantity
                 changed = True
             if stock.warehouse_code != warehouse_code:
                 stock.warehouse_code = warehouse_code
