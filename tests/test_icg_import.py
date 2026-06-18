@@ -248,7 +248,7 @@ class TestProductImport:
             assert c.sync_required is True
 
     def test_multiple_batches_process_all_rows(self):
-        def fetch_side_effect(cursor_at=None, limit=5000):
+        def fetch_side_effect(cursor_at=None, last_source_key="", limit=5000):
             if cursor_at is None:
                 return (PRODUCT_ROWS[:2], True)
             return (PRODUCT_ROWS[2:], False)

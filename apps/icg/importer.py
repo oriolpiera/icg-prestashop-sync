@@ -22,7 +22,7 @@ def _escape(value: str) -> str:
     return value.replace("{", "").replace("}", "").replace("'", "")
 
 
-def _persist_product_row(row) -> tuple[str | None, datetime]:
+def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
     icg_id = int(row[0])
     reference = str(row[1]).strip()
     modified_at = _make_aware(row[11])
@@ -31,7 +31,7 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
         logger.warning(
             "Skipping product row with missing icg_id=%s or reference=%s", icg_id, reference
         )
-        return None, modified_at
+        return None, modified_at, None
 
     icg_size = _escape(str(row[2]))
     icg_color = _escape(str(row[3]))
@@ -61,24 +61,24 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 "sync_required": True,
             },
         )
+        prod_changed = created
         if not created:
-            changed = False
             if product.reference != reference:
                 product.reference = reference
-                changed = True
+                prod_changed = True
             if product.name != name:
                 product.name = name
-                changed = True
+                prod_changed = True
             if product.manufacturer != manufacturer:
                 product.manufacturer = manufacturer
-                changed = True
+                prod_changed = True
             if product.visible_web != visible_web:
                 product.visible_web = visible_web
-                changed = True
+                prod_changed = True
             if product.discontinued != discontinued:
                 product.discontinued = discontinued
-                changed = True
-            if changed:
+                prod_changed = True
+            if prod_changed:
                 product.sync_required = True
                 product.save()
 
@@ -92,8 +92,8 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 "sync_required": True,
             },
         )
+        comb_changed = comb_created
         if not comb_created:
-            comb_changed = False
             if combination.ean13 != ean13:
                 combination.ean13 = ean13
                 comb_changed = True
@@ -104,22 +104,23 @@ def _persist_product_row(row) -> tuple[str | None, datetime]:
                 combination.sync_required = True
                 combination.save()
 
-        SyncJob.objects.create(
-            job_type=SyncJobType.IMPORT_PRODUCTS,
-            entity_type="combination",
-            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-            payload={
-                "icg_id": icg_id,
-                "reference": reference,
-                "product_id": product.pk,
-                "combination_id": combination.pk,
-            },
-        )
+        if prod_changed or comb_changed:
+            SyncJob.objects.create(
+                job_type=SyncJobType.IMPORT_PRODUCTS,
+                entity_type="combination",
+                entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+                payload={
+                    "icg_id": icg_id,
+                    "reference": reference,
+                    "product_id": product.pk,
+                    "combination_id": combination.pk,
+                },
+            )
 
-    return f"{icg_id}/{icg_size}/{icg_color}", modified_at
+    return f"{icg_id}/{icg_size}/{icg_color}", modified_at, str(icg_id)
 
 
-def _persist_price_row(row) -> tuple[str | None, datetime]:
+def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
     modified_at = _make_aware(row[12])
     icg_id = int(row[1])
     icg_size = _escape(str(row[2]))
@@ -129,13 +130,13 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
 
     if not icg_id:
         logger.warning("Skipping price row with missing icg_id")
-        return None, modified_at
+        return None, modified_at, None
 
     with transaction.atomic():
         product = Product.objects.filter(icg_id=icg_id).first()
         if not product:
             logger.warning("Product icg_id=%s not found for price import, skipping", icg_id)
-            return None, modified_at
+            return None, modified_at, None
 
         combination = Combination.objects.filter(
             product=product, icg_size=icg_size, icg_color=icg_color
@@ -147,7 +148,7 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
                 icg_size,
                 icg_color,
             )
-            return None, modified_at
+            return None, modified_at, None
 
         price, created = Price.objects.get_or_create(
             combination=combination,
@@ -157,8 +158,8 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
                 "sync_required": True,
             },
         )
+        changed = created
         if not created:
-            changed = False
             if price.amount_ex_vat != amount_ex_vat:
                 price.amount_ex_vat = amount_ex_vat
                 changed = True
@@ -169,21 +170,22 @@ def _persist_price_row(row) -> tuple[str | None, datetime]:
                 price.sync_required = True
                 price.save()
 
-        SyncJob.objects.create(
-            job_type=SyncJobType.IMPORT_PRICES,
-            entity_type="price",
-            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-            payload={
-                "icg_id": icg_id,
-                "combination_id": combination.pk,
-                "amount_ex_vat": str(amount_ex_vat),
-            },
-        )
+        if changed:
+            SyncJob.objects.create(
+                job_type=SyncJobType.IMPORT_PRICES,
+                entity_type="price",
+                entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+                payload={
+                    "icg_id": icg_id,
+                    "combination_id": combination.pk,
+                    "amount_ex_vat": str(amount_ex_vat),
+                },
+            )
 
-    return f"{icg_id}/{icg_size}/{icg_color}", modified_at
+    return f"{icg_id}/{icg_size}/{icg_color}", modified_at, str(icg_id)
 
 
-def _persist_stock_row(row) -> tuple[str | None, datetime]:
+def _persist_stock_row(row) -> tuple[str | None, datetime, str | None]:
     modified_at = _make_aware(row[8])
     icg_id = int(row[0])
     icg_size = _escape(str(row[1]))
@@ -193,17 +195,17 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
 
     if not icg_id:
         logger.warning("Skipping stock row with missing icg_id")
-        return None, modified_at
+        return None, modified_at, None
 
     if warehouse_code != "01":
         logger.debug("Skipping stock for warehouse %s (icg_id=%s)", warehouse_code, icg_id)
-        return None, modified_at
+        return None, modified_at, None
 
     with transaction.atomic():
         product = Product.objects.filter(icg_id=icg_id).first()
         if not product:
             logger.warning("Product icg_id=%s not found for stock import, skipping", icg_id)
-            return None, modified_at
+            return None, modified_at, None
 
         combination = Combination.objects.filter(
             product=product, icg_size=icg_size, icg_color=icg_color
@@ -215,7 +217,7 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
                 icg_size,
                 icg_color,
             )
-            return None, modified_at
+            return None, modified_at, None
 
         stock, created = Stock.objects.get_or_create(
             combination=combination,
@@ -225,8 +227,8 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
                 "sync_required": True,
             },
         )
+        changed = created
         if not created:
-            changed = False
             if stock.quantity != quantity:
                 stock.quantity = quantity if quantity > 0 else 0
                 changed = True
@@ -237,18 +239,19 @@ def _persist_stock_row(row) -> tuple[str | None, datetime]:
                 stock.sync_required = True
                 stock.save()
 
-        SyncJob.objects.create(
-            job_type=SyncJobType.IMPORT_STOCK,
-            entity_type="stock",
-            entity_key=f"{icg_id}/{icg_size}/{icg_color}",
-            payload={
-                "icg_id": icg_id,
-                "combination_id": combination.pk,
-                "quantity": quantity,
-            },
-        )
+        if changed:
+            SyncJob.objects.create(
+                job_type=SyncJobType.IMPORT_STOCK,
+                entity_type="stock",
+                entity_key=f"{icg_id}/{icg_size}/{icg_color}",
+                payload={
+                    "icg_id": icg_id,
+                    "combination_id": combination.pk,
+                    "quantity": quantity,
+                },
+            )
 
-    return f"{icg_id}/{icg_size}/{icg_color}", modified_at
+    return f"{icg_id}/{icg_size}/{icg_color}", modified_at, str(icg_id)
 
 
 def _import_source(
@@ -259,6 +262,7 @@ def _import_source(
 ) -> dict:
     cursor = get_or_create_cursor(source)
     cursor_at = cursor.last_modified_at
+    last_source_key = cursor.last_source_key or ""
 
     processed = 0
     skipped = 0
@@ -266,7 +270,7 @@ def _import_source(
 
     while True:
         try:
-            rows, has_more = fetch_fn(cursor_at, limit=max_rows)
+            rows, has_more = fetch_fn(cursor_at, last_source_key, limit=max_rows)
         except Exception:
             logger.exception(
                 "Failed to fetch %s rows from ICG at cursor %s", source.value, cursor_at
@@ -281,8 +285,10 @@ def _import_source(
 
         for row in rows:
             try:
-                result, row_date = persist_row_fn(row)
+                result, row_date, source_key = persist_row_fn(row)
                 last_row_date = row_date
+                if source_key is not None:
+                    last_source_key = source_key
                 if result is not None:
                     processed += 1
                 else:
@@ -296,9 +302,18 @@ def _import_source(
                 all_hard = False
                 break
 
-        if last_row_date is not None and last_row_date != cursor_at and all_hard:
-            advance_cursor(source, last_row_date)
-            cursor_at = last_row_date
+        if all_hard and last_row_date is not None:
+            if last_row_date != cursor_at:
+                advance_cursor(source, last_row_date, last_source_key)
+                cursor_at = last_row_date
+            elif last_source_key:
+                advance_cursor(source, cursor_at, last_source_key)
+            else:
+                logger.info(
+                    "Cursor stalled at %s (no timestamp or source key progress), breaking",
+                    cursor_at,
+                )
+                break
 
         if not has_more or not all_hard:
             break
@@ -323,8 +338,8 @@ def import_products() -> dict:
     logger.info("Starting ICG product import")
     reader = ICGCatalogReader()
 
-    def fetch_fn(cursor_at, limit=5000):
-        return reader.fetch_products_after(cursor_at, limit=limit)
+    def fetch_fn(cursor_at, last_source_key="", limit=5000):
+        return reader.fetch_products_after(cursor_at, last_source_key=last_source_key, limit=limit)
 
     return _import_source(SyncCursorSource.PRODUCTS, fetch_fn, _persist_product_row)
 
@@ -333,8 +348,8 @@ def import_prices() -> dict:
     logger.info("Starting ICG price import")
     reader = ICGCatalogReader()
 
-    def fetch_fn(cursor_at, limit=5000):
-        return reader.fetch_prices_after(cursor_at, limit=limit)
+    def fetch_fn(cursor_at, last_source_key="", limit=5000):
+        return reader.fetch_prices_after(cursor_at, last_source_key=last_source_key, limit=limit)
 
     return _import_source(SyncCursorSource.PRICES, fetch_fn, _persist_price_row)
 
@@ -343,7 +358,7 @@ def import_stock() -> dict:
     logger.info("Starting ICG stock import")
     reader = ICGCatalogReader()
 
-    def fetch_fn(cursor_at, limit=5000):
-        return reader.fetch_stock_after(cursor_at, limit=limit)
+    def fetch_fn(cursor_at, last_source_key="", limit=5000):
+        return reader.fetch_stock_after(cursor_at, last_source_key=last_source_key, limit=limit)
 
     return _import_source(SyncCursorSource.STOCK, fetch_fn, _persist_stock_row)

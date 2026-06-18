@@ -51,11 +51,19 @@ class ICGCatalogReader:
         return pyodbc.connect(conn_str)
 
     def fetch_products_after(
-        self, cursor_at: datetime | None = None, limit: int = 0
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            if cursor_at is not None:
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_articles "
+                    "WHERE (Fecha_Modificado > ?) "
+                    "OR (Fecha_Modificado = ? AND CAST(CODARTICULO AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
                     "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC",
@@ -70,11 +78,19 @@ class ICGCatalogReader:
             return rows, has_more
 
     def fetch_prices_after(
-        self, cursor_at: datetime | None = None, limit: int = 0
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            if cursor_at is not None:
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_preus "
+                    "WHERE (Fecha_modificado > ?) "
+                    "OR (Fecha_modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_modificado ASC, Codarticulo ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
                     "ORDER BY Fecha_modificado ASC, Codarticulo ASC",
@@ -89,11 +105,19 @@ class ICGCatalogReader:
             return rows, has_more
 
     def fetch_stock_after(
-        self, cursor_at: datetime | None = None, limit: int = 0
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            if cursor_at is not None:
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_stocks "
+                    "WHERE (Fecha_Modificado > ?) "
+                    "OR (Fecha_Modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_Modificado ASC, Codarticulo ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
                     "ORDER BY Fecha_Modificado ASC, Codarticulo ASC",
