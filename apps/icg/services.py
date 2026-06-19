@@ -60,18 +60,19 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_articles "
                     "WHERE (Fecha_Modificado > ?) "
                     "OR (Fecha_Modificado = ? AND CAST(CODARTICULO AS INT) > CAST(? AS INT)) "
-                    "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC",
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
                     (cursor_at, cursor_at, last_source_key),
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
-                    "ORDER BY Fecha_Modificado ASC, CODARTICULO ASC",
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_articles ORDER BY Fecha_Modificado ASC, CODARTICULO ASC"
+                    "SELECT * FROM view_imp_articles "
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
@@ -87,18 +88,19 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_preus "
                     "WHERE (Fecha_modificado > ?) "
                     "OR (Fecha_modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
-                    "ORDER BY Fecha_modificado ASC, Codarticulo ASC",
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
                     (cursor_at, cursor_at, last_source_key),
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
-                    "ORDER BY Fecha_modificado ASC, Codarticulo ASC",
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_preus ORDER BY Fecha_modificado ASC, Codarticulo ASC"
+                    "SELECT * FROM view_imp_preus "
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
@@ -114,18 +116,19 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_stocks "
                     "WHERE (Fecha_Modificado > ?) "
                     "OR (Fecha_Modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
-                    "ORDER BY Fecha_Modificado ASC, Codarticulo ASC",
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
                     (cursor_at, cursor_at, last_source_key),
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
-                    "ORDER BY Fecha_Modificado ASC, Codarticulo ASC",
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
             else:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_stocks ORDER BY Fecha_Modificado ASC, Codarticulo ASC"
+                    "SELECT * FROM view_imp_stocks "
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC"
                 )
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
