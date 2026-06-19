@@ -12,8 +12,8 @@ if ! command -v tmux >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v docker-compose >/dev/null 2>&1; then
-  printf 'docker-compose is not installed or not in PATH.\n' >&2
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+  printf 'Docker Compose v2 is not available. Install Docker first.\n' >&2
   exit 1
 fi
 
@@ -34,9 +34,11 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$SESSION_NAME" -n services -c "$ROOT_DIR"
-tmux send-keys -t "$SESSION_NAME:services" 'docker-compose up' C-m
+tmux send-keys -t "$SESSION_NAME:services" 'docker compose up -d' C-m
 
 tmux new-window -t "$SESSION_NAME" -n web -c "$ROOT_DIR"
+tmux send-keys -t "$SESSION_NAME:web" 'echo "Waiting for postgres…"' C-m
+tmux send-keys -t "$SESSION_NAME:web" 'until docker compose exec -T postgres pg_isready -U postgres -d icg_prestashop_sync >/dev/null 2>&1; do sleep 1; done' C-m
 tmux send-keys -t "$SESSION_NAME:web" "$VENV_PYTHON manage.py migrate" C-m
 tmux send-keys -t "$SESSION_NAME:web" "$VENV_PYTHON manage.py runserver" C-m
 

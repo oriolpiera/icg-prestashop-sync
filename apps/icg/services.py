@@ -1,7 +1,11 @@
+import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, cast
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ICGSettings(Protocol):
@@ -32,11 +36,100 @@ class ICGCatalogReader:
             driver=typed_settings.ICG_MSSQL_DRIVER,
         )
 
-    def fetch_products(self) -> list[dict[str, object]]:
-        raise NotImplementedError("ICG product import is not implemented yet.")
+    def _connect(self):
+        import pyodbc
 
-    def fetch_prices(self) -> list[dict[str, object]]:
-        raise NotImplementedError("ICG price import is not implemented yet.")
+        cs = self.connection_settings()
+        conn_str = (
+            f"DRIVER={{{cs.driver}}};"
+            f"SERVER={cs.server};"
+            f"DATABASE={cs.database};"
+            f"UID={cs.user};"
+            f"PWD={cs.password};"
+        )
+        logger.info("Connecting to ICG MSSQL on %s/%s", cs.server, cs.database)
+        return pyodbc.connect(conn_str)
 
-    def fetch_stock(self) -> list[dict[str, object]]:
-        raise NotImplementedError("ICG stock import is not implemented yet.")
+    def fetch_products_after(
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
+    ) -> tuple[list, bool]:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_articles "
+                    "WHERE (Fecha_Modificado > ?) "
+                    "OR (Fecha_Modificado = ? AND CAST(CODARTICULO AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+                    cursor_at,
+                )
+            else:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_articles "
+                    "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC"
+                )
+            rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            has_more = len(rows) == limit if limit else False
+            return rows, has_more
+
+    def fetch_prices_after(
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
+    ) -> tuple[list, bool]:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_preus "
+                    "WHERE (Fecha_modificado > ?) "
+                    "OR (Fecha_modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
+                    cursor_at,
+                )
+            else:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_preus "
+                    "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC"
+                )
+            rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            has_more = len(rows) == limit if limit else False
+            return rows, has_more
+
+    def fetch_stock_after(
+        self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
+    ) -> tuple[list, bool]:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            if cursor_at is not None and last_source_key:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_stocks "
+                    "WHERE (Fecha_Modificado > ?) "
+                    "OR (Fecha_Modificado = ? AND CAST(Codarticulo AS INT) > CAST(? AS INT)) "
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
+                    (cursor_at, cursor_at, last_source_key),
+                )
+            elif cursor_at is not None:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
+                    cursor_at,
+                )
+            else:
+                db_cursor.execute(
+                    "SELECT * FROM view_imp_stocks "
+                    "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC"
+                )
+            rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            has_more = len(rows) == limit if limit else False
+            return rows, has_more

@@ -45,7 +45,7 @@ warn_redundant_casts = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["celery", "django.conf"]
+module = ["celery", "django.conf", "pyodbc"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

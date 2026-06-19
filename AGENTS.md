@@ -46,7 +46,7 @@ Do not blur these responsibilities just to move faster.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-docker-compose up -d
+docker compose up -d
 pip install -e .[dev]
 cp .env.example .env
 python manage.py migrate
