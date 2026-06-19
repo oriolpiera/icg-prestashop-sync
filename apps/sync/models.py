@@ -14,6 +14,7 @@ class SyncJobType(models.TextChoices):
     IMPORT_PRODUCTS = "import_products", "Import products"
     IMPORT_PRICES = "import_prices", "Import prices"
     IMPORT_STOCK = "import_stock", "Import stock"
+    EXPORT_MANUFACTURER = "export_manufacturer", "Export manufacturer"
     EXPORT_PRODUCT = "export_product", "Export product"
     EXPORT_PRICE = "export_price", "Export price"
     EXPORT_STOCK = "export_stock", "Export stock"

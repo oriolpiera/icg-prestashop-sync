@@ -16,8 +16,17 @@ def retry_jobs(modeladmin, request, queryset):
 
 @admin.register(Manufacturer)
 class ManufacturerAdmin(admin.ModelAdmin):
-    list_display = ("name", "icg_code", "created_at", "updated_at")
+    list_display = (
+        "name",
+        "icg_code",
+        "prestashop_id",
+        "sync_required",
+        "last_synced_at",
+        "updated_at",
+    )
+    list_filter = ("sync_required",)
     search_fields = ("name", "icg_code")
+    actions = (mark_for_resync,)
 
 
 @admin.register(Product)

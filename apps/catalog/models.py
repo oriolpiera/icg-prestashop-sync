@@ -3,9 +3,10 @@ from django.db import models
 from apps.core.models import SyncTrackedModel, TimeStampedModel
 
 
-class Manufacturer(TimeStampedModel):
+class Manufacturer(SyncTrackedModel):
     icg_code = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255)
+    prestashop_id = models.PositiveIntegerField(blank=True, null=True, unique=True)
 
     class Meta:
         ordering = ["name"]

@@ -13,7 +13,7 @@ description = "ICG Manager to Prestashop synchronization service"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "Django>=5.1,<5.2",
+  "Django>=5.2,<6",
   "celery>=5.4,<6",
   "redis>=5.0,<6",
   "psycopg[binary]>=3.2,<4",
