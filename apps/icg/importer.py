@@ -45,10 +45,15 @@ def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
     with transaction.atomic():
         manufacturer = None
         if manufacturer_code:
-            manufacturer, _ = Manufacturer.objects.get_or_create(
+            manufacturer_name = manufacturer_name or manufacturer_code
+            manufacturer, manufacturer_created = Manufacturer.objects.get_or_create(
                 icg_code=manufacturer_code,
-                defaults={"name": manufacturer_name or manufacturer_code},
+                defaults={"name": manufacturer_name},
             )
+            if not manufacturer_created and manufacturer.name != manufacturer_name:
+                manufacturer.name = manufacturer_name
+                manufacturer.sync_required = True
+                manufacturer.save(update_fields=["name", "sync_required", "updated_at"])
 
         product, created = Product.objects.get_or_create(
             icg_id=icg_id,

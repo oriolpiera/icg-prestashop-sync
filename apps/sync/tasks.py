@@ -1,10 +1,15 @@
 import logging
+from datetime import UTC
 
 from celery import shared_task
+from django.utils import timezone
 
+from apps.catalog.models import Manufacturer
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
+from apps.prestashop.services import export_manufacturer, format_sync_error
+from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
 
 logger = logging.getLogger(__name__)
 
@@ -43,3 +48,42 @@ def import_stock() -> dict:
     except Exception:
         logger.exception("import_stock failed")
         return {"status": "error", "detail": "See worker logs for details."}
+
+
+@shared_task
+def export_manufacturers() -> dict:
+    logger.info("Celery task: export_manufacturers")
+    processed = 0
+    failed = 0
+
+    for manufacturer in Manufacturer.objects.filter(sync_required=True).order_by("pk"):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_MANUFACTURER,
+            entity_type="manufacturer",
+            entity_key=manufacturer.icg_code,
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={"manufacturer_id": manufacturer.pk, "icg_code": manufacturer.icg_code},
+        )
+
+        try:
+            result = export_manufacturer(manufacturer.pk)
+        except Exception as exc:
+            failed += 1
+            error = format_sync_error(exc)
+            job.status = SyncJobStatus.FAILED
+            job.last_error = error
+        else:
+            processed += 1
+            job.status = SyncJobStatus.SUCCEEDED
+            job.payload = {**job.payload, **result}
+
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "payload", "last_error", "finished_at", "updated_at"])
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "failed": failed,
+    }
