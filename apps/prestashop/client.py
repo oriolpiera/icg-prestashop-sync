@@ -4,6 +4,7 @@ from xml.etree import ElementTree
 
 import requests
 from django.conf import settings
+from django.utils.text import slugify
 from requests import Response, Session
 from requests.auth import HTTPBasicAuth
 
@@ -11,12 +12,28 @@ from requests.auth import HTTPBasicAuth
 class PrestashopSettings(Protocol):
     PRESTASHOP_BASE_URL: str
     PRESTASHOP_API_KEY: str
+    PRESTASHOP_DEFAULT_LANGUAGE_ID: int
+    PRESTASHOP_DEFAULT_CATEGORY_ID: int
+
+
+class ProductManufacturer(Protocol):
+    prestashop_id: int | None
+
+
+class ProductPayload(Protocol):
+    reference: str
+    name: str
+    visible_web: bool
+    discontinued: bool
+    manufacturer: ProductManufacturer | None
 
 
 @dataclass(slots=True)
 class PrestashopCredentials:
     base_url: str
     api_key: str
+    default_language_id: int
+    default_category_id: int
 
 
 class PrestashopError(Exception):
@@ -35,6 +52,8 @@ class PrestashopClient:
         return PrestashopCredentials(
             base_url=typed_settings.PRESTASHOP_BASE_URL,
             api_key=typed_settings.PRESTASHOP_API_KEY,
+            default_language_id=typed_settings.PRESTASHOP_DEFAULT_LANGUAGE_ID,
+            default_category_id=typed_settings.PRESTASHOP_DEFAULT_CATEGORY_ID,
         )
 
     def _api_url(self, resource: str, resource_id: int | None = None) -> str:
@@ -120,6 +139,57 @@ class PrestashopClient:
         payload = ElementTree.tostring(root, encoding="unicode")
         self._request("PUT", "manufacturers", resource_id=manufacturer_id, data=payload)
 
+    def find_product_id_by_reference(self, reference: str) -> int | None:
+        response = self._request(
+            "GET",
+            "products",
+            params={"filter[reference]": f"[{reference}]", "limit": "1"},
+        )
+        root = self._parse_xml(response.text)
+        product = root.find("./products/product")
+        if product is None:
+            return None
+
+        product_id = product.attrib.get("id")
+        if not product_id:
+            product_id = product.findtext("id")
+        if not product_id:
+            raise PrestashopError("Prestashop product search response did not include an id.")
+        return int(product_id)
+
+    def get_product_xml(self, product_id: int) -> ElementTree.Element:
+        response = self._request("GET", "products", resource_id=product_id)
+        return self._parse_xml(response.text)
+
+    def get_blank_product_xml(self) -> ElementTree.Element:
+        response = self._request("GET", "products", params={"schema": "blank"})
+        return self._parse_xml(response.text)
+
+    def upsert_product(self, product: ProductPayload, *, prestashop_id: int | None = None) -> int:
+        if prestashop_id is None:
+            root = self.get_blank_product_xml()
+            self._populate_product_xml(root, product, is_create=True)
+            response = self._request(
+                "POST",
+                "products",
+                data=ElementTree.tostring(root, encoding="unicode"),
+            )
+            created_root = self._parse_xml(response.text)
+            product_id = created_root.findtext("./product/id")
+            if not product_id:
+                raise PrestashopError("Prestashop create product response did not include an id.")
+            return int(product_id)
+
+        root = self.get_product_xml(prestashop_id)
+        self._populate_product_xml(root, product, is_create=False)
+        self._request(
+            "PUT",
+            "products",
+            resource_id=prestashop_id,
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        return prestashop_id
+
     def _manufacturer_xml(self, name: str) -> str:
         root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
         manufacturer = ElementTree.SubElement(root, "manufacturer")
@@ -128,6 +198,88 @@ class PrestashopClient:
         active = ElementTree.SubElement(manufacturer, "active")
         active.text = "1"
         return ElementTree.tostring(root, encoding="unicode")
+
+    def _populate_product_xml(
+        self, root: ElementTree.Element, product: ProductPayload, *, is_create: bool
+    ) -> None:
+        product_node = root.find("./product")
+        if product_node is None:
+            raise PrestashopError("Prestashop product payload did not include a product node.")
+
+        active, visibility = self._product_status(product)
+        manufacturer_id = "0"
+        if product.manufacturer and product.manufacturer.prestashop_id is not None:
+            manufacturer_id = str(product.manufacturer.prestashop_id)
+
+        self._set_text(product_node, "id_manufacturer", manufacturer_id)
+        self._set_text(product_node, "reference", product.reference)
+        self._set_text(product_node, "price", product_node.findtext("price") or "0")
+        self._set_text(product_node, "state", "1")
+        self._set_text(product_node, "active", active)
+        self._set_text(product_node, "available_for_order", "0" if product.discontinued else "1")
+        self._set_text(product_node, "show_price", "1")
+        self._set_text(product_node, "visibility", visibility)
+        self._set_text(
+            product_node,
+            "minimal_quantity",
+            product_node.findtext("minimal_quantity") or "1",
+        )
+        self._set_multilang_text(product_node, "name", product.name)
+        self._set_multilang_text(product_node, "link_rewrite", self._slug(product))
+
+        if is_create:
+            self._set_text(
+                product_node,
+                "id_category_default",
+                product_node.findtext("id_category_default")
+                or str(self.credentials().default_category_id),
+            )
+            self._set_default_category_association(product_node)
+
+    def _set_default_category_association(self, product_node: ElementTree.Element) -> None:
+        associations = product_node.find("./associations")
+        if associations is None:
+            associations = ElementTree.SubElement(product_node, "associations")
+        categories = associations.find("./categories")
+        if categories is None:
+            categories = ElementTree.SubElement(associations, "categories")
+        category = categories.find("./category")
+        if category is None:
+            category = ElementTree.SubElement(categories, "category")
+        category_id = category.find("./id")
+        if category_id is None:
+            category_id = ElementTree.SubElement(category, "id")
+        category_id.text = str(self.credentials().default_category_id)
+
+    def _set_text(self, parent: ElementTree.Element, tag: str, value: str) -> None:
+        node = parent.find(f"./{tag}")
+        if node is None:
+            node = ElementTree.SubElement(parent, tag)
+        node.text = value
+
+    def _set_multilang_text(self, parent: ElementTree.Element, tag: str, value: str) -> None:
+        node = parent.find(f"./{tag}")
+        if node is None:
+            node = ElementTree.SubElement(parent, tag)
+        languages = node.findall("./language")
+        if not languages:
+            languages = [
+                ElementTree.SubElement(
+                    node, "language", id=str(self.credentials().default_language_id)
+                )
+            ]
+        for language in languages:
+            language.text = value
+
+    def _product_status(self, product: ProductPayload) -> tuple[str, str]:
+        if product.discontinued:
+            return "0", "none"
+        if product.visible_web:
+            return "1", "both"
+        return "1", "none"
+
+    def _slug(self, product: ProductPayload) -> str:
+        return slugify(product.name) or slugify(product.reference) or "product"
 
     def _parse_xml(self, payload: str) -> ElementTree.Element:
         try:
@@ -138,9 +290,6 @@ class PrestashopClient:
             if "}" in node.tag:
                 node.tag = node.tag.split("}", 1)[1]
         return root
-
-    def upsert_product(self, product: object) -> None:
-        raise NotImplementedError("Prestashop product sync is not implemented yet.")
 
     def upsert_price(self, price: object) -> None:
         raise NotImplementedError("Prestashop price sync is not implemented yet.")

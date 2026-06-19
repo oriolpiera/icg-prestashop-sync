@@ -3,7 +3,7 @@ from datetime import UTC
 
 from django.utils import timezone
 
-from apps.catalog.models import Manufacturer
+from apps.catalog.models import Manufacturer, PrestashopMapping, Product
 from apps.prestashop.client import PrestashopClient, PrestashopError
 
 
@@ -50,4 +50,41 @@ def export_manufacturer(
         manufacturer.sync_required = True
         manufacturer.last_sync_error = format_sync_error(exc)
         manufacturer.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
+
+
+def export_product(product_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+    product = Product.objects.select_related("manufacturer").get(pk=product_id)
+    mapping = PrestashopMapping.objects.filter(product=product).first()
+    client = client or PrestashopClient()
+
+    try:
+        if product.manufacturer and product.manufacturer.prestashop_id is None:
+            raise PrestashopError(
+                "Manufacturer "
+                f"{product.manufacturer.icg_code} must be exported before product sync."
+            )
+
+        prestashop_id = mapping.prestashop_product_id if mapping else None
+        if prestashop_id is None:
+            prestashop_id = client.find_product_id_by_reference(product.reference)
+
+        prestashop_id = client.upsert_product(product, prestashop_id=prestashop_id)
+
+        if mapping is None:
+            mapping = PrestashopMapping(product=product)
+        mapping.prestashop_product_id = prestashop_id
+        mapping.save()
+
+        product.sync_required = False
+        product.last_sync_error = ""
+        product.last_synced_at = timezone.now().astimezone(UTC)
+        product.save(
+            update_fields=["sync_required", "last_sync_error", "last_synced_at", "updated_at"]
+        )
+        return {"product_id": product.pk, "prestashop_id": prestashop_id}
+    except Exception as exc:
+        product.sync_required = True
+        product.last_sync_error = format_sync_error(exc)
+        product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise
