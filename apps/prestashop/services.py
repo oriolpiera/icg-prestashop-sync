@@ -10,7 +10,8 @@ from apps.prestashop.client import PrestashopClient, PrestashopError
 def format_sync_error(exc: Exception) -> str:
     payload = {"message": str(exc)}
     if isinstance(exc, PrestashopError):
-        payload["status_code"] = exc.status_code
+        if exc.status_code is not None:
+            payload["status_code"] = exc.status_code
         if exc.body:
             payload["body"] = exc.body
     return json.dumps(payload, sort_keys=True)

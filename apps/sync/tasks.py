@@ -72,8 +72,6 @@ def export_manufacturers() -> dict:
         except Exception as exc:
             failed += 1
             error = format_sync_error(exc)
-            manufacturer.last_sync_error = error
-            manufacturer.save(update_fields=["last_sync_error", "updated_at"])
             job.status = SyncJobStatus.FAILED
             job.last_error = error
         else:

@@ -4,8 +4,8 @@ from unittest.mock import Mock
 import pytest
 
 from apps.catalog.models import Manufacturer
-from apps.prestashop.client import PrestashopError
-from apps.prestashop.services import export_manufacturer
+from apps.prestashop.client import PrestashopClient, PrestashopError
+from apps.prestashop.services import export_manufacturer, format_sync_error
 from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
 from apps.sync.tasks import export_manufacturers
 
@@ -18,6 +18,11 @@ def _clean_db():
 
 @pytest.mark.django_db
 class TestManufacturerExport:
+    def test_format_sync_error_omits_null_status_code(self):
+        payload = json.loads(format_sync_error(PrestashopError("connection dropped")))
+
+        assert payload == {"message": "connection dropped"}
+
     def test_export_creates_and_maps_new_manufacturer(self):
         manufacturer = Manufacturer.objects.create(icg_code="14000", name="ARTECREATION")
         client = Mock()
@@ -109,6 +114,11 @@ class TestManufacturerExportTask:
         manufacturer = Manufacturer.objects.create(icg_code="999", name="Failing Brand")
 
         def fake_export(manufacturer_id: int):
+            manufacturer = Manufacturer.objects.get(pk=manufacturer_id)
+            manufacturer.last_sync_error = format_sync_error(
+                PrestashopError("boom", status_code=503)
+            )
+            manufacturer.save(update_fields=["last_sync_error", "updated_at"])
             raise PrestashopError("boom", status_code=503)
 
         monkeypatch.setattr("apps.sync.tasks.export_manufacturer", fake_export)
@@ -120,3 +130,26 @@ class TestManufacturerExportTask:
         assert result == {"status": "success", "processed": 0, "failed": 1}
         assert job.status == SyncJobStatus.FAILED
         assert json.loads(manufacturer.last_sync_error)["status_code"] == 503
+
+
+@pytest.mark.django_db
+class TestPrestashopClient:
+    def test_find_manufacturer_uses_exact_match_filter(self, settings):
+        response = Mock(
+            status_code=200,
+            text="<prestashop><manufacturers><manufacturer id='12' /></manufacturers></prestashop>",
+        )
+        session = Mock()
+        session.request.return_value = response
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+
+        manufacturer_id = client.find_manufacturer_id_by_name("Nike")
+
+        assert manufacturer_id == 12
+        assert session.request.call_args.kwargs["params"] == {
+            "filter[name]": "[Nike]",
+            "limit": "1",
+        }

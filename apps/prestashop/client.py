@@ -85,7 +85,7 @@ class PrestashopClient:
         response = self._request(
             "GET",
             "manufacturers",
-            params={"filter[name]": name, "limit": "1"},
+            params={"filter[name]": f"[{name}]", "limit": "1"},
         )
         root = self._parse_xml(response.text)
         manufacturer = root.find("./manufacturers/manufacturer")
