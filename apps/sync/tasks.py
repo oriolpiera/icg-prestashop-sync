@@ -373,48 +373,54 @@ def retry_failed_jobs() -> dict:
     retried = 0
     skipped = 0
 
-    retryable_jobs = SyncJob.objects.filter(
-        status=SyncJobStatus.FAILED,
-        available_at__lte=timezone.now(),
-    ).order_by("available_at")
+    try:
+        with sync_lock("retry_failed_jobs"):
+            retryable_jobs = SyncJob.objects.filter(
+                status=SyncJobStatus.FAILED,
+                available_at__lte=timezone.now(),
+            ).order_by("available_at")
 
-    for job in retryable_jobs:
-        latest_error_type = job.error_type
-        if latest_error_type != SyncErrorType.TRANSIENT or job.attempts >= MAX_SYNC_RETRIES:
-            skipped += 1
-            continue
+            for job in retryable_jobs:
+                latest_error_type = job.error_type
+                if latest_error_type != SyncErrorType.TRANSIENT or job.attempts >= MAX_SYNC_RETRIES:
+                    skipped += 1
+                    continue
 
-        export_fn = _RETRYABLE_EXPORT_MAP.get(job.job_type)
-        if export_fn is None:
-            skipped += 1
-            continue
+                export_fn = _RETRYABLE_EXPORT_MAP.get(job.job_type)
+                if export_fn is None:
+                    skipped += 1
+                    continue
 
-        entity_id = job.payload.get("entity_id")
-        if entity_id is None:
-            skipped += 1
-            continue
+                entity_id = job.payload.get("entity_id")
+                if entity_id is None:
+                    skipped += 1
+                    continue
 
-        job.status = SyncJobStatus.RUNNING
-        job.started_at = timezone.now()
-        job.save(update_fields=["status", "started_at", "updated_at"])
+                job.status = SyncJobStatus.RUNNING
+                job.started_at = timezone.now()
+                job.save(update_fields=["status", "started_at", "updated_at"])
 
-        try:
-            result = export_fn(entity_id)
-        except Exception as exc:
-            _record_sync_error(job, exc)
-        else:
-            job.status = SyncJobStatus.SUCCEEDED
-            job.payload = {**job.payload, **result}
-            job.finished_at = timezone.now().astimezone(UTC)
-            job.save(
-                update_fields=[
-                    "status",
-                    "payload",
-                    "finished_at",
-                    "updated_at",
-                ]
-            )
-            retried += 1
+                try:
+                    result = export_fn(entity_id)
+                except Exception as exc:
+                    _record_sync_error(job, exc)
+                else:
+                    job.status = SyncJobStatus.SUCCEEDED
+                    job.payload = {**job.payload, **result}
+                    job.finished_at = timezone.now().astimezone(UTC)
+                    job.save(
+                        update_fields=[
+                            "status",
+                            "payload",
+                            "finished_at",
+                            "updated_at",
+                        ]
+                    )
+                    retried += 1
+
+    except LockAcquisitionError:
+        logger.warning("Skipping retry_failed_jobs: lock already held")
+        return {"status": "skipped", "reason": "lock_held"}
 
     return {
         "status": "success",

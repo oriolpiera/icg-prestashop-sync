@@ -521,3 +521,15 @@ class TestRetryFailedJobs:
 
         assert result["retried"] == 1
         mock_export.assert_called_once_with(product.pk)
+
+    def test_returns_skipped_when_lock_held(self):
+        from apps.sync.locking import LockAcquisitionError
+
+        with patch(
+            "apps.sync.tasks.sync_lock",
+            side_effect=LockAcquisitionError("lock held"),
+        ):
+            result = retry_failed_jobs()
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "lock_held"
