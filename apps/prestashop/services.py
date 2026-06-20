@@ -90,7 +90,11 @@ def resolve_product_categories(
     return default, all_ids
 
 
-def export_category(category_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+def export_category(
+    category_id: int,
+    client: PrestashopClient | None = None,
+    _ancestors: set[int] | None = None,
+) -> dict[str, int]:
     from django.conf import settings
 
     category = Category.objects.get(pk=category_id)
@@ -104,7 +108,15 @@ def export_category(category_id: int, client: PrestashopClient | None = None) ->
         )
 
         if category.parent and category.parent.prestashop_id is None:
-            export_category(category.parent.pk, client=client)
+            if _ancestors is None:
+                _ancestors = set()
+            if category.pk in _ancestors:
+                raise PrestashopError(
+                    f"Cyclic parent detected for category {category.name} "
+                    f"(pk={category.pk}). Fix the parent chain in Django admin."
+                )
+            _ancestors.add(category.pk)
+            export_category(category.parent.pk, client=client, _ancestors=_ancestors)
             category.parent.refresh_from_db()
             parent_ps_id = category.parent.prestashop_id
 

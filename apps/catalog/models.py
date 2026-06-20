@@ -36,6 +36,18 @@ class Category(SyncTrackedModel):
     class Meta:
         ordering = ["position", "name"]
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.category_type == CategoryType.DEFAULT:
+            exists = (
+                Category.objects.filter(category_type=CategoryType.DEFAULT)
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if exists:
+                raise ValidationError("Only one category can have category_type='default'.")
+
     def __str__(self) -> str:
         return f"{self.name} (PS #{self.prestashop_id})"
 

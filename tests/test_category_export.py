@@ -245,6 +245,18 @@ class TestCategoryExport:
         client.update_category.assert_any_call(10, "Parent", active=True)
         client.update_category.assert_any_call(20, "Child", active=True)
 
+    def test_export_raises_on_cyclic_parent(self):
+        a = _make_category(prestashop_id=None, name="A")
+        b = _make_category(prestashop_id=None, name="B", parent=a)
+        Category.objects.filter(pk=a.pk).update(parent=b)
+
+        client = Mock()
+        client.find_category_id_by_name.return_value = None
+        client.create_category.return_value = 99
+
+        with pytest.raises(PrestashopError, match="Cyclic parent detected"):
+            export_category(b.pk, client=client)
+
 
 @pytest.mark.django_db
 class TestCategoryExportTask:
