@@ -543,5 +543,34 @@ class PrestashopClient:
             pov_id = ElementTree.SubElement(pov_item, "id")
             pov_id.text = str(vs_id)
 
-    def upsert_stock(self, stock: object) -> None:
-        raise NotImplementedError("Prestashop stock sync is not implemented yet.")
+    def upsert_stock(self, combination_ps_id: int, quantity: int) -> None:
+        root = self.get_combination_xml(combination_ps_id)
+        comb_node = root.find("./combination")
+        if comb_node is None:
+            raise PrestashopError(
+                "Prestashop combination payload did not include a combination node."
+            )
+
+        stock_available_node = comb_node.find("./associations/stock_availables/stock_available/id")
+        if stock_available_node is None or not stock_available_node.text:
+            raise PrestashopError(
+                f"Prestashop combination {combination_ps_id} has no stock_available association."
+            )
+
+        stock_available_id = int(stock_available_node.text)
+
+        payload_root = ElementTree.Element(
+            "prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"}
+        )
+        stock_available = ElementTree.SubElement(payload_root, "stock_available")
+        sa_id = ElementTree.SubElement(stock_available, "id")
+        sa_id.text = str(stock_available_id)
+        sa_qty = ElementTree.SubElement(stock_available, "quantity")
+        sa_qty.text = str(quantity)
+
+        self._request(
+            "PATCH",
+            "stock_availables",
+            resource_id=stock_available_id,
+            data=ElementTree.tostring(payload_root, encoding="unicode"),
+        )

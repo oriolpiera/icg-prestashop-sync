@@ -11,6 +11,7 @@ from apps.catalog.models import (
     PrestashopMapping,
     Price,
     Product,
+    Stock,
     TaxRuleMapping,
 )
 from apps.prestashop.client import PrestashopClient, PrestashopError
@@ -309,4 +310,39 @@ def export_combination(
         combination.sync_required = True
         combination.last_sync_error = format_sync_error(exc)
         combination.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
+
+
+def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+    stock = Stock.objects.select_related("combination", "combination__product").get(pk=stock_id)
+    client = client or PrestashopClient()
+
+    try:
+        comb_mapping = PrestashopMapping.objects.filter(combination=stock.combination).first()
+        if not comb_mapping or not comb_mapping.prestashop_combination_id:
+            raise PrestashopError(
+                f"Combination {stock.combination} must be exported before stock sync."
+            )
+
+        client.upsert_stock(comb_mapping.prestashop_combination_id, stock.quantity)
+
+        stock.sync_required = False
+        stock.last_sync_error = ""
+        stock.last_synced_at = timezone.now().astimezone(UTC)
+        stock.save(
+            update_fields=[
+                "sync_required",
+                "last_sync_error",
+                "last_synced_at",
+                "updated_at",
+            ]
+        )
+        return {
+            "stock_id": stock.pk,
+            "prestashop_combination_id": comb_mapping.prestashop_combination_id,
+        }
+    except Exception as exc:
+        stock.sync_required = True
+        stock.last_sync_error = format_sync_error(exc)
+        stock.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise

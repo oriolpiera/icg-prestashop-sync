@@ -4,7 +4,7 @@ from datetime import UTC
 from celery import shared_task
 from django.utils import timezone
 
-from apps.catalog.models import Combination, Manufacturer, Price, Product
+from apps.catalog.models import Combination, Manufacturer, Price, Product, Stock
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
@@ -13,6 +13,7 @@ from apps.prestashop.services import (
     export_manufacturer,
     export_price,
     export_product,
+    export_stock,
     format_sync_error,
 )
 from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
@@ -213,6 +214,54 @@ def export_prices() -> dict:
 
         try:
             result = export_price(price.pk)
+        except Exception as exc:
+            failed += 1
+            error = format_sync_error(exc)
+            job.status = SyncJobStatus.FAILED
+            job.last_error = error
+        else:
+            processed += 1
+            job.status = SyncJobStatus.SUCCEEDED
+            job.payload = {**job.payload, **result}
+
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "payload", "last_error", "finished_at", "updated_at"])
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "failed": failed,
+    }
+
+
+@shared_task
+def export_stocks() -> dict:
+    logger.info("Celery task: export_stocks")
+    processed = 0
+    failed = 0
+
+    for stock in (
+        Stock.objects.select_related("combination__product")
+        .filter(sync_required=True)
+        .order_by("pk")
+    ):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_STOCK,
+            entity_type="stock",
+            entity_key=f"{stock.combination.product.reference}/{stock.combination.icg_size}/{stock.combination.icg_color}",
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={
+                "stock_id": stock.pk,
+                "combination_id": stock.combination_id,
+                "product_reference": stock.combination.product.reference,
+                "quantity": stock.quantity,
+            },
+        )
+
+        try:
+            result = export_stock(stock.pk)
         except Exception as exc:
             failed += 1
             error = format_sync_error(exc)
