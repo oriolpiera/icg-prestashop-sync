@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -332,6 +333,51 @@ class TestPriceImport:
 
         assert result["skipped"] >= 1
         assert Price.objects.count() == 0
+
+    def test_discount_last_row_wins(self):
+        man = _make_manufacturer()
+        prod = _make_product(man)
+        Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
+        Combination.objects.create(product=prod, icg_size="L", icg_color="BLUE")
+
+        row_low = _FakeRow(
+            1,
+            1001,
+            "M",
+            "RED",
+            121.00,
+            5,
+            114.95,
+            6.05,
+            21,
+            100.00,
+            95.00,
+            5.00,
+            datetime(2026, 1, 20, 12, 0, 0),
+        )
+        row_high = _FakeRow(
+            1,
+            1001,
+            "L",
+            "BLUE",
+            121.00,
+            15,
+            102.85,
+            18.15,
+            21,
+            100.00,
+            85.00,
+            15.00,
+            datetime(2026, 1, 20, 12, 0, 0),
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
+            instance.fetch_prices_after.return_value = ([row_low, row_high], False)
+            import_prices()
+
+        prod.refresh_from_db()
+        assert prod.discount_percent == Decimal("15")
 
 
 @pytest.mark.django_db

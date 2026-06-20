@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Protocol, cast
 from xml.etree import ElementTree
 
@@ -622,6 +623,111 @@ class PrestashopClient:
             pov_item = ElementTree.SubElement(pov_node, "product_option_value")
             pov_id = ElementTree.SubElement(pov_item, "id")
             pov_id.text = str(vs_id)
+
+    def find_specific_price_by_product(self, product_ps_id: int) -> int | None:
+        response = self._request(
+            "GET",
+            "specific_prices",
+            params={
+                "filter[id_product]": str(product_ps_id),
+                "filter[id_product_attribute]": "0",
+                "limit": "1",
+            },
+        )
+        root = self._parse_xml(response.text)
+        sp = root.find("./specific_prices/specific_price")
+        if sp is None:
+            return None
+
+        sp_id = sp.attrib.get("id")
+        if not sp_id:
+            sp_id = sp.findtext("id")
+        if not sp_id:
+            raise PrestashopError(
+                "Prestashop specific_price search response did not include an id."
+            )
+        return int(sp_id)
+
+    def get_specific_price_xml(self, specific_price_id: int) -> ElementTree.Element:
+        response = self._request("GET", "specific_prices", resource_id=specific_price_id)
+        return self._parse_xml(response.text)
+
+    def get_blank_specific_price_xml(self) -> ElementTree.Element:
+        response = self._request("GET", "specific_prices", params={"schema": "blank"})
+        return self._parse_xml(response.text)
+
+    def upsert_specific_price(
+        self,
+        product_ps_id: int,
+        reduction_percent: Decimal,
+        *,
+        prestashop_id: int | None = None,
+    ) -> int:
+        if prestashop_id is None:
+            root = self.get_blank_specific_price_xml()
+            self._populate_specific_price_xml(
+                root,
+                product_ps_id=product_ps_id,
+                reduction_percent=reduction_percent,
+            )
+            response = self._request(
+                "POST",
+                "specific_prices",
+                data=ElementTree.tostring(root, encoding="unicode"),
+            )
+            created_root = self._parse_xml(response.text)
+            sp_id = created_root.findtext("./specific_price/id")
+            if not sp_id:
+                raise PrestashopError(
+                    "Prestashop create specific_price response did not include an id."
+                )
+            return int(sp_id)
+
+        root = self.get_specific_price_xml(prestashop_id)
+        self._populate_specific_price_xml(
+            root,
+            product_ps_id=product_ps_id,
+            reduction_percent=reduction_percent,
+        )
+        self._request(
+            "PUT",
+            "specific_prices",
+            resource_id=prestashop_id,
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        return prestashop_id
+
+    def delete_specific_price(self, specific_price_id: int) -> None:
+        self._request("DELETE", "specific_prices", resource_id=specific_price_id)
+
+    def _populate_specific_price_xml(
+        self,
+        root: ElementTree.Element,
+        *,
+        product_ps_id: int,
+        reduction_percent: Decimal,
+    ) -> None:
+        sp_node = root.find("./specific_price")
+        if sp_node is None:
+            raise PrestashopError(
+                "Prestashop specific_price payload did not include a specific_price node."
+            )
+
+        self._set_text(sp_node, "id_product", str(product_ps_id))
+        self._set_text(sp_node, "id_product_attribute", "0")
+        self._set_text(sp_node, "id_shop", "0")
+        self._set_text(sp_node, "id_cart", "0")
+        self._set_text(sp_node, "id_currency", "0")
+        self._set_text(sp_node, "id_country", "0")
+        self._set_text(sp_node, "id_group", "0")
+        self._set_text(sp_node, "id_customer", "0")
+        self._set_text(sp_node, "price", "0")
+        self._set_text(sp_node, "reduction_tax", "0")
+        self._set_text(sp_node, "from", "0000-00-00 00:00:00")
+        self._set_text(sp_node, "to", "0000-00-00 00:00:00")
+        self._set_text(sp_node, "reduction", str(reduction_percent / 100))
+        self._set_text(sp_node, "reduction_type", "percentage")
+        self._set_text(sp_node, "from_quantity", "1")
 
     def get_stock_available_xml(self, stock_available_id: int) -> ElementTree.Element:
         response = self._request("GET", "stock_availables", resource_id=stock_available_id)

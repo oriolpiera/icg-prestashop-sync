@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import SyncTrackedModel, TimeStampedModel
@@ -89,6 +90,23 @@ class Product(SyncTrackedModel):
     )
     visible_web = models.BooleanField(default=True)
     discontinued = models.BooleanField(default=False)
+    discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Product-level discount percentage (0 = no discount). "
+        "Exported as a Prestashop specific_price with reduction_type='percentage'.",
+    )
+    prestashop_specific_price_id = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="Prestashop specific_price ID for the product-level discount.",
+    )
+    discount_sync_required = models.BooleanField(
+        default=False,
+        help_text="Whether the discount needs to be re-exported to Prestashop.",
+    )
 
     class Meta:
         ordering = ["reference"]
