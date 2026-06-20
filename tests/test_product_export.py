@@ -1,5 +1,5 @@
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -86,6 +86,23 @@ class TestProductExport:
 
         client.find_product_id_by_reference.assert_not_called()
         client.upsert_product.assert_called_once_with(product, prestashop_id=34)
+
+    def test_export_uses_race_safe_mapping_upsert(self):
+        product = _make_product()
+        client = Mock()
+        client.find_product_id_by_reference.return_value = None
+        client.upsert_product.return_value = 77
+
+        with patch(
+            "apps.prestashop.services.PrestashopMapping.objects.update_or_create"
+        ) as mock_upsert:
+            result = export_product(product.pk, client=client)
+
+        assert result == {"product_id": product.pk, "prestashop_id": 77}
+        mock_upsert.assert_called_once_with(
+            product=product,
+            defaults={"prestashop_product_id": 77},
+        )
 
     def test_export_requires_mapped_manufacturer(self):
         manufacturer = Manufacturer.objects.create(icg_code="15000", name="Brand X")

@@ -71,10 +71,10 @@ def export_product(product_id: int, client: PrestashopClient | None = None) -> d
 
         prestashop_id = client.upsert_product(product, prestashop_id=prestashop_id)
 
-        if mapping is None:
-            mapping = PrestashopMapping(product=product)
-        mapping.prestashop_product_id = prestashop_id
-        mapping.save()
+        PrestashopMapping.objects.update_or_create(
+            product=product,
+            defaults={"prestashop_product_id": prestashop_id},
+        )
 
         product.sync_required = False
         product.last_sync_error = ""
