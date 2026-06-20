@@ -66,14 +66,25 @@ def resolve_hidden_category() -> Category | None:
 
 def resolve_product_categories(
     product: Product,
+    client: PrestashopClient | None = None,
 ) -> tuple[Category, list[int]]:
     """Return (default_category, all_category_ps_ids) for product export.
 
     Falls back to the DEFAULT category when the product has no explicit
     category_default.  The full list always includes the default category.
+    Filters out any categories with unsynced prestashop_id=None.
     """
     default = product.category_default or resolve_default_category()
-    all_ids = list(product.categories.values_list("prestashop_id", flat=True))
+
+    if default.prestashop_id is None:
+        export_category(default.pk, client=client)
+        default.refresh_from_db()
+
+    all_ids = [
+        ps_id
+        for ps_id in product.categories.values_list("prestashop_id", flat=True)
+        if ps_id is not None
+    ]
     if default.prestashop_id not in all_ids:
         all_ids.append(default.prestashop_id)
     return default, all_ids
@@ -183,7 +194,7 @@ def export_product(
                 f"{product.manufacturer.icg_code} must be exported before product sync."
             )
 
-        default_category, category_ids = resolve_product_categories(product)
+        default_category, category_ids = resolve_product_categories(product, client=client)
 
         prestashop_id = mapping.prestashop_product_id if mapping else None
         if prestashop_id is None:

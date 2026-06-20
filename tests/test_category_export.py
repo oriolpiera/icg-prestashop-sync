@@ -132,6 +132,39 @@ class TestResolveProductCategories:
         _, ids = resolve_product_categories(product)
         assert ids.count(251) == 1
 
+    def test_filters_out_unsynced_categories(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        unsynced = _make_category(prestashop_id=None, name="Unsynced")
+        synced = _make_category(prestashop_id=300, name="Synced")
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        product.categories.add(unsynced, synced)
+        _, ids = resolve_product_categories(product)
+        assert None not in ids
+        assert set(ids) == {251, 300}
+
+    def test_auto_exports_unsynced_default_category(self):
+        default = _make_category(prestashop_id=None, category_type=CategoryType.DEFAULT)
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        client = Mock()
+        client.find_category_id_by_name.return_value = 99
+
+        resolved_default, ids = resolve_product_categories(product, client=client)
+
+        default.refresh_from_db()
+        assert default.prestashop_id == 99
+        assert resolved_default == default
+        assert 99 in ids
+
 
 @pytest.mark.django_db
 class TestCategoryExport:
