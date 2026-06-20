@@ -338,7 +338,8 @@ class TestExportDiscountTask:
         product.refresh_from_db()
         job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_DISCOUNT)
         assert result == {"status": "success", "processed": 0, "failed": 1}
-        assert job.status == SyncJobStatus.FAILED
+        assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 2
         assert json.loads(product.last_sync_error)["status_code"] == 503
 
     def test_task_skips_products_without_discount_and_no_specific_price(self):

@@ -17,7 +17,7 @@ from apps.catalog.models import (
     Stock,
     TaxRuleMapping,
 )
-from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus
+from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
 
 
 class FailedSyncFilter(SimpleListFilter):
@@ -304,3 +304,29 @@ class SyncJobAdmin(admin.ModelAdmin):
         return obj.last_error[:80]
 
     last_error_short.short_description = "last error"
+
+
+@admin.register(SyncError)
+class SyncErrorAdmin(admin.ModelAdmin):
+    list_display = (
+        "entity_type",
+        "entity_key",
+        "error_type",
+        "message_short",
+        "resolved",
+        "created_at",
+    )
+    list_filter = ("error_type", "resolved", "entity_type")
+    search_fields = ("entity_type", "entity_key", "message")
+    readonly_fields = ("created_at", "updated_at")
+    actions = ("mark_resolved",)
+
+    def message_short(self, obj):
+        return obj.message[:80]
+
+    message_short.short_description = "message"
+
+    @admin.action(description="Mark selected errors as resolved")
+    def mark_resolved(self, request, queryset):
+        count = queryset.update(resolved=True)
+        self.message_user(request, f"Marked {count} error(s) as resolved.", messages.SUCCESS)
