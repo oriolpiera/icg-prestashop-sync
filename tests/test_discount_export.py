@@ -1,6 +1,6 @@
 import json
 from decimal import Decimal
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -120,6 +120,31 @@ class TestExportDiscount:
         client.upsert_specific_price.assert_not_called()
         client.delete_specific_price.assert_not_called()
         assert result["prestashop_specific_price_id"] is None
+
+    def test_delete_persists_id_before_final_save(self):
+        product = _make_product(discount_percent=Decimal("0"))
+        _make_product_mapping(product, 22)
+        product.prestashop_specific_price_id = 500
+        product.save(update_fields=["prestashop_specific_price_id"])
+
+        client = Mock()
+
+        call_count = 0
+        original_save = Product.save
+
+        def failing_save(self, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise Exception("DB write failed")
+            return original_save(self, *args, **kwargs)
+
+        with patch.object(Product, "save", failing_save):
+            with pytest.raises(Exception, match="DB write failed"):
+                export_discount(product.pk, client=client)
+
+        product.refresh_from_db()
+        assert product.prestashop_specific_price_id is None
 
     def test_fails_without_product_mapping(self):
         product = _make_product(discount_percent=Decimal("10"))

@@ -500,6 +500,7 @@ def export_discount(
         elif existing_ps_id is not None:
             client.delete_specific_price(existing_ps_id)
             product.prestashop_specific_price_id = None
+            product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
 
         product.sync_required = False
         product.last_sync_error = ""
