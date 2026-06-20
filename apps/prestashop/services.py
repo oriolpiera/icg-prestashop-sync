@@ -9,7 +9,9 @@ from apps.catalog.models import (
     Combination,
     Manufacturer,
     PrestashopMapping,
+    Price,
     Product,
+    TaxRuleMapping,
 )
 from apps.prestashop.client import PrestashopClient, PrestashopError
 
@@ -22,6 +24,28 @@ def format_sync_error(exc: Exception) -> str:
         if exc.body:
             payload["body"] = exc.body
     return json.dumps(payload, sort_keys=True)
+
+
+def resolve_tax_rules_group(vat_rate, client: PrestashopClient | None = None) -> int:
+    from decimal import Decimal
+
+    from django.conf import settings
+
+    client = client or PrestashopClient()
+    rate = Decimal(str(vat_rate))
+
+    mapping = TaxRuleMapping.objects.filter(vat_rate=rate).first()
+    if mapping is not None:
+        return mapping.prestashop_tax_rules_group_id
+
+    default_id = getattr(settings, "PRESTASHOP_DEFAULT_TAX_RULES_GROUP_ID", None)
+    if default_id is not None:
+        return default_id
+
+    raise PrestashopError(
+        f"Unsupported VAT rate {rate}%: no tax rule mapping configured. "
+        "Add a TaxRuleMapping entry in Django admin."
+    )
 
 
 def export_manufacturer(
@@ -60,7 +84,11 @@ def export_manufacturer(
         raise
 
 
-def export_product(product_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+def export_product(
+    product_id: int,
+    client: PrestashopClient | None = None,
+    tax_rules_group_id: int | None = None,
+) -> dict[str, int]:
     product = Product.objects.select_related("manufacturer").get(pk=product_id)
     mapping = PrestashopMapping.objects.filter(product=product).first()
     client = client or PrestashopClient()
@@ -76,7 +104,9 @@ def export_product(product_id: int, client: PrestashopClient | None = None) -> d
         if prestashop_id is None:
             prestashop_id = client.find_product_id_by_reference(product.reference)
 
-        prestashop_id = client.upsert_product(product, prestashop_id=prestashop_id)
+        prestashop_id = client.upsert_product(
+            product, prestashop_id=prestashop_id, tax_rules_group_id=tax_rules_group_id
+        )
 
         PrestashopMapping.objects.update_or_create(
             product=product,
@@ -94,6 +124,41 @@ def export_product(product_id: int, client: PrestashopClient | None = None) -> d
         product.sync_required = True
         product.last_sync_error = format_sync_error(exc)
         product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
+
+
+def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+    price = Price.objects.select_related(
+        "combination", "combination__product", "combination__product__manufacturer"
+    ).get(pk=price_id)
+    client = client or PrestashopClient()
+
+    try:
+        tax_rules_group_id = resolve_tax_rules_group(price.vat_rate, client=client)
+
+        combination = price.combination
+        product = combination.product
+
+        product_result = export_product(
+            product.pk, client=client, tax_rules_group_id=tax_rules_group_id
+        )
+        comb_result = export_combination(combination.pk, client=client)
+
+        price.sync_required = False
+        price.last_sync_error = ""
+        price.last_synced_at = timezone.now().astimezone(UTC)
+        price.save(
+            update_fields=["sync_required", "last_sync_error", "last_synced_at", "updated_at"]
+        )
+        return {
+            "price_id": price.pk,
+            "product_prestashop_id": product_result["prestashop_id"],
+            "combination_prestashop_id": comb_result["prestashop_combination_id"],
+        }
+    except Exception as exc:
+        price.sync_required = True
+        price.last_sync_error = format_sync_error(exc)
+        price.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise
 
 
@@ -179,8 +244,7 @@ def export_combination(
         product_mapping = PrestashopMapping.objects.filter(product=combination.product).first()
         if not product_mapping or not product_mapping.prestashop_product_id:
             raise PrestashopError(
-                f"Product {combination.product.reference} must be exported "
-                "before combination sync."
+                f"Product {combination.product.reference} must be exported before combination sync."
             )
 
         product_ps_id = product_mapping.prestashop_product_id
@@ -210,12 +274,16 @@ def export_combination(
         comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
         prestashop_combination_id = comb_mapping.prestashop_combination_id if comb_mapping else None
 
+        price_obj = getattr(combination, "price", None)
+        combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
+
         prestashop_combination_id = client.upsert_combination(
             product_ps_id,
             combination.ean13,
             combination.active,
             attribute_value_ps_ids,
             prestashop_id=prestashop_combination_id,
+            price=combination_price,
         )
 
         PrestashopMapping.objects.update_or_create(

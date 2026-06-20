@@ -169,10 +169,18 @@ class PrestashopClient:
         response = self._request("GET", "products", params={"schema": "blank"})
         return self._parse_xml(response.text)
 
-    def upsert_product(self, product: ProductPayload, *, prestashop_id: int | None = None) -> int:
+    def upsert_product(
+        self,
+        product: ProductPayload,
+        *,
+        prestashop_id: int | None = None,
+        tax_rules_group_id: int | None = None,
+    ) -> int:
         if prestashop_id is None:
             root = self.get_blank_product_xml()
-            self._populate_product_xml(root, product, is_create=True)
+            self._populate_product_xml(
+                root, product, is_create=True, tax_rules_group_id=tax_rules_group_id
+            )
             response = self._request(
                 "POST",
                 "products",
@@ -185,7 +193,9 @@ class PrestashopClient:
             return int(product_id)
 
         root = self.get_product_xml(prestashop_id)
-        self._populate_product_xml(root, product, is_create=False)
+        self._populate_product_xml(
+            root, product, is_create=False, tax_rules_group_id=tax_rules_group_id
+        )
         self._request(
             "PUT",
             "products",
@@ -204,7 +214,12 @@ class PrestashopClient:
         return ElementTree.tostring(root, encoding="unicode")
 
     def _populate_product_xml(
-        self, root: ElementTree.Element, product: ProductPayload, *, is_create: bool
+        self,
+        root: ElementTree.Element,
+        product: ProductPayload,
+        *,
+        is_create: bool,
+        tax_rules_group_id: int | None = None,
     ) -> None:
         product_node = root.find("./product")
         if product_node is None:
@@ -216,6 +231,8 @@ class PrestashopClient:
             manufacturer_id = str(product.manufacturer.prestashop_id)
 
         self._set_text(product_node, "id_manufacturer", manufacturer_id)
+        if tax_rules_group_id is not None:
+            self._set_text(product_node, "id_tax_rules_group", str(tax_rules_group_id))
         self._set_text(product_node, "reference", product.reference)
         self._set_text(product_node, "price", product_node.findtext("price") or "0")
         self._set_text(product_node, "state", "1")
@@ -395,6 +412,27 @@ class PrestashopClient:
             )
         return int(value_id)
 
+    def find_tax_rules_group_id_by_name(self, name: str) -> int | None:
+        self._validate_exact_filter_value(name, field_name="tax rules group name")
+        response = self._request(
+            "GET",
+            "tax_rules_groups",
+            params={"filter[name]": f"[{name}]", "limit": "1"},
+        )
+        root = self._parse_xml(response.text)
+        group = root.find("./tax_rules_groups/tax_rules_group")
+        if group is None:
+            return None
+
+        group_id = group.attrib.get("id")
+        if not group_id:
+            group_id = group.findtext("id")
+        if not group_id:
+            raise PrestashopError(
+                "Prestashop tax rules group search response did not include an id."
+            )
+        return int(group_id)
+
     def get_blank_combination_xml(self) -> ElementTree.Element:
         response = self._request("GET", "combinations", params={"schema": "blank"})
         return self._parse_xml(response.text)
@@ -501,9 +539,6 @@ class PrestashopClient:
             pov_item = ElementTree.SubElement(pov_node, "product_option_value")
             pov_id = ElementTree.SubElement(pov_item, "id")
             pov_id.text = str(vs_id)
-
-    def upsert_price(self, price: object) -> None:
-        raise NotImplementedError("Prestashop price sync is not implemented yet.")
 
     def upsert_stock(self, stock: object) -> None:
         raise NotImplementedError("Prestashop stock sync is not implemented yet.")

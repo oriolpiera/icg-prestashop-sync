@@ -225,6 +225,7 @@ class TestCombinationExport:
             True,
             [100, 200],
             prestashop_id=None,
+            price="0",
         )
 
     def test_export_updates_existing_mapped_combination(self):
@@ -254,6 +255,7 @@ class TestCombinationExport:
             True,
             [100, 200],
             prestashop_id=88,
+            price="0",
         )
 
     def test_export_creates_attribute_groups_and_values(self):
@@ -483,9 +485,7 @@ class TestPrestashopClientCombinationExport:
 
     def test_find_attribute_group_uses_exact_match_filter(self, settings):
         response = _response(
-            "<prestashop><product_options>"
-            "<product_option id='10' />"
-            "</product_options></prestashop>"
+            "<prestashop><product_options><product_option id='10' /></product_options></prestashop>"
         )
         session = Mock()
         session.request.return_value = response

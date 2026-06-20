@@ -125,6 +125,25 @@ class AttributeValue(TimeStampedModel):
         return f"{self.attribute_group.icg_type}:{self.icg_value}"
 
 
+class TaxRuleMapping(TimeStampedModel):
+    vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        unique=True,
+        help_text="ICG VAT rate percentage (e.g. 21 for 21%)",
+    )
+    prestashop_tax_rules_group_id = models.PositiveIntegerField(
+        help_text="PrestaShop tax_rules_group ID that corresponds to this VAT rate",
+    )
+    label = models.CharField(max_length=128, blank=True)
+
+    class Meta:
+        ordering = ["vat_rate"]
+
+    def __str__(self) -> str:
+        return f"{self.vat_rate}% → PS group {self.prestashop_tax_rules_group_id}"
+
+
 class PrestashopMapping(TimeStampedModel):
     product = models.OneToOneField(
         Product,

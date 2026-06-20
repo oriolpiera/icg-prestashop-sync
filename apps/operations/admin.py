@@ -9,6 +9,7 @@ from apps.catalog.models import (
     Price,
     Product,
     Stock,
+    TaxRuleMapping,
 )
 from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus
 
@@ -75,6 +76,12 @@ class PriceAdmin(admin.ModelAdmin):
     list_filter = ("currency", "sync_required")
     search_fields = ("combination__product__reference",)
     actions = (mark_for_resync,)
+
+
+@admin.register(TaxRuleMapping)
+class TaxRuleMappingAdmin(admin.ModelAdmin):
+    list_display = ("vat_rate", "prestashop_tax_rules_group_id", "label", "updated_at")
+    search_fields = ("vat_rate", "label")
 
 
 @admin.register(Stock)
