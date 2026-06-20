@@ -153,3 +153,15 @@ class TestPrestashopClient:
             "filter[name]": "[Nike]",
             "limit": "1",
         }
+
+    def test_find_manufacturer_rejects_reserved_filter_characters(self, settings):
+        session = Mock()
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+
+        with pytest.raises(PrestashopError, match="Unsupported manufacturer name characters"):
+            client.find_manufacturer_id_by_name("Brand|Name")
+
+        session.request.assert_not_called()
