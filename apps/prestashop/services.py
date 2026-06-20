@@ -26,12 +26,11 @@ def format_sync_error(exc: Exception) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
-def resolve_tax_rules_group(vat_rate, client: PrestashopClient | None = None) -> int:
+def resolve_tax_rules_group(vat_rate) -> int:
     from decimal import Decimal
 
     from django.conf import settings
 
-    client = client or PrestashopClient()
     rate = Decimal(str(vat_rate))
 
     mapping = TaxRuleMapping.objects.filter(vat_rate=rate).first()
@@ -134,7 +133,7 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
-        tax_rules_group_id = resolve_tax_rules_group(price.vat_rate, client=client)
+        tax_rules_group_id = resolve_tax_rules_group(price.vat_rate)
 
         combination = price.combination
         product = combination.product

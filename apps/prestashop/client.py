@@ -412,6 +412,9 @@ class PrestashopClient:
             )
         return int(value_id)
 
+    # Utility for admin/discovery — not called by service layer (which uses
+    # TaxRuleMapping ORM lookups instead). Useful for validating tax rule names
+    # or seeding TaxRuleMapping entries.
     def find_tax_rules_group_id_by_name(self, name: str) -> int | None:
         self._validate_exact_filter_value(name, field_name="tax rules group name")
         response = self._request(

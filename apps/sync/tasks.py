@@ -190,7 +190,11 @@ def export_prices() -> dict:
     processed = 0
     failed = 0
 
-    for price in Price.objects.filter(sync_required=True).order_by("pk"):
+    for price in (
+        Price.objects.select_related("combination__product")
+        .filter(sync_required=True)
+        .order_by("pk")
+    ):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_PRICE,
             entity_type="price",
