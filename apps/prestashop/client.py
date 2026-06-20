@@ -543,5 +543,37 @@ class PrestashopClient:
             pov_id = ElementTree.SubElement(pov_item, "id")
             pov_id.text = str(vs_id)
 
-    def upsert_stock(self, stock: object) -> None:
-        raise NotImplementedError("Prestashop stock sync is not implemented yet.")
+    def get_stock_available_xml(self, stock_available_id: int) -> ElementTree.Element:
+        response = self._request("GET", "stock_availables", resource_id=stock_available_id)
+        return self._parse_xml(response.text)
+
+    def upsert_stock(self, combination_ps_id: int, quantity: int) -> None:
+        root = self.get_combination_xml(combination_ps_id)
+        comb_node = root.find("./combination")
+        if comb_node is None:
+            raise PrestashopError(
+                "Prestashop combination payload did not include a combination node."
+            )
+
+        stock_available_node = comb_node.find("./associations/stock_availables/stock_available/id")
+        if stock_available_node is None or not stock_available_node.text:
+            raise PrestashopError(
+                f"Prestashop combination {combination_ps_id} has no stock_available association."
+            )
+
+        stock_available_id = int(stock_available_node.text)
+
+        sa_root = self.get_stock_available_xml(stock_available_id)
+        sa_node = sa_root.find("./stock_available")
+        if sa_node is None:
+            raise PrestashopError(
+                "Prestashop stock_available payload did not include a stock_available node."
+            )
+
+        self._set_text(sa_node, "quantity", str(quantity))
+        self._request(
+            "PUT",
+            "stock_availables",
+            resource_id=stock_available_id,
+            data=ElementTree.tostring(sa_root, encoding="unicode"),
+        )
