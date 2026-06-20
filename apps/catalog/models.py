@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import SyncTrackedModel, TimeStampedModel
@@ -93,6 +94,7 @@ class Product(SyncTrackedModel):
         max_digits=5,
         decimal_places=2,
         default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Product-level discount percentage (0 = no discount). "
         "Exported as a Prestashop specific_price with reduction_type='percentage'.",
     )

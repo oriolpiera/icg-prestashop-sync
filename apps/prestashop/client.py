@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Protocol, cast
 from xml.etree import ElementTree
 
@@ -658,7 +659,7 @@ class PrestashopClient:
     def upsert_specific_price(
         self,
         product_ps_id: int,
-        reduction_percent: int,
+        reduction_percent: Decimal,
         *,
         prestashop_id: int | None = None,
     ) -> int:
@@ -704,7 +705,7 @@ class PrestashopClient:
         root: ElementTree.Element,
         *,
         product_ps_id: int,
-        reduction_percent: int,
+        reduction_percent: Decimal,
     ) -> None:
         sp_node = root.find("./specific_price")
         if sp_node is None:

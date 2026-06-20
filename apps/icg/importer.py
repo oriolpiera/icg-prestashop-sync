@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
@@ -177,8 +178,6 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
                 price.save()
 
         discount_changed = False
-        from decimal import Decimal
-
         current_discount = Decimal(str(product.discount_percent))
         new_discount = Decimal(str(discount_percent or 0))
         if current_discount != new_discount:

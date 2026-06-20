@@ -486,7 +486,7 @@ def export_discount(
             )
 
         product_ps_id = product_mapping.prestashop_product_id
-        discount = int(product.discount_percent)
+        discount = product.discount_percent
         existing_ps_id = product.prestashop_specific_price_id
 
         if discount > 0:
@@ -496,6 +496,7 @@ def export_discount(
                 prestashop_id=existing_ps_id,
             )
             product.prestashop_specific_price_id = ps_id
+            product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
         elif existing_ps_id is not None:
             client.delete_specific_price(existing_ps_id)
             product.prestashop_specific_price_id = None
@@ -516,7 +517,7 @@ def export_discount(
             "product_id": product.pk,
             "prestashop_product_id": product_ps_id,
             "prestashop_specific_price_id": product.prestashop_specific_price_id,
-            "discount_percent": discount,
+            "discount_percent": str(discount),
         }
     except Exception as exc:
         product.sync_required = True

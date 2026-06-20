@@ -71,9 +71,9 @@ class TestExportDiscount:
 
         result = export_discount(product.pk, client=client)
 
-        assert result["discount_percent"] == 20
+        assert result["discount_percent"] == "20.00"
         assert result["prestashop_specific_price_id"] == 500
-        client.upsert_specific_price.assert_called_once_with(22, 20, prestashop_id=None)
+        client.upsert_specific_price.assert_called_once_with(22, Decimal("20"), prestashop_id=None)
 
         product.refresh_from_db()
         assert product.prestashop_specific_price_id == 500
@@ -90,7 +90,7 @@ class TestExportDiscount:
 
         result = export_discount(product.pk, client=client)
 
-        client.upsert_specific_price.assert_called_once_with(22, 15, prestashop_id=500)
+        client.upsert_specific_price.assert_called_once_with(22, Decimal("15"), prestashop_id=500)
         assert result["prestashop_specific_price_id"] == 500
 
     def test_zero_discount_deletes_existing_specific_price(self):
@@ -234,7 +234,7 @@ class TestPrestashopClientSpecificPrices:
         settings.PRESTASHOP_API_KEY = "secret"
 
         client = PrestashopClient(session=session)
-        sp_id = client.upsert_specific_price(22, 30)
+        sp_id = client.upsert_specific_price(22, Decimal("30"))
 
         assert sp_id == 99
         post_call = session.request.call_args_list[1]
@@ -259,7 +259,7 @@ class TestPrestashopClientSpecificPrices:
         settings.PRESTASHOP_API_KEY = "secret"
 
         client = PrestashopClient(session=session)
-        sp_id = client.upsert_specific_price(22, 10, prestashop_id=42)
+        sp_id = client.upsert_specific_price(22, Decimal("10"), prestashop_id=42)
 
         assert sp_id == 42
         put_call = session.request.call_args_list[1]
@@ -287,7 +287,7 @@ class TestExportDiscountTask:
                 "product_id": product_id,
                 "prestashop_product_id": 22,
                 "prestashop_specific_price_id": 500,
-                "discount_percent": 20,
+                "discount_percent": str(Decimal("20")),
             }
 
         monkeypatch.setattr("apps.sync.tasks.export_discount", fake_export_discount)
@@ -345,7 +345,7 @@ class TestExportDiscountTask:
                 "product_id": product_id,
                 "prestashop_product_id": 22,
                 "prestashop_specific_price_id": None,
-                "discount_percent": 0,
+                "discount_percent": str(Decimal("0")),
             }
 
         import apps.sync.tasks as tasks_mod
