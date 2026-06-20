@@ -80,31 +80,49 @@ def resolve_product_categories(
 
 
 def export_category(category_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+    from django.conf import settings
+
     category = Category.objects.get(pk=category_id)
     client = client or PrestashopClient()
 
     try:
-        parent_ps_id = category.parent.prestashop_id if category.parent else 2
+        parent_ps_id = (
+            category.parent.prestashop_id
+            if category.parent
+            else getattr(settings, "PRESTASHOP_ROOT_CATEGORY_ID", 2)
+        )
 
-        ps_id = category.prestashop_id
-        existing = client.find_category_id_by_name(category.name, parent_id=parent_ps_id)
-        if existing is not None:
-            ps_id = existing
-            client.update_category(ps_id, category.name, active=category.active)
+        if category.prestashop_id is not None:
+            client.update_category(category.prestashop_id, category.name, active=category.active)
+            ps_id = category.prestashop_id
         else:
-            ps_id = client.create_category(
-                category.name, parent_id=parent_ps_id, active=category.active
-            )
+            existing = client.find_category_id_by_name(category.name, parent_id=parent_ps_id)
+            if existing is not None:
+                ps_id = existing
+                client.update_category(ps_id, category.name, active=category.active)
+            else:
+                ps_id = client.create_category(
+                    category.name, parent_id=parent_ps_id, active=category.active
+                )
 
-        Category.objects.filter(pk=category.pk).update(
-            prestashop_id=ps_id,
-            last_synced_at=timezone.now().astimezone(UTC),
+        category.prestashop_id = ps_id
+        category.sync_required = False
+        category.last_sync_error = ""
+        category.last_synced_at = timezone.now().astimezone(UTC)
+        category.save(
+            update_fields=[
+                "prestashop_id",
+                "sync_required",
+                "last_sync_error",
+                "last_synced_at",
+                "updated_at",
+            ]
         )
         return {"category_id": category.pk, "prestashop_id": ps_id}
     except Exception as exc:
-        Category.objects.filter(pk=category.pk).update(
-            last_sync_error=format_sync_error(exc),
-        )
+        category.sync_required = True
+        category.last_sync_error = format_sync_error(exc)
+        category.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise
 
 

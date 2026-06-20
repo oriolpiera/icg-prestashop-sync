@@ -103,7 +103,9 @@ def export_categories() -> dict:
     processed = 0
     failed = 0
 
-    for category in Category.objects.filter(active=True).order_by("position", "pk"):
+    for category in Category.objects.filter(sync_required=True, active=True).order_by(
+        "position", "pk"
+    ):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_CATEGORY,
             entity_type="category",

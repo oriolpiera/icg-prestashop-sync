@@ -23,6 +23,7 @@ def _make_category(**overrides):
         position=overrides.pop("position", 0),
         active=overrides.pop("active", True),
         category_type=overrides.pop("category_type", CategoryType.NORMAL),
+        sync_required=overrides.pop("sync_required", True),
     )
 
 
@@ -135,7 +136,7 @@ class TestResolveProductCategories:
 @pytest.mark.django_db
 class TestCategoryExport:
     def test_export_creates_category(self):
-        cat = _make_category(prestashop_id=0, name="New Cat")
+        cat = _make_category(prestashop_id=None, name="New Cat")
         client = Mock()
         client.find_category_id_by_name.return_value = None
         client.create_category.return_value = 55
@@ -145,20 +146,33 @@ class TestCategoryExport:
         cat.refresh_from_db()
         assert result == {"category_id": cat.pk, "prestashop_id": 55}
         assert cat.prestashop_id == 55
+        assert cat.sync_required is False
+        assert cat.last_sync_error == ""
 
-    def test_export_updates_existing_category(self):
-        cat = _make_category(prestashop_id=55, name="Existing")
+    def test_export_short_circuits_when_prestashop_id_known(self):
+        cat = _make_category(prestashop_id=55, name="Known")
         client = Mock()
-        client.find_category_id_by_name.return_value = 55
 
         result = export_category(cat.pk, client=client)
 
         assert result == {"category_id": cat.pk, "prestashop_id": 55}
-        client.update_category.assert_called_once_with(55, "Existing", active=True)
+        client.update_category.assert_called_once_with(55, "Known", active=True)
+        client.find_category_id_by_name.assert_not_called()
+        client.create_category.assert_not_called()
+
+    def test_export_falls_back_to_name_lookup(self):
+        cat = _make_category(prestashop_id=None, name="Lookup")
+        client = Mock()
+        client.find_category_id_by_name.return_value = 42
+
+        result = export_category(cat.pk, client=client)
+
+        assert result == {"category_id": cat.pk, "prestashop_id": 42}
+        client.update_category.assert_called_once_with(42, "Lookup", active=True)
         client.create_category.assert_not_called()
 
     def test_export_stores_error_on_failure(self):
-        cat = _make_category(prestashop_id=0, name="Fail Cat")
+        cat = _make_category(prestashop_id=None, name="Fail Cat")
         client = Mock()
         client.find_category_id_by_name.side_effect = PrestashopError("API error", status_code=500)
 
@@ -168,14 +182,16 @@ class TestCategoryExport:
         cat.refresh_from_db()
         payload = json.loads(cat.last_sync_error)
         assert payload["status_code"] == 500
+        assert cat.sync_required is True
 
 
 @pytest.mark.django_db
 class TestCategoryExportTask:
-    def test_task_exports_active_categories(self, monkeypatch):
-        _make_category(prestashop_id=10, name="Cat A")
-        _make_category(prestashop_id=20, name="Cat B")
-        _make_category(prestashop_id=30, name="Inactive", active=False)
+    def test_task_exports_pending_categories(self, monkeypatch):
+        _make_category(prestashop_id=10, name="Cat A", sync_required=True)
+        _make_category(prestashop_id=20, name="Cat B", sync_required=True)
+        _make_category(prestashop_id=30, name="Already synced", sync_required=False)
+        _make_category(prestashop_id=40, name="Inactive", active=False, sync_required=True)
 
         def fake_export(category_id: int):
             return {"category_id": category_id, "prestashop_id": 99}

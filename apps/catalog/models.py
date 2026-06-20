@@ -10,7 +10,7 @@ class CategoryType(models.TextChoices):
 
 
 class Category(SyncTrackedModel):
-    prestashop_id = models.PositiveIntegerField(unique=True)
+    prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
     parent = models.ForeignKey(
         "self",
