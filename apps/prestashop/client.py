@@ -142,6 +142,70 @@ class PrestashopClient:
         payload = ElementTree.tostring(root, encoding="unicode")
         self._request("PUT", "manufacturers", resource_id=manufacturer_id, data=payload)
 
+    def find_category_id_by_name(self, name: str, parent_id: int | None = None) -> int | None:
+        self._validate_exact_filter_value(name, field_name="category name")
+        params: dict[str, str] = {"filter[name]": f"[{name}]", "limit": "1"}
+        if parent_id is not None:
+            params["filter[id_parent]"] = str(parent_id)
+        response = self._request("GET", "categories", params=params)
+        root = self._parse_xml(response.text)
+        category = root.find("./categories/category")
+        if category is None:
+            return None
+
+        category_id = category.attrib.get("id")
+        if not category_id:
+            category_id = category.findtext("id")
+        if not category_id:
+            raise PrestashopError("Prestashop category search response did not include an id.")
+        return int(category_id)
+
+    def get_category_xml(self, category_id: int) -> ElementTree.Element:
+        response = self._request("GET", "categories", resource_id=category_id)
+        return self._parse_xml(response.text)
+
+    def create_category(
+        self,
+        name: str,
+        parent_id: int,
+        active: bool = True,
+    ) -> int:
+        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
+        category = ElementTree.SubElement(root, "category")
+        self._set_multilang_text(category, "name", name)
+        self._set_multilang_text(category, "link_rewrite", slugify(name) or "category")
+        self._set_text(category, "id_parent", str(parent_id))
+        self._set_text(category, "active", "1" if active else "0")
+        response = self._request(
+            "POST",
+            "categories",
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        created_root = self._parse_xml(response.text)
+        category_id = created_root.findtext("./category/id")
+        if not category_id:
+            raise PrestashopError("Prestashop create category response did not include an id.")
+        return int(category_id)
+
+    def update_category(
+        self,
+        category_id: int,
+        name: str,
+        active: bool = True,
+        parent_id: int | None = None,
+    ) -> None:
+        root = self.get_category_xml(category_id)
+        cat_node = root.find("./category")
+        if cat_node is None:
+            raise PrestashopError("Prestashop category payload did not include a category node.")
+        if parent_id is not None:
+            self._set_text(cat_node, "id_parent", str(parent_id))
+        self._set_multilang_text(cat_node, "name", name)
+        self._set_multilang_text(cat_node, "link_rewrite", slugify(name) or "category")
+        self._set_text(cat_node, "active", "1" if active else "0")
+        payload = ElementTree.tostring(root, encoding="unicode")
+        self._request("PUT", "categories", resource_id=category_id, data=payload)
+
     def find_product_id_by_reference(self, reference: str) -> int | None:
         self._validate_exact_filter_value(reference, field_name="product reference")
         response = self._request(
@@ -175,11 +239,18 @@ class PrestashopClient:
         *,
         prestashop_id: int | None = None,
         tax_rules_group_id: int | None = None,
+        category_default_id: int | None = None,
+        category_ids: list[int] | None = None,
     ) -> int:
         if prestashop_id is None:
             root = self.get_blank_product_xml()
             self._populate_product_xml(
-                root, product, is_create=True, tax_rules_group_id=tax_rules_group_id
+                root,
+                product,
+                is_create=True,
+                tax_rules_group_id=tax_rules_group_id,
+                category_default_id=category_default_id,
+                category_ids=category_ids,
             )
             response = self._request(
                 "POST",
@@ -194,7 +265,12 @@ class PrestashopClient:
 
         root = self.get_product_xml(prestashop_id)
         self._populate_product_xml(
-            root, product, is_create=False, tax_rules_group_id=tax_rules_group_id
+            root,
+            product,
+            is_create=False,
+            tax_rules_group_id=tax_rules_group_id,
+            category_default_id=category_default_id,
+            category_ids=category_ids,
         )
         self._request(
             "PUT",
@@ -220,6 +296,8 @@ class PrestashopClient:
         *,
         is_create: bool,
         tax_rules_group_id: int | None = None,
+        category_default_id: int | None = None,
+        category_ids: list[int] | None = None,
     ) -> None:
         product_node = root.find("./product")
         if product_node is None:
@@ -248,29 +326,31 @@ class PrestashopClient:
         self._set_multilang_text(product_node, "name", product.name)
         self._set_multilang_text(product_node, "link_rewrite", self._slug(product))
 
-        if is_create:
-            self._set_text(
-                product_node,
-                "id_category_default",
-                product_node.findtext("id_category_default")
-                or str(self.credentials().default_category_id),
-            )
-            self._set_default_category_association(product_node)
+        effective_default = (
+            str(category_default_id)
+            if category_default_id is not None
+            else product_node.findtext("id_category_default")
+            or str(self.credentials().default_category_id)
+        )
+        self._set_text(product_node, "id_category_default", effective_default)
 
-    def _set_default_category_association(self, product_node: ElementTree.Element) -> None:
+        effective_categories = category_ids or [int(effective_default)]
+        self._set_category_association(product_node, effective_categories)
+
+    def _set_category_association(
+        self, product_node: ElementTree.Element, category_ids: list[int]
+    ) -> None:
         associations = product_node.find("./associations")
         if associations is None:
             associations = ElementTree.SubElement(product_node, "associations")
         categories = associations.find("./categories")
         if categories is None:
             categories = ElementTree.SubElement(associations, "categories")
-        category = categories.find("./category")
-        if category is None:
+        categories.clear()
+        for cat_id in category_ids:
             category = ElementTree.SubElement(categories, "category")
-        category_id = category.find("./id")
-        if category_id is None:
             category_id = ElementTree.SubElement(category, "id")
-        category_id.text = str(self.credentials().default_category_id)
+            category_id.text = str(cat_id)
 
     def _set_text(self, parent: ElementTree.Element, tag: str, value: str) -> None:
         node = parent.find(f"./{tag}")

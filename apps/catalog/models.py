@@ -3,6 +3,55 @@ from django.db import models
 from apps.core.models import SyncTrackedModel, TimeStampedModel
 
 
+class CategoryType(models.TextChoices):
+    DEFAULT = "default", "Default"
+    HIDDEN = "hidden", "Hidden"
+    NORMAL = "normal", "Normal"
+
+
+class Category(SyncTrackedModel):
+    prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="children",
+    )
+    position = models.IntegerField(default=0)
+    active = models.BooleanField(default=True)
+    category_type = models.CharField(
+        max_length=16,
+        choices=CategoryType.choices,
+        default=CategoryType.NORMAL,
+        help_text=(
+            "Determines how this category is used during product export. "
+            "DEFAULT: assigned as default category for new products. "
+            "HIDDEN: used for products not visible on the web. "
+            "NORMAL: available for manual assignment."
+        ),
+    )
+
+    class Meta:
+        ordering = ["position", "name"]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.category_type == CategoryType.DEFAULT:
+            exists = (
+                Category.objects.filter(category_type=CategoryType.DEFAULT)
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if exists:
+                raise ValidationError("Only one category can have category_type='default'.")
+
+    def __str__(self) -> str:
+        return f"{self.name} (PS #{self.prestashop_id})"
+
+
 class Manufacturer(SyncTrackedModel):
     icg_code = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255)
@@ -23,6 +72,18 @@ class Product(SyncTrackedModel):
         Manufacturer,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
+        related_name="products",
+    )
+    category_default = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_products",
+    )
+    categories = models.ManyToManyField(
+        Category,
         blank=True,
         related_name="products",
     )

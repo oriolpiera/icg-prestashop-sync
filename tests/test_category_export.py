@@ -1,0 +1,359 @@
+import json
+from unittest.mock import Mock
+
+import pytest
+
+from apps.catalog.models import Category, CategoryType, Product
+from apps.prestashop.client import PrestashopClient, PrestashopError
+from apps.prestashop.services import (
+    export_category,
+    resolve_default_category,
+    resolve_hidden_category,
+    resolve_product_categories,
+)
+from apps.sync.models import SyncJob, SyncJobType
+from apps.sync.tasks import export_categories
+
+
+def _make_category(**overrides):
+    return Category.objects.create(
+        prestashop_id=overrides.pop("prestashop_id", 100),
+        name=overrides.pop("name", "Test Category"),
+        parent=overrides.pop("parent", None),
+        position=overrides.pop("position", 0),
+        active=overrides.pop("active", True),
+        category_type=overrides.pop("category_type", CategoryType.NORMAL),
+        sync_required=overrides.pop("sync_required", True),
+    )
+
+
+def _response(payload: str, status_code: int = 200):
+    response = Mock()
+    response.status_code = status_code
+    response.text = payload
+    return response
+
+
+@pytest.fixture(autouse=True)
+def _clean_db():
+    SyncJob.objects.all().delete()
+    Product.objects.all().delete()
+    Category.objects.all().delete()
+
+
+@pytest.mark.django_db
+class TestCategoryModel:
+    def test_category_str(self):
+        cat = _make_category(prestashop_id=42, name="Shoes")
+        assert str(cat) == "Shoes (PS #42)"
+
+    def test_category_type_choices(self):
+        assert CategoryType.DEFAULT == "default"
+        assert CategoryType.HIDDEN == "hidden"
+        assert CategoryType.NORMAL == "normal"
+
+    def test_category_parent_self_fk(self):
+        parent = _make_category(prestashop_id=10, name="Root")
+        child = _make_category(prestashop_id=11, name="Child", parent=parent)
+        assert child.parent == parent
+        assert parent.children.count() == 1
+
+
+@pytest.mark.django_db
+class TestResolveHelpers:
+    def test_resolve_default_category_returns_default(self):
+        default = _make_category(
+            prestashop_id=251, name="Default", category_type=CategoryType.DEFAULT
+        )
+        result = resolve_default_category()
+        assert result == default
+
+    def test_resolve_default_category_raises_when_missing(self):
+        with pytest.raises(PrestashopError, match="No default category configured"):
+            resolve_default_category()
+
+    def test_resolve_hidden_category_returns_hidden(self):
+        hidden = _make_category(prestashop_id=526, name="Hidden", category_type=CategoryType.HIDDEN)
+        result = resolve_hidden_category()
+        assert result == hidden
+
+    def test_resolve_hidden_category_returns_none_when_missing(self):
+        assert resolve_hidden_category() is None
+
+
+@pytest.mark.django_db
+class TestResolveProductCategories:
+    def test_uses_product_default_category(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        resolved_default, ids = resolve_product_categories(product)
+        assert resolved_default == default
+        assert 251 in ids
+
+    def test_falls_back_to_global_default(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+        )
+        resolved_default, ids = resolve_product_categories(product)
+        assert resolved_default == default
+        assert 251 in ids
+
+    def test_includes_additional_categories(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        extra = _make_category(prestashop_id=300, name="Extra")
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        product.categories.add(extra)
+        resolved_default, ids = resolve_product_categories(product)
+        assert resolved_default == default
+        assert set(ids) == {251, 300}
+
+    def test_default_category_always_in_list(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        product.categories.add(default)
+        _, ids = resolve_product_categories(product)
+        assert ids.count(251) == 1
+
+    def test_filters_out_unsynced_categories(self):
+        default = _make_category(prestashop_id=251, category_type=CategoryType.DEFAULT)
+        unsynced = _make_category(prestashop_id=None, name="Unsynced")
+        synced = _make_category(prestashop_id=300, name="Synced")
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        product.categories.add(unsynced, synced)
+        _, ids = resolve_product_categories(product)
+        assert None not in ids
+        assert set(ids) == {251, 300}
+
+    def test_auto_exports_unsynced_default_category(self):
+        default = _make_category(prestashop_id=None, category_type=CategoryType.DEFAULT)
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product",
+            category_default=default,
+        )
+        client = Mock()
+        client.find_category_id_by_name.return_value = 99
+
+        resolved_default, ids = resolve_product_categories(product, client=client)
+
+        default.refresh_from_db()
+        assert default.prestashop_id == 99
+        assert resolved_default == default
+        assert 99 in ids
+
+
+@pytest.mark.django_db
+class TestCategoryExport:
+    def test_export_creates_category(self):
+        cat = _make_category(prestashop_id=None, name="New Cat")
+        client = Mock()
+        client.find_category_id_by_name.return_value = None
+        client.create_category.return_value = 55
+
+        result = export_category(cat.pk, client=client)
+
+        cat.refresh_from_db()
+        assert result == {"category_id": cat.pk, "prestashop_id": 55}
+        assert cat.prestashop_id == 55
+        assert cat.sync_required is False
+        assert cat.last_sync_error == ""
+
+    def test_export_short_circuits_when_prestashop_id_known(self):
+        cat = _make_category(prestashop_id=55, name="Known")
+        client = Mock()
+
+        result = export_category(cat.pk, client=client)
+
+        assert result == {"category_id": cat.pk, "prestashop_id": 55}
+        client.update_category.assert_called_once_with(55, "Known", active=True, parent_id=2)
+        client.find_category_id_by_name.assert_not_called()
+        client.create_category.assert_not_called()
+
+    def test_export_falls_back_to_name_lookup(self):
+        cat = _make_category(prestashop_id=None, name="Lookup")
+        client = Mock()
+        client.find_category_id_by_name.return_value = 42
+
+        result = export_category(cat.pk, client=client)
+
+        assert result == {"category_id": cat.pk, "prestashop_id": 42}
+        client.update_category.assert_called_once_with(42, "Lookup", active=True, parent_id=2)
+        client.create_category.assert_not_called()
+
+    def test_export_stores_error_on_failure(self):
+        cat = _make_category(prestashop_id=None, name="Fail Cat")
+        client = Mock()
+        client.find_category_id_by_name.side_effect = PrestashopError("API error", status_code=500)
+
+        with pytest.raises(PrestashopError):
+            export_category(cat.pk, client=client)
+
+        cat.refresh_from_db()
+        payload = json.loads(cat.last_sync_error)
+        assert payload["status_code"] == 500
+        assert cat.sync_required is True
+
+    def test_export_auto_exports_unsynced_parent(self):
+        parent = _make_category(prestashop_id=None, name="Parent")
+        child = _make_category(prestashop_id=None, name="Child", parent=parent)
+
+        call_count = 0
+
+        def mock_find(name, parent_id=None):
+            nonlocal call_count
+            call_count += 1
+            if name == "Parent":
+                return 10
+            if name == "Child":
+                return 20
+            return None
+
+        client = Mock()
+        client.find_category_id_by_name.side_effect = mock_find
+
+        result = export_category(child.pk, client=client)
+
+        parent.refresh_from_db()
+        child.refresh_from_db()
+        assert parent.prestashop_id == 10
+        assert child.prestashop_id == 20
+        assert result == {"category_id": child.pk, "prestashop_id": 20}
+        client.update_category.assert_any_call(10, "Parent", active=True, parent_id=2)
+        client.update_category.assert_any_call(20, "Child", active=True, parent_id=10)
+
+    def test_export_propagates_reparent(self):
+        old_parent = _make_category(prestashop_id=10, name="Old Parent")
+        new_parent = _make_category(prestashop_id=20, name="New Parent")
+        child = _make_category(
+            prestashop_id=30, name="Child", parent=old_parent, sync_required=True
+        )
+
+        child.parent = new_parent
+        child.save(update_fields=["parent"])
+
+        client = Mock()
+
+        result = export_category(child.pk, client=client)
+
+        assert result == {"category_id": child.pk, "prestashop_id": 30}
+        client.update_category.assert_called_once_with(
+            30,
+            "Child",
+            active=True,
+            parent_id=20,
+        )
+
+    def test_export_raises_on_cyclic_parent(self):
+        a = _make_category(prestashop_id=None, name="A")
+        b = _make_category(prestashop_id=None, name="B", parent=a)
+        Category.objects.filter(pk=a.pk).update(parent=b)
+
+        client = Mock()
+        client.find_category_id_by_name.return_value = None
+        client.create_category.return_value = 99
+
+        with pytest.raises(PrestashopError, match="Cyclic parent detected"):
+            export_category(b.pk, client=client)
+
+
+@pytest.mark.django_db
+class TestCategoryExportTask:
+    def test_task_exports_pending_categories(self, monkeypatch):
+        _make_category(prestashop_id=10, name="Cat A", sync_required=True)
+        _make_category(prestashop_id=20, name="Cat B", sync_required=True)
+        _make_category(prestashop_id=30, name="Already synced", sync_required=False)
+        _make_category(prestashop_id=40, name="Inactive synced", active=False, sync_required=False)
+
+        def fake_export(category_id: int):
+            return {"category_id": category_id, "prestashop_id": 99}
+
+        monkeypatch.setattr("apps.sync.tasks.export_category", fake_export)
+
+        result = export_categories()
+
+        assert result == {"status": "success", "processed": 3, "failed": 0}
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_CATEGORY).count() == 3
+
+    def test_task_propagates_deactivation(self, monkeypatch):
+        _make_category(prestashop_id=10, name="Active", sync_required=False, active=True)
+        _make_category(prestashop_id=20, name="Deactivated", sync_required=False, active=False)
+
+        def fake_export(category_id: int):
+            return {"category_id": category_id, "prestashop_id": 99}
+
+        monkeypatch.setattr("apps.sync.tasks.export_category", fake_export)
+
+        result = export_categories()
+
+        assert result == {"status": "success", "processed": 1, "failed": 0}
+        job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_CATEGORY)
+        assert job.payload["name"] == "Deactivated"
+
+    def test_task_skips_unsynced_inactive_categories(self, monkeypatch):
+        _make_category(prestashop_id=None, name="Never synced", active=False)
+
+        monkeypatch.setattr("apps.sync.tasks.export_category", lambda cid: {"category_id": cid})
+
+        result = export_categories()
+
+        assert result == {"status": "success", "processed": 0, "failed": 0}
+
+
+@pytest.mark.django_db
+class TestPrestashopClientCategoryExport:
+    def test_find_category_uses_exact_match_filter(self, settings):
+        response = _response(
+            "<prestashop><categories><category id='15' /></categories></prestashop>"
+        )
+        session = Mock()
+        session.request.return_value = response
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+
+        category_id = client.find_category_id_by_name("Shoes")
+
+        assert category_id == 15
+        assert session.request.call_args.kwargs["params"]["filter[name]"] == "[Shoes]"
+
+    def test_create_category_sends_correct_payload(self, settings):
+        response = _response("<prestashop><category><id>88</id></category></prestashop>")
+        session = Mock()
+        session.request.return_value = response
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+
+        category_id = client.create_category("New Category", parent_id=2, active=True)
+
+        assert category_id == 88
+        payload = session.request.call_args.kwargs["data"]
+        assert "<id_parent>2</id_parent>" in payload
+        assert "<active>1</active>" in payload

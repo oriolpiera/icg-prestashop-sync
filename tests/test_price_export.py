@@ -7,6 +7,8 @@ import pytest
 from apps.catalog.models import (
     AttributeGroup,
     AttributeValue,
+    Category,
+    CategoryType,
     Combination,
     Manufacturer,
     PrestashopMapping,
@@ -37,6 +39,16 @@ def _clean_db():
     Product.objects.all().delete()
     Manufacturer.objects.all().delete()
     TaxRuleMapping.objects.all().delete()
+    Category.objects.all().delete()
+
+
+@pytest.fixture
+def _default_category():
+    return Category.objects.create(
+        prestashop_id=2,
+        name="Default",
+        category_type=CategoryType.DEFAULT,
+    )
 
 
 def _make_manufacturer(**overrides):
@@ -139,7 +151,7 @@ class TestResolveTaxRulesGroup:
 
 @pytest.mark.django_db
 class TestPriceExport:
-    def test_export_price_syncs_product_and_combination(self):
+    def test_export_price_syncs_product_and_combination(self, _default_category):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
         _make_product_mapping(product, 22)
@@ -165,7 +177,11 @@ class TestPriceExport:
         assert result["product_prestashop_id"] == 22
         assert result["combination_prestashop_id"] == 55
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=22, tax_rules_group_id=1
+            product,
+            prestashop_id=22,
+            tax_rules_group_id=1,
+            category_default_id=2,
+            category_ids=[2],
         )
         client.upsert_combination.assert_called_once()
         call_kwargs = client.upsert_combination.call_args
@@ -175,7 +191,7 @@ class TestPriceExport:
         assert price.sync_required is False
         assert price.last_sync_error == ""
 
-    def test_export_price_passes_vat_to_product(self):
+    def test_export_price_passes_vat_to_product(self, _default_category):
         _make_tax_mapping(vat_rate=10, ps_group_id=2)
         product = _make_product()
         _make_product_mapping(product, 22)
@@ -198,10 +214,14 @@ class TestPriceExport:
         export_price(price.pk, client=client)
 
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=22, tax_rules_group_id=2
+            product,
+            prestashop_id=22,
+            tax_rules_group_id=2,
+            category_default_id=2,
+            category_ids=[2],
         )
 
-    def test_export_price_stores_structured_error(self):
+    def test_export_price_stores_structured_error(self, _default_category):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
         _make_product_mapping(product, 22)
@@ -306,7 +326,7 @@ class TestCombinationPricePassthrough:
 
 @pytest.mark.django_db
 class TestProductTaxRulesGroup:
-    def test_product_export_sets_tax_rules_group(self):
+    def test_product_export_sets_tax_rules_group(self, _default_category):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
 
@@ -317,10 +337,14 @@ class TestProductTaxRulesGroup:
         export_product(product.pk, client=client, tax_rules_group_id=1)
 
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=None, tax_rules_group_id=1
+            product,
+            prestashop_id=None,
+            tax_rules_group_id=1,
+            category_default_id=2,
+            category_ids=[2],
         )
 
-    def test_product_export_without_tax_rules_group(self):
+    def test_product_export_without_tax_rules_group(self, _default_category):
         product = _make_product()
 
         client = Mock()
@@ -330,7 +354,11 @@ class TestProductTaxRulesGroup:
         export_product(product.pk, client=client)
 
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=None, tax_rules_group_id=None
+            product,
+            prestashop_id=None,
+            tax_rules_group_id=None,
+            category_default_id=2,
+            category_ids=[2],
         )
 
 

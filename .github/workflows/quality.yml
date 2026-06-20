@@ -6,6 +6,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -32,7 +37,15 @@ jobs:
         run: python manage.py check --settings=config.settings.test
 
       - name: Run coverage
-        run: python -m pytest --cov --cov-report=term-missing --cov-report=xml
+        run: python -m pytest --cov --cov-report=term-missing --cov-report=xml --junit-xml=test-results.xml
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: (!cancelled())
+        with:
+          files: |
+            test-results.xml
+            !coverage.xml
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
