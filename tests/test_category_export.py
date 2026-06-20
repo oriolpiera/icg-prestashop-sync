@@ -184,6 +184,34 @@ class TestCategoryExport:
         assert payload["status_code"] == 500
         assert cat.sync_required is True
 
+    def test_export_auto_exports_unsynced_parent(self):
+        parent = _make_category(prestashop_id=None, name="Parent")
+        child = _make_category(prestashop_id=None, name="Child", parent=parent)
+
+        call_count = 0
+
+        def mock_find(name, parent_id=None):
+            nonlocal call_count
+            call_count += 1
+            if name == "Parent":
+                return 10
+            if name == "Child":
+                return 20
+            return None
+
+        client = Mock()
+        client.find_category_id_by_name.side_effect = mock_find
+
+        result = export_category(child.pk, client=client)
+
+        parent.refresh_from_db()
+        child.refresh_from_db()
+        assert parent.prestashop_id == 10
+        assert child.prestashop_id == 20
+        assert result == {"category_id": child.pk, "prestashop_id": 20}
+        client.update_category.assert_any_call(10, "Parent", active=True)
+        client.update_category.assert_any_call(20, "Child", active=True)
+
 
 @pytest.mark.django_db
 class TestCategoryExportTask:

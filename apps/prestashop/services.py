@@ -92,6 +92,11 @@ def export_category(category_id: int, client: PrestashopClient | None = None) ->
             else getattr(settings, "PRESTASHOP_ROOT_CATEGORY_ID", 2)
         )
 
+        if category.parent and category.parent.prestashop_id is None:
+            export_category(category.parent.pk, client=client)
+            category.parent.refresh_from_db()
+            parent_ps_id = category.parent.prestashop_id
+
         if category.prestashop_id is not None:
             client.update_category(category.prestashop_id, category.name, active=category.active)
             ps_id = category.prestashop_id
