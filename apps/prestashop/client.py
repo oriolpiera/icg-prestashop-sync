@@ -306,6 +306,197 @@ class PrestashopClient:
                 node.tag = node.tag.split("}", 1)[1]
         return root
 
+    def find_attribute_group_id_by_name(self, name: str) -> int | None:
+        self._validate_exact_filter_value(name, field_name="attribute group name")
+        response = self._request(
+            "GET",
+            "product_options",
+            params={"filter[name]": f"[{name}]", "limit": "1"},
+        )
+        root = self._parse_xml(response.text)
+        group = root.find("./product_options/product_option")
+        if group is None:
+            return None
+
+        group_id = group.attrib.get("id")
+        if not group_id:
+            group_id = group.findtext("id")
+        if not group_id:
+            raise PrestashopError(
+                "Prestashop attribute group search response did not include an id."
+            )
+        return int(group_id)
+
+    def get_attribute_group_xml(self, group_id: int) -> ElementTree.Element:
+        response = self._request("GET", "product_options", resource_id=group_id)
+        return self._parse_xml(response.text)
+
+    def create_attribute_group(self, name: str) -> int:
+        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
+        group = ElementTree.SubElement(root, "product_option")
+        group_type = ElementTree.SubElement(group, "group_type")
+        group_type.text = "select"
+        self._set_multilang_text(group, "name", name)
+        self._set_multilang_text(group, "public_name", name)
+        response = self._request(
+            "POST",
+            "product_options",
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        created_root = self._parse_xml(response.text)
+        group_id = created_root.findtext("./product_option/id")
+        if not group_id:
+            raise PrestashopError(
+                "Prestashop create attribute group response did not include an id."
+            )
+        return int(group_id)
+
+    def find_attribute_value_id(self, name: str, group_ps_id: int) -> int | None:
+        self._validate_exact_filter_value(name, field_name="attribute value name")
+        response = self._request(
+            "GET",
+            "product_option_values",
+            params={
+                "filter[id_attribute_group]": str(group_ps_id),
+                "filter[name]": f"[{name}]",
+                "limit": "1",
+            },
+        )
+        root = self._parse_xml(response.text)
+        value = root.find("./product_option_values/product_option_value")
+        if value is None:
+            return None
+
+        value_id = value.attrib.get("id")
+        if not value_id:
+            value_id = value.findtext("id")
+        if not value_id:
+            raise PrestashopError(
+                "Prestashop attribute value search response did not include an id."
+            )
+        return int(value_id)
+
+    def create_attribute_value(self, name: str, group_ps_id: int) -> int:
+        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
+        value = ElementTree.SubElement(root, "product_option_value")
+        id_group = ElementTree.SubElement(value, "id_attribute_group")
+        id_group.text = str(group_ps_id)
+        self._set_multilang_text(value, "name", name)
+        response = self._request(
+            "POST",
+            "product_option_values",
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        created_root = self._parse_xml(response.text)
+        value_id = created_root.findtext("./product_option_value/id")
+        if not value_id:
+            raise PrestashopError(
+                "Prestashop create attribute value response did not include an id."
+            )
+        return int(value_id)
+
+    def get_blank_combination_xml(self) -> ElementTree.Element:
+        response = self._request("GET", "combinations", params={"schema": "blank"})
+        return self._parse_xml(response.text)
+
+    def get_combination_xml(self, combination_id: int) -> ElementTree.Element:
+        response = self._request("GET", "combinations", resource_id=combination_id)
+        return self._parse_xml(response.text)
+
+    def upsert_combination(
+        self,
+        product_ps_id: int,
+        ean13: str,
+        active: bool,
+        attribute_value_ps_ids: list[int],
+        *,
+        prestashop_id: int | None = None,
+        price: str = "0",
+    ) -> int:
+        if prestashop_id is None:
+            root = self.get_blank_combination_xml()
+            self._populate_combination_xml(
+                root,
+                product_ps_id=product_ps_id,
+                ean13=ean13,
+                active=active,
+                attribute_value_ps_ids=attribute_value_ps_ids,
+                price=price,
+            )
+            response = self._request(
+                "POST",
+                "combinations",
+                data=ElementTree.tostring(root, encoding="unicode"),
+            )
+            created_root = self._parse_xml(response.text)
+            comb_id = created_root.findtext("./combination/id")
+            if not comb_id:
+                raise PrestashopError(
+                    "Prestashop create combination response did not include an id."
+                )
+            return int(comb_id)
+
+        root = self.get_combination_xml(prestashop_id)
+        self._populate_combination_xml(
+            root,
+            product_ps_id=product_ps_id,
+            ean13=ean13,
+            active=active,
+            attribute_value_ps_ids=attribute_value_ps_ids,
+            price=price,
+        )
+        self._request(
+            "PUT",
+            "combinations",
+            resource_id=prestashop_id,
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+        return prestashop_id
+
+    def deactivate_combination(self, prestashop_id: int) -> None:
+        root = self.get_combination_xml(prestashop_id)
+        self._set_text(root, "active", "0")
+        self._request(
+            "PUT",
+            "combinations",
+            resource_id=prestashop_id,
+            data=ElementTree.tostring(root, encoding="unicode"),
+        )
+
+    def _populate_combination_xml(
+        self,
+        root: ElementTree.Element,
+        *,
+        product_ps_id: int,
+        ean13: str,
+        active: bool,
+        attribute_value_ps_ids: list[int],
+        price: str,
+    ) -> None:
+        comb_node = root.find("./combination")
+        if comb_node is None:
+            raise PrestashopError(
+                "Prestashop combination payload did not include a combination node."
+            )
+
+        self._set_text(comb_node, "id_product", str(product_ps_id))
+        self._set_text(comb_node, "ean13", ean13)
+        self._set_text(comb_node, "active", "1" if active else "0")
+        self._set_text(comb_node, "price", price)
+        self._set_text(comb_node, "minimal_quantity", "1")
+
+        associations = comb_node.find("./associations")
+        if associations is None:
+            associations = ElementTree.SubElement(comb_node, "associations")
+        pov_node = associations.find("./product_option_values")
+        if pov_node is None:
+            pov_node = ElementTree.SubElement(associations, "product_option_values")
+        pov_node.clear()
+        for vs_id in attribute_value_ps_ids:
+            pov_item = ElementTree.SubElement(pov_node, "product_option_value")
+            pov_id = ElementTree.SubElement(pov_item, "id")
+            pov_id.text = str(vs_id)
+
     def upsert_price(self, price: object) -> None:
         raise NotImplementedError("Prestashop price sync is not implemented yet.")
 

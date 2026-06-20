@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from apps.catalog.models import Combination, Manufacturer, PrestashopMapping, Price, Product, Stock
+from apps.catalog.models import (
+    AttributeGroup,
+    AttributeValue,
+    Combination,
+    Manufacturer,
+    PrestashopMapping,
+    Price,
+    Product,
+    Stock,
+)
 from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus
 
 
@@ -74,6 +83,19 @@ class StockAdmin(admin.ModelAdmin):
     list_filter = ("warehouse_code", "sync_required")
     search_fields = ("combination__product__reference", "warehouse_code")
     actions = (mark_for_resync,)
+
+
+@admin.register(AttributeGroup)
+class AttributeGroupAdmin(admin.ModelAdmin):
+    list_display = ("name", "icg_type", "prestashop_id", "updated_at")
+    search_fields = ("name", "icg_type")
+
+
+@admin.register(AttributeValue)
+class AttributeValueAdmin(admin.ModelAdmin):
+    list_display = ("attribute_group", "icg_value", "name", "prestashop_id", "updated_at")
+    list_filter = ("attribute_group__icg_type",)
+    search_fields = ("icg_value", "name")
 
 
 @admin.register(PrestashopMapping)

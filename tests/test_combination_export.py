@@ -1,0 +1,496 @@
+import json
+from unittest.mock import Mock
+
+import pytest
+
+from apps.catalog.models import (
+    AttributeGroup,
+    AttributeValue,
+    Combination,
+    Manufacturer,
+    PrestashopMapping,
+    Product,
+)
+from apps.prestashop.client import PrestashopClient, PrestashopError
+from apps.prestashop.services import (
+    ensure_attribute_group,
+    ensure_attribute_value,
+    export_combination,
+    format_sync_error,
+)
+from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
+from apps.sync.tasks import export_combinations
+
+
+@pytest.fixture(autouse=True)
+def _clean_db():
+    SyncJob.objects.all().delete()
+    PrestashopMapping.objects.all().delete()
+    AttributeValue.objects.all().delete()
+    AttributeGroup.objects.all().delete()
+    Combination.objects.all().delete()
+    Product.objects.all().delete()
+    Manufacturer.objects.all().delete()
+
+
+def _make_manufacturer(**overrides):
+    return Manufacturer.objects.create(
+        icg_code=overrides.pop("icg_code", "M-1001"),
+        name=overrides.pop("name", "Manufacturer 1001"),
+        prestashop_id=overrides.pop("prestashop_id", 10),
+        **overrides,
+    )
+
+
+def _make_product(**overrides):
+    manufacturer = overrides.pop("manufacturer", None) or _make_manufacturer()
+    return Product.objects.create(
+        icg_id=overrides.pop("icg_id", 1001),
+        reference=overrides.pop("reference", "REF001"),
+        name=overrides.pop("name", "Product One"),
+        manufacturer=manufacturer,
+        visible_web=overrides.pop("visible_web", True),
+        discontinued=overrides.pop("discontinued", False),
+        **overrides,
+    )
+
+
+def _make_combination(**overrides):
+    product = overrides.pop("product", None) or _make_product()
+    return Combination.objects.create(
+        product=product,
+        icg_size=overrides.pop("icg_size", "M"),
+        icg_color=overrides.pop("icg_color", "Red"),
+        ean13=overrides.pop("ean13", "1234567890123"),
+        active=overrides.pop("active", True),
+        **overrides,
+    )
+
+
+def _make_product_mapping(product, prestashop_product_id):
+    return PrestashopMapping.objects.create(
+        product=product,
+        prestashop_product_id=prestashop_product_id,
+    )
+
+
+def _response(payload: str, status_code: int = 200):
+    response = Mock()
+    response.status_code = status_code
+    response.text = payload
+    return response
+
+
+def _blank_combination_xml():
+    return (
+        "<prestashop><combination>"
+        "<id_product></id_product>"
+        "<ean13></ean13>"
+        "<active></active>"
+        "<price></price>"
+        "<minimal_quantity></minimal_quantity>"
+        "<associations><product_option_values></product_option_values></associations>"
+        "</combination></prestashop>"
+    )
+
+
+def _existing_combination_xml(psid=55):
+    return (
+        f"<prestashop><combination>"
+        f"<id>{psid}</id>"
+        "<id_product>22</id_product>"
+        "<ean13>1234567890123</ean13>"
+        "<active>1</active>"
+        "<price>0</price>"
+        "<minimal_quantity>1</minimal_quantity>"
+        "<associations><product_option_values>"
+        "<product_option_value><id>1</id></product_option_value>"
+        "<product_option_value><id>2</id></product_option_value>"
+        "</product_option_values></associations>"
+        "</combination></prestashop>"
+    )
+
+
+# ─── Attribute Group / Value helpers ────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestEnsureAttributeGroup:
+    def test_creates_group_when_not_in_db(self):
+        client = Mock()
+        client.find_attribute_group_id_by_name.return_value = None
+        client.create_attribute_group.return_value = 10
+
+        ps_id = ensure_attribute_group("size", client=client)
+
+        assert ps_id == 10
+        ag = AttributeGroup.objects.get(icg_type="size")
+        assert ag.prestashop_id == 10
+        assert ag.name == "Size"
+        client.create_attribute_group.assert_called_once_with("Size")
+
+    def test_reuses_existing_db_group(self):
+        AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=42)
+        client = Mock()
+
+        ps_id = ensure_attribute_group("size", client=client)
+
+        assert ps_id == 42
+        client.find_attribute_group_id_by_name.assert_not_called()
+        client.create_attribute_group.assert_not_called()
+
+    def test_reuses_existing_ps_group_not_in_db(self):
+        client = Mock()
+        client.find_attribute_group_id_by_name.return_value = 99
+
+        ps_id = ensure_attribute_group("color", client=client)
+
+        assert ps_id == 99
+        client.create_attribute_group.assert_not_called()
+        ag = AttributeGroup.objects.get(icg_type="color")
+        assert ag.prestashop_id == 99
+
+
+@pytest.mark.django_db
+class TestEnsureAttributeValue:
+    def test_creates_value_when_not_in_db(self):
+        ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        client = Mock()
+        client.find_attribute_value_id.return_value = None
+        client.create_attribute_value.return_value = 100
+
+        ps_id = ensure_attribute_value(10, "size", "M", client=client)
+
+        assert ps_id == 100
+        av = AttributeValue.objects.get(attribute_group=ag, icg_value="M")
+        assert av.prestashop_id == 100
+
+    def test_reuses_existing_db_value(self):
+        ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        AttributeValue.objects.create(attribute_group=ag, icg_value="M", name="M", prestashop_id=55)
+        client = Mock()
+
+        ps_id = ensure_attribute_value(10, "size", "M", client=client)
+
+        assert ps_id == 55
+        client.find_attribute_value_id.assert_not_called()
+
+    def test_reuses_existing_ps_value_not_in_db(self):
+        ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        client = Mock()
+        client.find_attribute_value_id.return_value = 77
+
+        ps_id = ensure_attribute_value(10, "size", "L", client=client)
+
+        assert ps_id == 77
+        client.create_attribute_value.assert_not_called()
+        av = AttributeValue.objects.get(attribute_group=ag, icg_value="L")
+        assert av.prestashop_id == 77
+
+
+# ─── Combination export service ─────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestCombinationExport:
+    def test_export_creates_and_maps_new_combination(self):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="M", icg_color="Red")
+
+        client = Mock()
+        client.upsert_combination.return_value = 55
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        mapping = PrestashopMapping.objects.get(combination=combination)
+        assert mapping.prestashop_combination_id == 55
+        combination.refresh_from_db()
+        assert combination.sync_required is False
+        assert combination.last_sync_error == ""
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "1234567890123",
+            True,
+            [100, 200],
+            prestashop_id=None,
+        )
+
+    def test_export_updates_existing_mapped_combination(self):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product)
+        PrestashopMapping.objects.create(combination=combination, prestashop_combination_id=88)
+
+        client = Mock()
+        client.upsert_combination.return_value = 88
+
+        export_combination(combination.pk, client=client)
+
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "1234567890123",
+            True,
+            [100, 200],
+            prestashop_id=88,
+        )
+
+    def test_export_creates_attribute_groups_and_values(self):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+        combination = _make_combination(product=product)
+
+        client = Mock()
+        client.find_attribute_group_id_by_name.return_value = None
+        client.create_attribute_group.side_effect = [10, 11]
+        client.find_attribute_value_id.return_value = None
+        client.create_attribute_value.side_effect = [100, 200]
+        client.upsert_combination.return_value = 55
+
+        export_combination(combination.pk, client=client)
+
+        assert AttributeGroup.objects.count() == 2
+        assert AttributeValue.objects.count() == 2
+        assert client.create_attribute_group.call_count == 2
+        assert client.create_attribute_value.call_count == 2
+
+    def test_export_requires_product_mapping(self):
+        product = _make_product()
+        combination = _make_combination(product=product)
+        client = Mock()
+
+        with pytest.raises(PrestashopError, match="must be exported before"):
+            export_combination(combination.pk, client=client)
+
+        combination.refresh_from_db()
+        payload = json.loads(combination.last_sync_error)
+        assert "must be exported before" in payload["message"]
+        assert combination.sync_required is True
+
+    def test_export_deactivates_inactive_combination(self):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+        combination = _make_combination(product=product, active=False)
+        PrestashopMapping.objects.create(combination=combination, prestashop_combination_id=77)
+
+        client = Mock()
+
+        export_combination(combination.pk, client=client)
+
+        client.deactivate_combination.assert_called_once_with(77)
+        client.upsert_combination.assert_not_called()
+        combination.refresh_from_db()
+        assert combination.sync_required is False
+
+    def test_export_stores_structured_error(self):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+        combination = _make_combination(product=product)
+
+        client = Mock()
+        client.upsert_combination.side_effect = PrestashopError(
+            "Prestashop returned HTTP 500 for combinations.",
+            status_code=500,
+            body="<errors />",
+        )
+
+        with pytest.raises(PrestashopError):
+            export_combination(combination.pk, client=client)
+
+        combination.refresh_from_db()
+        payload = json.loads(combination.last_sync_error)
+        assert payload["status_code"] == 500
+        assert combination.sync_required is True
+
+
+# ─── Combination export task ────────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestCombinationExportTask:
+    def test_task_exports_pending_combinations(self, monkeypatch):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+        _make_combination(product=product, icg_size="M", icg_color="Red", ean13="111")
+        _make_combination(product=product, icg_size="M", icg_color="Blue", ean13="222")
+
+        def fake_export(combination_id):
+            c = Combination.objects.get(pk=combination_id)
+            PrestashopMapping.objects.update_or_create(
+                combination=c,
+                defaults={"prestashop_combination_id": c.pk + 100},
+            )
+            c.sync_required = False
+            c.last_sync_error = ""
+            c.last_synced_at = c.updated_at
+            c.save()
+            return {"combination_id": combination_id, "prestashop_combination_id": c.pk + 100}
+
+        monkeypatch.setattr("apps.sync.tasks.export_combination", fake_export)
+
+        result = export_combinations()
+
+        assert result == {"status": "success", "processed": 2, "failed": 0}
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_COMBINATION).count() == 2
+        assert SyncJob.objects.filter(status=SyncJobStatus.SUCCEEDED).count() == 2
+
+    def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
+        product = _make_product()
+        _make_product_mapping(product, 22)
+        combination = _make_combination(product=product)
+
+        def fake_export(combination_id):
+            c = Combination.objects.get(pk=combination_id)
+            c.last_sync_error = format_sync_error(PrestashopError("boom", status_code=503))
+            c.save(update_fields=["last_sync_error", "updated_at"])
+            raise PrestashopError("boom", status_code=503)
+
+        monkeypatch.setattr("apps.sync.tasks.export_combination", fake_export)
+
+        result = export_combinations()
+
+        combination.refresh_from_db()
+        job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_COMBINATION)
+        assert result == {"status": "success", "processed": 0, "failed": 1}
+        assert job.status == SyncJobStatus.FAILED
+        assert json.loads(combination.last_sync_error)["status_code"] == 503
+
+
+# ─── PrestaShopClient combination methods ──────────────────────────
+
+
+@pytest.mark.django_db
+class TestPrestashopClientCombinationExport:
+    def test_upsert_combination_creates_new(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(_blank_combination_xml()),
+            _response("<prestashop><combination><id>55</id></combination></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        comb_id = client.upsert_combination(22, "1234567890123", True, [100, 200])
+
+        assert comb_id == 55
+        post_call = session.request.call_args_list[1]
+        payload = post_call.kwargs["data"]
+        assert "<id_product>22</id_product>" in payload
+        assert "<ean13>1234567890123</ean13>" in payload
+        assert "<active>1</active>" in payload
+        assert "<id>100</id>" in payload
+        assert "<id>200</id>" in payload
+
+    def test_upsert_combination_updates_existing(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(_existing_combination_xml(55)),
+            _response("<prestashop><combination><id>55</id></combination></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        comb_id = client.upsert_combination(22, "9999999999999", True, [300, 400], prestashop_id=55)
+
+        assert comb_id == 55
+        put_call = session.request.call_args_list[1]
+        assert put_call.args[0] == "PUT"
+        payload = put_call.kwargs["data"]
+        assert "<id>300</id>" in payload
+        assert "<id>400</id>" in payload
+
+    def test_deactivate_combination(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(_existing_combination_xml(55)),
+            _response("<prestashop><combination><id>55</id></combination></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        client.deactivate_combination(55)
+
+        put_call = session.request.call_args_list[1]
+        assert put_call.args[0] == "PUT"
+        payload = put_call.kwargs["data"]
+        assert "<active>0</active>" in payload
+
+    def test_find_attribute_group_uses_exact_match_filter(self, settings):
+        response = _response(
+            "<prestashop><product_options>"
+            "<product_option id='10' />"
+            "</product_options></prestashop>"
+        )
+        session = Mock()
+        session.request.return_value = response
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+        group_id = client.find_attribute_group_id_by_name("Size")
+
+        assert group_id == 10
+        assert session.request.call_args.kwargs["params"] == {
+            "filter[name]": "[Size]",
+            "limit": "1",
+        }
+
+    def test_create_attribute_group(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response("<prestashop><product_option><id>10</id></product_option></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        group_id = client.create_attribute_group("Size")
+
+        assert group_id == 10
+        post_call = session.request.call_args_list[0]
+        payload = post_call.kwargs["data"]
+        assert "<group_type>select</group_type>" in payload

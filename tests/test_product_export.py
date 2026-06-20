@@ -189,9 +189,7 @@ class TestProductExportTask:
 @pytest.mark.django_db
 class TestPrestashopClientProductExport:
     def test_find_product_uses_exact_match_filter(self, settings):
-        response = _response(
-            "<prestashop><products><product id='22' /></products></prestashop>"
-        )
+        response = _response("<prestashop><products><product id='22' /></products></prestashop>")
         session = Mock()
         session.request.return_value = response
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
@@ -331,7 +329,7 @@ class TestPrestashopClientProductExport:
 
         put_call = session.request.call_args_list[1]
         payload = put_call.kwargs["data"]
-        assert "<language id=\"1\">Updated Product</language>" in payload
-        assert "<language id=\"2\">Nom catala</language>" in payload
-        assert "<language id=\"1\">updated-product</language>" in payload
-        assert "<language id=\"2\">nom-catala</language>" in payload
+        assert '<language id="1">Updated Product</language>' in payload
+        assert '<language id="2">Nom catala</language>' in payload
+        assert '<language id="1">updated-product</language>' in payload
+        assert '<language id="2">nom-catala</language>' in payload

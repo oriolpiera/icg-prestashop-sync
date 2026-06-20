@@ -3,7 +3,14 @@ from datetime import UTC
 
 from django.utils import timezone
 
-from apps.catalog.models import Manufacturer, PrestashopMapping, Product
+from apps.catalog.models import (
+    AttributeGroup,
+    AttributeValue,
+    Combination,
+    Manufacturer,
+    PrestashopMapping,
+    Product,
+)
 from apps.prestashop.client import PrestashopClient, PrestashopError
 
 
@@ -87,4 +94,153 @@ def export_product(product_id: int, client: PrestashopClient | None = None) -> d
         product.sync_required = True
         product.last_sync_error = format_sync_error(exc)
         product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
+
+
+ATTRIBUTE_GROUP_NAMES = {
+    "size": "Size",
+    "color": "Color",
+}
+
+
+def ensure_attribute_group(icg_type: str, client: PrestashopClient | None = None) -> int:
+    client = client or PrestashopClient()
+    existing = AttributeGroup.objects.filter(icg_type=icg_type).first()
+    if existing is not None:
+        return existing.prestashop_id
+
+    display_name = ATTRIBUTE_GROUP_NAMES.get(icg_type, icg_type.title())
+    ps_id = client.find_attribute_group_id_by_name(display_name)
+    if ps_id is None:
+        ps_id = client.create_attribute_group(display_name)
+
+    AttributeGroup.objects.update_or_create(
+        icg_type=icg_type,
+        defaults={"name": display_name, "prestashop_id": ps_id},
+    )
+    return ps_id
+
+
+def ensure_attribute_value(
+    group_ps_id: int,
+    icg_type: str,
+    value_name: str,
+    client: PrestashopClient | None = None,
+) -> int:
+    client = client or PrestashopClient()
+    ag = AttributeGroup.objects.get(prestashop_id=group_ps_id)
+    existing = AttributeValue.objects.filter(attribute_group=ag, icg_value=value_name).first()
+    if existing is not None:
+        return existing.prestashop_id
+
+    ps_id = client.find_attribute_value_id(value_name, group_ps_id)
+    if ps_id is None:
+        ps_id = client.create_attribute_value(value_name, group_ps_id)
+
+    AttributeValue.objects.update_or_create(
+        attribute_group=ag,
+        icg_value=value_name,
+        defaults={"name": value_name, "prestashop_id": ps_id},
+    )
+    return ps_id
+
+
+def export_combination(
+    combination_id: int, client: PrestashopClient | None = None
+) -> dict[str, int]:
+    combination = Combination.objects.select_related("product", "product__manufacturer").get(
+        pk=combination_id
+    )
+    client = client or PrestashopClient()
+
+    try:
+        product_mapping = PrestashopMapping.objects.filter(product=combination.product).first()
+        if not product_mapping or not product_mapping.prestashop_product_id:
+            raise PrestashopError(
+                f"Product {combination.product.reference} must be exported "
+                "before combination sync."
+            )
+
+        product_ps_id = product_mapping.prestashop_product_id
+
+        if not combination.active:
+            comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
+            if comb_mapping and comb_mapping.prestashop_combination_id:
+                client.deactivate_combination(comb_mapping.prestashop_combination_id)
+
+            combination.sync_required = False
+            combination.last_sync_error = ""
+            combination.last_synced_at = timezone.now().astimezone(UTC)
+            combination.save(
+                update_fields=[
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "combination_id": combination.pk,
+                "prestashop_combination_id": (
+                    comb_mapping.prestashop_combination_id if comb_mapping else 0
+                ),
+            }
+
+        size_ps_ids = []
+        color_ps_ids = []
+
+        if combination.icg_size:
+            size_group_ps_id = ensure_attribute_group("size", client=client)
+            size_value_ps_id = ensure_attribute_value(
+                size_group_ps_id, "size", combination.icg_size, client=client
+            )
+            size_ps_ids = [size_value_ps_id]
+
+        if combination.icg_color:
+            color_group_ps_id = ensure_attribute_group("color", client=client)
+            color_value_ps_id = ensure_attribute_value(
+                color_group_ps_id, "color", combination.icg_color, client=client
+            )
+            color_ps_ids = [color_value_ps_id]
+
+        attribute_value_ps_ids = size_ps_ids + color_ps_ids
+
+        if not attribute_value_ps_ids:
+            raise PrestashopError(f"Combination {combination} has neither size nor color.")
+
+        comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
+        prestashop_combination_id = comb_mapping.prestashop_combination_id if comb_mapping else None
+
+        prestashop_combination_id = client.upsert_combination(
+            product_ps_id,
+            combination.ean13,
+            combination.active,
+            attribute_value_ps_ids,
+            prestashop_id=prestashop_combination_id,
+        )
+
+        PrestashopMapping.objects.update_or_create(
+            combination=combination,
+            defaults={"prestashop_combination_id": prestashop_combination_id},
+        )
+
+        combination.sync_required = False
+        combination.last_sync_error = ""
+        combination.last_synced_at = timezone.now().astimezone(UTC)
+        combination.save(
+            update_fields=[
+                "sync_required",
+                "last_sync_error",
+                "last_synced_at",
+                "updated_at",
+            ]
+        )
+        return {
+            "combination_id": combination.pk,
+            "prestashop_combination_id": prestashop_combination_id,
+        }
+    except Exception as exc:
+        combination.sync_required = True
+        combination.last_sync_error = format_sync_error(exc)
+        combination.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise

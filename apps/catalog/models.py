@@ -90,6 +90,41 @@ class Stock(SyncTrackedModel):
         return f"{self.combination}: {self.quantity}"
 
 
+class AttributeGroup(TimeStampedModel):
+    icg_type = models.CharField(max_length=32, unique=True, help_text="size or color")
+    name = models.CharField(max_length=255)
+    prestashop_id = models.PositiveIntegerField(unique=True)
+
+    class Meta:
+        ordering = ["icg_type"]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.icg_type})"
+
+
+class AttributeValue(TimeStampedModel):
+    attribute_group = models.ForeignKey(
+        AttributeGroup,
+        on_delete=models.CASCADE,
+        related_name="values",
+    )
+    icg_value = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)
+    prestashop_id = models.PositiveIntegerField(unique=True)
+
+    class Meta:
+        ordering = ["attribute_group__icg_type", "icg_value"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attribute_group", "icg_value"],
+                name="catalog_unique_group_value",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.attribute_group.icg_type}:{self.icg_value}"
+
+
 class PrestashopMapping(TimeStampedModel):
     product = models.OneToOneField(
         Product,
