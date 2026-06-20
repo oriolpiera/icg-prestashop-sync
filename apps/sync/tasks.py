@@ -109,7 +109,7 @@ def export_categories() -> dict:
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_CATEGORY,
             entity_type="category",
-            entity_key=str(category.prestashop_id),
+            entity_key=category.name,
             status=SyncJobStatus.RUNNING,
             attempts=1,
             started_at=timezone.now(),
