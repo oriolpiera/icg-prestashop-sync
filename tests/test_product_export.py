@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from apps.catalog.models import Manufacturer, PrestashopMapping, Product
+from apps.catalog.models import Category, CategoryType, Manufacturer, PrestashopMapping, Product
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.prestashop.services import export_product, format_sync_error
 from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
@@ -16,6 +16,16 @@ def _clean_db():
     PrestashopMapping.objects.all().delete()
     Product.objects.all().delete()
     Manufacturer.objects.all().delete()
+    Category.objects.all().delete()
+
+
+@pytest.fixture
+def _default_category():
+    return Category.objects.create(
+        prestashop_id=2,
+        name="Default",
+        category_type=CategoryType.DEFAULT,
+    )
 
 
 def _make_product(**overrides):
@@ -48,7 +58,7 @@ def _response(payload: str, status_code: int = 200):
 
 @pytest.mark.django_db
 class TestProductExport:
-    def test_export_creates_and_maps_new_product(self):
+    def test_export_creates_and_maps_new_product(self, _default_category):
         product = _make_product()
         client = Mock()
         client.find_product_id_by_reference.return_value = None
@@ -63,10 +73,14 @@ class TestProductExport:
         assert product.sync_required is False
         assert product.last_sync_error == ""
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=None, tax_rules_group_id=None
+            product,
+            prestashop_id=None,
+            tax_rules_group_id=None,
+            category_default_id=2,
+            category_ids=[2],
         )
 
-    def test_export_reuses_existing_prestashop_product_by_reference(self):
+    def test_export_reuses_existing_prestashop_product_by_reference(self, _default_category):
         product = _make_product(reference="REF-EXISTING")
         client = Mock()
         client.find_product_id_by_reference.return_value = 45
@@ -77,10 +91,14 @@ class TestProductExport:
         mapping = PrestashopMapping.objects.get(product=product)
         assert mapping.prestashop_product_id == 45
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=45, tax_rules_group_id=None
+            product,
+            prestashop_id=45,
+            tax_rules_group_id=None,
+            category_default_id=2,
+            category_ids=[2],
         )
 
-    def test_export_updates_already_mapped_product(self):
+    def test_export_updates_already_mapped_product(self, _default_category):
         product = _make_product()
         PrestashopMapping.objects.create(product=product, prestashop_product_id=34)
         client = Mock()
@@ -90,10 +108,14 @@ class TestProductExport:
 
         client.find_product_id_by_reference.assert_not_called()
         client.upsert_product.assert_called_once_with(
-            product, prestashop_id=34, tax_rules_group_id=None
+            product,
+            prestashop_id=34,
+            tax_rules_group_id=None,
+            category_default_id=2,
+            category_ids=[2],
         )
 
-    def test_export_uses_race_safe_mapping_upsert(self):
+    def test_export_uses_race_safe_mapping_upsert(self, _default_category):
         product = _make_product()
         client = Mock()
         client.find_product_id_by_reference.return_value = None
@@ -110,7 +132,7 @@ class TestProductExport:
             defaults={"prestashop_product_id": 77},
         )
 
-    def test_export_requires_mapped_manufacturer(self):
+    def test_export_requires_mapped_manufacturer(self, _default_category):
         manufacturer = Manufacturer.objects.create(icg_code="15000", name="Brand X")
         product = _make_product(manufacturer=manufacturer)
         client = Mock()
@@ -123,7 +145,7 @@ class TestProductExport:
         assert "must be exported before product sync" in payload["message"]
         client.find_product_id_by_reference.assert_not_called()
 
-    def test_export_stores_structured_error(self):
+    def test_export_stores_structured_error(self, _default_category):
         product = _make_product()
         client = Mock()
         client.find_product_id_by_reference.return_value = None
@@ -140,6 +162,52 @@ class TestProductExport:
         payload = json.loads(product.last_sync_error)
         assert payload["status_code"] == 500
         assert product.sync_required is True
+
+    def test_export_includes_product_categories(self, _default_category):
+        extra = Category.objects.create(prestashop_id=300, name="Extra")
+        product = _make_product()
+        product.categories.add(extra)
+        client = Mock()
+        client.find_product_id_by_reference.return_value = None
+        client.upsert_product.return_value = 77
+
+        export_product(product.pk, client=client)
+
+        client.upsert_product.assert_called_once_with(
+            product,
+            prestashop_id=None,
+            tax_rules_group_id=None,
+            category_default_id=2,
+            category_ids=[300, 2],
+        )
+
+    def test_export_uses_product_default_category(self, _default_category):
+        custom_default = Category.objects.create(prestashop_id=100, name="Custom Default")
+        product = _make_product(category_default=custom_default)
+        client = Mock()
+        client.find_product_id_by_reference.return_value = None
+        client.upsert_product.return_value = 77
+
+        export_product(product.pk, client=client)
+
+        client.upsert_product.assert_called_once_with(
+            product,
+            prestashop_id=None,
+            tax_rules_group_id=None,
+            category_default_id=100,
+            category_ids=[100],
+        )
+
+    def test_export_raises_when_no_default_category(self):
+        product = _make_product()
+        client = Mock()
+
+        with pytest.raises(PrestashopError, match="No default category configured"):
+            export_product(product.pk, client=client)
+
+        product.refresh_from_db()
+        payload = json.loads(product.last_sync_error)
+        assert "No default category" in payload["message"]
 
 
 @pytest.mark.django_db
@@ -223,7 +291,7 @@ class TestPrestashopClientProductExport:
 
         session.request.assert_not_called()
 
-    def test_upsert_product_creates_hidden_product_when_not_visible(self, settings):
+    def test_upsert_product_creates_with_category(self, settings):
         product = _make_product(visible_web=False)
         session = Mock()
         session.request.side_effect = [
@@ -253,14 +321,18 @@ class TestPrestashopClientProductExport:
 
         client = PrestashopClient(session=session)
 
-        product_id = client.upsert_product(product)
+        product_id = client.upsert_product(
+            product, category_default_id=251, category_ids=[251, 300]
+        )
 
         assert product_id == 77
         post_call = session.request.call_args_list[1]
         payload = post_call.kwargs["data"]
         assert "<visibility>none</visibility>" in payload
         assert "<active>1</active>" in payload
-        assert "<id_category_default>2</id_category_default>" in payload
+        assert "<id_category_default>251</id_category_default>" in payload
+        assert "<id>251</id>" in payload
+        assert "<id>300</id>" in payload
 
     def test_upsert_product_disables_discontinued_product(self, settings):
         product = _make_product(discontinued=True)
@@ -291,7 +363,9 @@ class TestPrestashopClientProductExport:
 
         client = PrestashopClient(session=session)
 
-        product_id = client.upsert_product(product, prestashop_id=44)
+        product_id = client.upsert_product(
+            product, prestashop_id=44, category_default_id=251, category_ids=[251]
+        )
 
         assert product_id == 44
         put_call = session.request.call_args_list[1]
@@ -331,7 +405,9 @@ class TestPrestashopClientProductExport:
 
         client = PrestashopClient(session=session)
 
-        client.upsert_product(product, prestashop_id=44)
+        client.upsert_product(
+            product, prestashop_id=44, category_default_id=251, category_ids=[251]
+        )
 
         put_call = session.request.call_args_list[1]
         payload = put_call.kwargs["data"]

@@ -3,6 +3,7 @@ from django.contrib import admin
 from apps.catalog.models import (
     AttributeGroup,
     AttributeValue,
+    Category,
     Combination,
     Manufacturer,
     PrestashopMapping,
@@ -39,12 +40,29 @@ class ManufacturerAdmin(admin.ModelAdmin):
     actions = (mark_for_resync,)
 
 
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "prestashop_id",
+        "parent",
+        "position",
+        "active",
+        "category_type",
+        "updated_at",
+    )
+    list_filter = ("active", "category_type")
+    search_fields = ("name", "prestashop_id")
+    actions = (mark_for_resync,)
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
         "reference",
         "name",
         "manufacturer",
+        "category_default",
         "visible_web",
         "discontinued",
         "sync_required",
@@ -52,6 +70,7 @@ class ProductAdmin(admin.ModelAdmin):
     )
     list_filter = ("visible_web", "discontinued", "sync_required")
     search_fields = ("reference", "name", "icg_id")
+    filter_horizontal = ("categories",)
     actions = (mark_for_resync,)
 
 

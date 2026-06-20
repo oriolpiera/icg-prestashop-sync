@@ -4,11 +4,12 @@ from datetime import UTC
 from celery import shared_task
 from django.utils import timezone
 
-from apps.catalog.models import Combination, Manufacturer, Price, Product, Stock
+from apps.catalog.models import Category, Combination, Manufacturer, Price, Product, Stock
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
 from apps.prestashop.services import (
+    export_category,
     export_combination,
     export_manufacturer,
     export_price,
@@ -76,6 +77,49 @@ def export_manufacturers() -> dict:
 
         try:
             result = export_manufacturer(manufacturer.pk)
+        except Exception as exc:
+            failed += 1
+            error = format_sync_error(exc)
+            job.status = SyncJobStatus.FAILED
+            job.last_error = error
+        else:
+            processed += 1
+            job.status = SyncJobStatus.SUCCEEDED
+            job.payload = {**job.payload, **result}
+
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "payload", "last_error", "finished_at", "updated_at"])
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "failed": failed,
+    }
+
+
+@shared_task
+def export_categories() -> dict:
+    logger.info("Celery task: export_categories")
+    processed = 0
+    failed = 0
+
+    for category in Category.objects.filter(active=True).order_by("position", "pk"):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CATEGORY,
+            entity_type="category",
+            entity_key=str(category.prestashop_id),
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={
+                "category_id": category.pk,
+                "prestashop_id": category.prestashop_id,
+                "name": category.name,
+            },
+        )
+
+        try:
+            result = export_category(category.pk)
         except Exception as exc:
             failed += 1
             error = format_sync_error(exc)

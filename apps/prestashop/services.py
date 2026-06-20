@@ -6,6 +6,8 @@ from django.utils import timezone
 from apps.catalog.models import (
     AttributeGroup,
     AttributeValue,
+    Category,
+    CategoryType,
     Combination,
     Manufacturer,
     PrestashopMapping,
@@ -46,6 +48,64 @@ def resolve_tax_rules_group(vat_rate) -> int:
         f"Unsupported VAT rate {rate}%: no tax rule mapping configured. "
         "Add a TaxRuleMapping entry in Django admin."
     )
+
+
+def resolve_default_category() -> Category:
+    category = Category.objects.filter(category_type=CategoryType.DEFAULT).first()
+    if category is None:
+        raise PrestashopError(
+            "No default category configured. "
+            "Set a Category with category_type='default' in Django admin."
+        )
+    return category
+
+
+def resolve_hidden_category() -> Category | None:
+    return Category.objects.filter(category_type=CategoryType.HIDDEN).first()
+
+
+def resolve_product_categories(
+    product: Product,
+) -> tuple[Category, list[int]]:
+    """Return (default_category, all_category_ps_ids) for product export.
+
+    Falls back to the DEFAULT category when the product has no explicit
+    category_default.  The full list always includes the default category.
+    """
+    default = product.category_default or resolve_default_category()
+    all_ids = list(product.categories.values_list("prestashop_id", flat=True))
+    if default.prestashop_id not in all_ids:
+        all_ids.append(default.prestashop_id)
+    return default, all_ids
+
+
+def export_category(category_id: int, client: PrestashopClient | None = None) -> dict[str, int]:
+    category = Category.objects.get(pk=category_id)
+    client = client or PrestashopClient()
+
+    try:
+        parent_ps_id = category.parent.prestashop_id if category.parent else 2
+
+        ps_id = category.prestashop_id
+        existing = client.find_category_id_by_name(category.name, parent_id=parent_ps_id)
+        if existing is not None:
+            ps_id = existing
+            client.update_category(ps_id, category.name, active=category.active)
+        else:
+            ps_id = client.create_category(
+                category.name, parent_id=parent_ps_id, active=category.active
+            )
+
+        Category.objects.filter(pk=category.pk).update(
+            prestashop_id=ps_id,
+            last_synced_at=timezone.now().astimezone(UTC),
+        )
+        return {"category_id": category.pk, "prestashop_id": ps_id}
+    except Exception as exc:
+        Category.objects.filter(pk=category.pk).update(
+            last_sync_error=format_sync_error(exc),
+        )
+        raise
 
 
 def export_manufacturer(
@@ -89,7 +149,7 @@ def export_product(
     client: PrestashopClient | None = None,
     tax_rules_group_id: int | None = None,
 ) -> dict[str, int]:
-    product = Product.objects.select_related("manufacturer").get(pk=product_id)
+    product = Product.objects.select_related("manufacturer", "category_default").get(pk=product_id)
     mapping = PrestashopMapping.objects.filter(product=product).first()
     client = client or PrestashopClient()
 
@@ -100,12 +160,18 @@ def export_product(
                 f"{product.manufacturer.icg_code} must be exported before product sync."
             )
 
+        default_category, category_ids = resolve_product_categories(product)
+
         prestashop_id = mapping.prestashop_product_id if mapping else None
         if prestashop_id is None:
             prestashop_id = client.find_product_id_by_reference(product.reference)
 
         prestashop_id = client.upsert_product(
-            product, prestashop_id=prestashop_id, tax_rules_group_id=tax_rules_group_id
+            product,
+            prestashop_id=prestashop_id,
+            tax_rules_group_id=tax_rules_group_id,
+            category_default_id=default_category.prestashop_id,
+            category_ids=category_ids,
         )
 
         PrestashopMapping.objects.update_or_create(
