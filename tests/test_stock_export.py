@@ -112,6 +112,21 @@ def _combination_xml(ps_comb_id=55, ps_product_id=22, stock_available_id=33):
     )
 
 
+def _stock_available_xml(sa_id=33, quantity=5, depends_on_stock=0, out_of_stock=2):
+    return (
+        f"<prestashop><stock_available>"
+        f"<id>{sa_id}</id>"
+        "<id_product>22</id_product>"
+        "<id_product_attribute>55</id_product_attribute>"
+        f"<depends_on_stock>{depends_on_stock}</depends_on_stock>"
+        f"<out_of_stock>{out_of_stock}</out_of_stock>"
+        f"<quantity>{quantity}</quantity>"
+        "<id_shop>1</id_shop>"
+        "<id_shop_group>1</id_shop_group>"
+        "</stock_available></prestashop>"
+    )
+
+
 # ─── Stock export service ───────────────────────────────────────────
 
 
@@ -279,10 +294,11 @@ class TestStockExportTask:
 
 @pytest.mark.django_db
 class TestPrestashopClientStockExport:
-    def test_upsert_stock_updates_quantity(self, settings):
+    def test_upsert_stock_fetches_and_mutates_quantity(self, settings):
         session = Mock()
         session.request.side_effect = [
             _response(_combination_xml(55, 22, 33)),
+            _response(_stock_available_xml(33, quantity=5)),
             _response("<prestashop><stock_available><id>33</id></stock_available></prestashop>"),
         ]
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
@@ -292,17 +308,42 @@ class TestPrestashopClientStockExport:
         client = PrestashopClient(session=session)
         client.upsert_stock(55, 42)
 
-        assert session.request.call_count == 2
+        assert session.request.call_count == 3
 
-        get_call = session.request.call_args_list[0]
-        assert get_call.args[0] == "GET"
-        assert "/combinations/55" in get_call.args[1]
+        get_comb = session.request.call_args_list[0]
+        assert get_comb.args[0] == "GET"
+        assert "/combinations/55" in get_comb.args[1]
 
-        put_call = session.request.call_args_list[1]
+        get_sa = session.request.call_args_list[1]
+        assert get_sa.args[0] == "GET"
+        assert "/stock_availables/33" in get_sa.args[1]
+
+        put_call = session.request.call_args_list[2]
         assert put_call.args[0] == "PUT"
         assert "/stock_availables/33" in put_call.args[1]
         payload = put_call.kwargs["data"]
-        assert "<id>33</id>" in payload
+        assert "<quantity>42</quantity>" in payload
+
+    def test_upsert_stock_preserves_existing_fields(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(_combination_xml(55, 22, 33)),
+            _response(_stock_available_xml(33, quantity=5, depends_on_stock=1, out_of_stock=3)),
+            _response("<prestashop><stock_available><id>33</id></stock_available></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        client.upsert_stock(55, 42)
+
+        put_call = session.request.call_args_list[2]
+        payload = put_call.kwargs["data"]
+        assert "<depends_on_stock>1</depends_on_stock>" in payload
+        assert "<out_of_stock>3</out_of_stock>" in payload
+        assert "<id_product>22</id_product>" in payload
+        assert "<id_product_attribute>55</id_product_attribute>" in payload
         assert "<quantity>42</quantity>" in payload
 
     def test_upsert_stock_fails_without_stock_available(self, settings):
