@@ -264,7 +264,7 @@ class TestCategoryExportTask:
         _make_category(prestashop_id=10, name="Cat A", sync_required=True)
         _make_category(prestashop_id=20, name="Cat B", sync_required=True)
         _make_category(prestashop_id=30, name="Already synced", sync_required=False)
-        _make_category(prestashop_id=40, name="Inactive", active=False, sync_required=True)
+        _make_category(prestashop_id=40, name="Inactive synced", active=False, sync_required=False)
 
         def fake_export(category_id: int):
             return {"category_id": category_id, "prestashop_id": 99}
@@ -273,8 +273,32 @@ class TestCategoryExportTask:
 
         result = export_categories()
 
-        assert result == {"status": "success", "processed": 2, "failed": 0}
-        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_CATEGORY).count() == 2
+        assert result == {"status": "success", "processed": 3, "failed": 0}
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_CATEGORY).count() == 3
+
+    def test_task_propagates_deactivation(self, monkeypatch):
+        _make_category(prestashop_id=10, name="Active", sync_required=False, active=True)
+        _make_category(prestashop_id=20, name="Deactivated", sync_required=False, active=False)
+
+        def fake_export(category_id: int):
+            return {"category_id": category_id, "prestashop_id": 99}
+
+        monkeypatch.setattr("apps.sync.tasks.export_category", fake_export)
+
+        result = export_categories()
+
+        assert result == {"status": "success", "processed": 1, "failed": 0}
+        job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_CATEGORY)
+        assert job.payload["name"] == "Deactivated"
+
+    def test_task_skips_unsynced_inactive_categories(self, monkeypatch):
+        _make_category(prestashop_id=None, name="Never synced", active=False)
+
+        monkeypatch.setattr("apps.sync.tasks.export_category", lambda cid: {"category_id": cid})
+
+        result = export_categories()
+
+        assert result == {"status": "success", "processed": 0, "failed": 0}
 
 
 @pytest.mark.django_db

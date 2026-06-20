@@ -2,6 +2,7 @@ import logging
 from datetime import UTC
 
 from celery import shared_task
+from django.db import models
 from django.utils import timezone
 
 from apps.catalog.models import Category, Combination, Manufacturer, Price, Product, Stock
@@ -103,9 +104,10 @@ def export_categories() -> dict:
     processed = 0
     failed = 0
 
-    for category in Category.objects.filter(sync_required=True, active=True).order_by(
-        "position", "pk"
-    ):
+    for category in Category.objects.filter(
+        models.Q(sync_required=True, active=True)
+        | models.Q(active=False, prestashop_id__isnull=False)
+    ).order_by("position", "pk"):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_CATEGORY,
             entity_type="category",
