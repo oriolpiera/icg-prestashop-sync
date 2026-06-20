@@ -153,15 +153,6 @@ def export_combination(
     client = client or PrestashopClient()
 
     try:
-        product_mapping = PrestashopMapping.objects.filter(product=combination.product).first()
-        if not product_mapping or not product_mapping.prestashop_product_id:
-            raise PrestashopError(
-                f"Product {combination.product.reference} must be exported "
-                "before combination sync."
-            )
-
-        product_ps_id = product_mapping.prestashop_product_id
-
         if not combination.active:
             comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
             if comb_mapping and comb_mapping.prestashop_combination_id:
@@ -184,6 +175,15 @@ def export_combination(
                     comb_mapping.prestashop_combination_id if comb_mapping else 0
                 ),
             }
+
+        product_mapping = PrestashopMapping.objects.filter(product=combination.product).first()
+        if not product_mapping or not product_mapping.prestashop_product_id:
+            raise PrestashopError(
+                f"Product {combination.product.reference} must be exported "
+                "before combination sync."
+            )
+
+        product_ps_id = product_mapping.prestashop_product_id
 
         size_ps_ids = []
         color_ps_ids = []

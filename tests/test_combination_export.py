@@ -303,6 +303,21 @@ class TestCombinationExport:
         combination.refresh_from_db()
         assert combination.sync_required is False
 
+    def test_export_inactive_combination_without_product_mapping_succeeds(self):
+        product = _make_product()
+        combination = _make_combination(product=product, active=False)
+
+        client = Mock()
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 0}
+        combination.refresh_from_db()
+        assert combination.sync_required is False
+        assert combination.last_sync_error == ""
+        client.deactivate_combination.assert_not_called()
+        client.upsert_combination.assert_not_called()
+
     def test_export_stores_structured_error(self):
         product = _make_product()
         _make_product_mapping(product, 22)
