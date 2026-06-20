@@ -222,6 +222,19 @@ class TestAdminActions:
         assert job.status == SyncJobStatus.PENDING
         assert job.last_error == ""
 
+    def test_retry_jobs_warns_when_no_failed_selected(self):
+        job = _make_job(status=SyncJobStatus.SUCCEEDED, last_error="")
+
+        request = _request_with_messages()
+        model_admin = admin.site._registry[SyncJob]
+
+        retry_jobs(model_admin, request, SyncJob.objects.filter(pk=job.pk))
+
+        storage = request._messages
+        msgs = list(storage)
+        assert len(msgs) == 1
+        assert "No failed jobs" in str(msgs[0])
+
 
 # --- Custom filters ---
 
@@ -312,3 +325,17 @@ class TestSyncErrorDisplay:
         product.save(update_fields=["last_sync_error"])
 
         assert _sync_error_display(product) == "not-json"
+
+    def test_handles_non_dict_json(self):
+        product = _make_product()
+        product.last_sync_error = "[]"
+        product.save(update_fields=["last_sync_error"])
+
+        assert _sync_error_display(product) == "[]"
+
+    def test_handles_json_null(self):
+        product = _make_product()
+        product.last_sync_error = "null"
+        product.save(update_fields=["last_sync_error"])
+
+        assert _sync_error_display(product) == "null"

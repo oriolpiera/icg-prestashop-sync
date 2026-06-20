@@ -32,7 +32,7 @@ class FailedSyncFilter(SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value() == "yes":
-            return queryset.filter(last_sync_error__gt="")
+            return queryset.exclude(last_sync_error="")
         if self.value() == "no":
             return queryset.filter(last_sync_error="")
         return queryset
@@ -114,7 +114,14 @@ def retry_entity_sync(modeladmin, request, queryset):
 def retry_jobs(modeladmin, request, queryset):
     failed = queryset.filter(status=SyncJobStatus.FAILED)
     count = failed.update(status=SyncJobStatus.PENDING, last_error="")
-    modeladmin.message_user(request, f"Reset {count} job(s) to pending.", messages.SUCCESS)
+    if count:
+        modeladmin.message_user(request, f"Reset {count} job(s) to pending.", messages.SUCCESS)
+    else:
+        modeladmin.message_user(
+            request,
+            "No failed jobs were found in the selection. Only FAILED jobs can be retried.",
+            messages.WARNING,
+        )
 
 
 def _sync_error_display(obj):
@@ -123,8 +130,10 @@ def _sync_error_display(obj):
         return "-"
     try:
         data = json.loads(raw)
-        return data.get("message", raw)[:80]
-    except (json.JSONDecodeError, TypeError):
+        if isinstance(data, dict):
+            return data.get("message", raw)[:80]
+        return raw[:80]
+    except (json.JSONDecodeError, TypeError, AttributeError):
         return raw[:80]
 
 
