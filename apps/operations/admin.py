@@ -65,6 +65,8 @@ class ProductAdmin(admin.ModelAdmin):
         "category_default",
         "visible_web",
         "discontinued",
+        "discount_percent",
+        "prestashop_specific_price_id",
         "sync_required",
         "last_synced_at",
     )

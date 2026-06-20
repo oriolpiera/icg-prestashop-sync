@@ -20,6 +20,7 @@ class SyncJobType(models.TextChoices):
     EXPORT_COMBINATION = "export_combination", "Export combination"
     EXPORT_PRICE = "export_price", "Export price"
     EXPORT_STOCK = "export_stock", "Export stock"
+    EXPORT_DISCOUNT = "export_discount", "Export discount"
 
 
 class SyncJobStatus(models.TextChoices):

@@ -89,6 +89,18 @@ class Product(SyncTrackedModel):
     )
     visible_web = models.BooleanField(default=True)
     discontinued = models.BooleanField(default=False)
+    discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Product-level discount percentage (0 = no discount). "
+        "Exported as a Prestashop specific_price with reduction_type='percentage'.",
+    )
+    prestashop_specific_price_id = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="Prestashop specific_price ID for the product-level discount.",
+    )
 
     class Meta:
         ordering = ["reference"]

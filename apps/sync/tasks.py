@@ -12,6 +12,7 @@ from apps.icg.importer import import_stock as run_import_stock
 from apps.prestashop.services import (
     export_category,
     export_combination,
+    export_discount,
     export_manufacturer,
     export_price,
     export_product,
@@ -309,6 +310,55 @@ def export_stocks() -> dict:
 
         try:
             result = export_stock(stock.pk)
+        except Exception as exc:
+            failed += 1
+            error = format_sync_error(exc)
+            job.status = SyncJobStatus.FAILED
+            job.last_error = error
+        else:
+            processed += 1
+            job.status = SyncJobStatus.SUCCEEDED
+            job.payload = {**job.payload, **result}
+
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "payload", "last_error", "finished_at", "updated_at"])
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "failed": failed,
+    }
+
+
+@shared_task
+def export_discounts() -> dict:
+    logger.info("Celery task: export_discounts")
+    processed = 0
+    failed = 0
+
+    for product in (
+        Product.objects.filter(
+            models.Q(discount_percent__gt=0) | models.Q(prestashop_specific_price_id__isnull=False)
+        )
+        .filter(sync_required=True)
+        .order_by("pk")
+    ):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_DISCOUNT,
+            entity_type="discount",
+            entity_key=product.reference,
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={
+                "product_id": product.pk,
+                "reference": product.reference,
+                "discount_percent": str(product.discount_percent),
+            },
+        )
+
+        try:
+            result = export_discount(product.pk)
         except Exception as exc:
             failed += 1
             error = format_sync_error(exc)

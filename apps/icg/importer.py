@@ -132,6 +132,7 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
     icg_color = _escape(str(row[3]))
     vat_rate = row[8]
     amount_ex_vat = row[10]
+    discount_percent = row[5]
 
     if not icg_id:
         logger.warning("Skipping price row with missing icg_id")
@@ -175,7 +176,18 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
                 price.sync_required = True
                 price.save()
 
-        if changed:
+        discount_changed = False
+        from decimal import Decimal
+
+        current_discount = Decimal(str(product.discount_percent))
+        new_discount = Decimal(str(discount_percent or 0))
+        if current_discount != new_discount:
+            product.discount_percent = new_discount
+            product.sync_required = True
+            product.save(update_fields=["discount_percent", "sync_required", "updated_at"])
+            discount_changed = True
+
+        if changed or discount_changed:
             SyncJob.objects.create(
                 job_type=SyncJobType.IMPORT_PRICES,
                 entity_type="price",
@@ -184,6 +196,7 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
                     "icg_id": icg_id,
                     "combination_id": combination.pk,
                     "amount_ex_vat": str(amount_ex_vat),
+                    "discount_percent": str(discount_percent),
                 },
             )
 

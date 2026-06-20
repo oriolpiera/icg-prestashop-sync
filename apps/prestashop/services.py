@@ -469,3 +469,57 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
         stock.last_sync_error = format_sync_error(exc)
         stock.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
         raise
+
+
+def export_discount(
+    product_id: int,
+    client: PrestashopClient | None = None,
+) -> dict[str, int | None]:
+    product = Product.objects.select_related("manufacturer").get(pk=product_id)
+    client = client or PrestashopClient()
+
+    try:
+        product_mapping = PrestashopMapping.objects.filter(product=product).first()
+        if not product_mapping or not product_mapping.prestashop_product_id:
+            raise PrestashopError(
+                f"Product {product.reference} must be exported before discount sync."
+            )
+
+        product_ps_id = product_mapping.prestashop_product_id
+        discount = int(product.discount_percent)
+        existing_ps_id = product.prestashop_specific_price_id
+
+        if discount > 0:
+            ps_id = client.upsert_specific_price(
+                product_ps_id,
+                discount,
+                prestashop_id=existing_ps_id,
+            )
+            product.prestashop_specific_price_id = ps_id
+        elif existing_ps_id is not None:
+            client.delete_specific_price(existing_ps_id)
+            product.prestashop_specific_price_id = None
+
+        product.sync_required = False
+        product.last_sync_error = ""
+        product.last_synced_at = timezone.now().astimezone(UTC)
+        product.save(
+            update_fields=[
+                "prestashop_specific_price_id",
+                "sync_required",
+                "last_sync_error",
+                "last_synced_at",
+                "updated_at",
+            ]
+        )
+        return {
+            "product_id": product.pk,
+            "prestashop_product_id": product_ps_id,
+            "prestashop_specific_price_id": product.prestashop_specific_price_id,
+            "discount_percent": discount,
+        }
+    except Exception as exc:
+        product.sync_required = True
+        product.last_sync_error = format_sync_error(exc)
+        product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
