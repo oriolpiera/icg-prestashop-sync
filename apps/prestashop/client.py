@@ -44,6 +44,8 @@ class PrestashopError(Exception):
 
 
 class PrestashopClient:
+    _FILTER_RESERVED_CHARS = frozenset("[]|,")
+
     def __init__(self, session: Session | None = None) -> None:
         self.session = session or requests.Session()
 
@@ -101,6 +103,7 @@ class PrestashopClient:
         return response
 
     def find_manufacturer_id_by_name(self, name: str) -> int | None:
+        self._validate_exact_filter_value(name, field_name="manufacturer name")
         response = self._request(
             "GET",
             "manufacturers",
@@ -140,6 +143,7 @@ class PrestashopClient:
         self._request("PUT", "manufacturers", resource_id=manufacturer_id, data=payload)
 
     def find_product_id_by_reference(self, reference: str) -> int | None:
+        self._validate_exact_filter_value(reference, field_name="product reference")
         response = self._request(
             "GET",
             "products",
@@ -261,15 +265,26 @@ class PrestashopClient:
         node = parent.find(f"./{tag}")
         if node is None:
             node = ElementTree.SubElement(parent, tag)
-        languages = node.findall("./language")
-        if not languages:
-            languages = [
-                ElementTree.SubElement(
-                    node, "language", id=str(self.credentials().default_language_id)
-                )
-            ]
-        for language in languages:
-            language.text = value
+
+        default_language_id = str(self.credentials().default_language_id)
+        language = None
+        for candidate in node.findall("./language"):
+            if candidate.attrib.get("id") == default_language_id:
+                language = candidate
+                break
+
+        if language is None:
+            language = ElementTree.SubElement(node, "language", id=default_language_id)
+
+        language.text = value
+
+    def _validate_exact_filter_value(self, value: str, *, field_name: str) -> None:
+        invalid_chars = sorted({char for char in value if char in self._FILTER_RESERVED_CHARS})
+        if invalid_chars:
+            formatted_chars = " ".join(invalid_chars)
+            raise PrestashopError(
+                f"Unsupported {field_name} characters for exact-match filter: {formatted_chars}"
+            )
 
     def _product_status(self, product: ProductPayload) -> tuple[str, str]:
         if product.discontinued:

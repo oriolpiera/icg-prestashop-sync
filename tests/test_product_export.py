@@ -190,6 +190,18 @@ class TestPrestashopClientProductExport:
             "limit": "1",
         }
 
+    def test_find_product_rejects_reserved_filter_characters(self, settings):
+        session = Mock()
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+
+        with pytest.raises(PrestashopError, match="Unsupported product reference characters"):
+            client.find_product_id_by_reference("REF|001")
+
+        session.request.assert_not_called()
+
     def test_upsert_product_creates_hidden_product_when_not_visible(self, settings):
         product = _make_product(visible_web=False)
         session = Mock()
@@ -266,3 +278,43 @@ class TestPrestashopClientProductExport:
         assert "<active>0</active>" in payload
         assert "<visibility>none</visibility>" in payload
         assert "<available_for_order>0</available_for_order>" in payload
+
+    def test_upsert_product_only_updates_configured_language(self, settings):
+        product = _make_product(name="Updated Product")
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product>"
+                "<id>44</id>"
+                "<id_manufacturer>12</id_manufacturer>"
+                "<reference>OLD</reference>"
+                "<price>0</price>"
+                "<state>1</state>"
+                "<active>1</active>"
+                "<available_for_order>1</available_for_order>"
+                "<show_price>1</show_price>"
+                "<visibility>both</visibility>"
+                "<minimal_quantity>1</minimal_quantity>"
+                "<name><language id='1'>Old default</language>"
+                "<language id='2'>Nom catala</language></name>"
+                "<link_rewrite><language id='1'>old-default</language>"
+                "<language id='2'>nom-catala</language></link_rewrite>"
+                "</product></prestashop>"
+            ),
+            _response("<prestashop><product><id>44</id></product></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+        settings.PRESTASHOP_DEFAULT_CATEGORY_ID = 2
+
+        client = PrestashopClient(session=session)
+
+        client.upsert_product(product, prestashop_id=44)
+
+        put_call = session.request.call_args_list[1]
+        payload = put_call.kwargs["data"]
+        assert "<language id=\"1\">Updated Product</language>" in payload
+        assert "<language id=\"2\">Nom catala</language>" in payload
+        assert "<language id=\"1\">updated-product</language>" in payload
+        assert "<language id=\"2\">nom-catala</language>" in payload
