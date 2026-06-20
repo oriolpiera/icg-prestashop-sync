@@ -121,13 +121,23 @@ def export_category(
             parent_ps_id = category.parent.prestashop_id
 
         if category.prestashop_id is not None:
-            client.update_category(category.prestashop_id, category.name, active=category.active)
+            client.update_category(
+                category.prestashop_id,
+                category.name,
+                active=category.active,
+                parent_id=parent_ps_id,
+            )
             ps_id = category.prestashop_id
         else:
             existing = client.find_category_id_by_name(category.name, parent_id=parent_ps_id)
             if existing is not None:
                 ps_id = existing
-                client.update_category(ps_id, category.name, active=category.active)
+                client.update_category(
+                    ps_id,
+                    category.name,
+                    active=category.active,
+                    parent_id=parent_ps_id,
+                )
             else:
                 ps_id = client.create_category(
                     category.name, parent_id=parent_ps_id, active=category.active

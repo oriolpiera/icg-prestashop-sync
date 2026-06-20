@@ -189,7 +189,7 @@ class TestCategoryExport:
         result = export_category(cat.pk, client=client)
 
         assert result == {"category_id": cat.pk, "prestashop_id": 55}
-        client.update_category.assert_called_once_with(55, "Known", active=True)
+        client.update_category.assert_called_once_with(55, "Known", active=True, parent_id=2)
         client.find_category_id_by_name.assert_not_called()
         client.create_category.assert_not_called()
 
@@ -201,7 +201,7 @@ class TestCategoryExport:
         result = export_category(cat.pk, client=client)
 
         assert result == {"category_id": cat.pk, "prestashop_id": 42}
-        client.update_category.assert_called_once_with(42, "Lookup", active=True)
+        client.update_category.assert_called_once_with(42, "Lookup", active=True, parent_id=2)
         client.create_category.assert_not_called()
 
     def test_export_stores_error_on_failure(self):
@@ -242,8 +242,30 @@ class TestCategoryExport:
         assert parent.prestashop_id == 10
         assert child.prestashop_id == 20
         assert result == {"category_id": child.pk, "prestashop_id": 20}
-        client.update_category.assert_any_call(10, "Parent", active=True)
-        client.update_category.assert_any_call(20, "Child", active=True)
+        client.update_category.assert_any_call(10, "Parent", active=True, parent_id=2)
+        client.update_category.assert_any_call(20, "Child", active=True, parent_id=10)
+
+    def test_export_propagates_reparent(self):
+        old_parent = _make_category(prestashop_id=10, name="Old Parent")
+        new_parent = _make_category(prestashop_id=20, name="New Parent")
+        child = _make_category(
+            prestashop_id=30, name="Child", parent=old_parent, sync_required=True
+        )
+
+        child.parent = new_parent
+        child.save(update_fields=["parent"])
+
+        client = Mock()
+
+        result = export_category(child.pk, client=client)
+
+        assert result == {"category_id": child.pk, "prestashop_id": 30}
+        client.update_category.assert_called_once_with(
+            30,
+            "Child",
+            active=True,
+            parent_id=20,
+        )
 
     def test_export_raises_on_cyclic_parent(self):
         a = _make_category(prestashop_id=None, name="A")

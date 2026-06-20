@@ -192,11 +192,14 @@ class PrestashopClient:
         category_id: int,
         name: str,
         active: bool = True,
+        parent_id: int | None = None,
     ) -> None:
         root = self.get_category_xml(category_id)
         cat_node = root.find("./category")
         if cat_node is None:
             raise PrestashopError("Prestashop category payload did not include a category node.")
+        if parent_id is not None:
+            self._set_text(cat_node, "id_parent", str(parent_id))
         self._set_multilang_text(cat_node, "name", name)
         self._set_multilang_text(cat_node, "link_rewrite", slugify(name) or "category")
         self._set_text(cat_node, "active", "1" if active else "0")
