@@ -502,13 +502,11 @@ def export_discount(
             product.prestashop_specific_price_id = None
             product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
 
-        product.sync_required = False
         product.last_sync_error = ""
         product.last_synced_at = timezone.now().astimezone(UTC)
         product.save(
             update_fields=[
                 "prestashop_specific_price_id",
-                "sync_required",
                 "last_sync_error",
                 "last_synced_at",
                 "updated_at",
@@ -521,7 +519,6 @@ def export_discount(
             "discount_percent": str(discount),
         }
     except Exception as exc:
-        product.sync_required = True
         product.last_sync_error = format_sync_error(exc)
-        product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        product.save(update_fields=["last_sync_error", "updated_at"])
         raise

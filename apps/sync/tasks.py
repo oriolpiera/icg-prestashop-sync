@@ -336,13 +336,9 @@ def export_discounts() -> dict:
     processed = 0
     failed = 0
 
-    for product in (
-        Product.objects.filter(
-            models.Q(discount_percent__gt=0) | models.Q(prestashop_specific_price_id__isnull=False)
-        )
-        .filter(sync_required=True)
-        .order_by("pk")
-    ):
+    for product in Product.objects.filter(
+        models.Q(discount_percent__gt=0) | models.Q(prestashop_specific_price_id__isnull=False)
+    ).order_by("pk"):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_DISCOUNT,
             entity_type="discount",

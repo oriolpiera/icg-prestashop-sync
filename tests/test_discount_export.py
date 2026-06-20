@@ -77,7 +77,6 @@ class TestExportDiscount:
 
         product.refresh_from_db()
         assert product.prestashop_specific_price_id == 500
-        assert product.sync_required is False
 
     def test_nonzero_discount_updates_existing_specific_price(self):
         product = _make_product(discount_percent=Decimal("15"))
@@ -304,7 +303,6 @@ class TestExportDiscountTask:
         def fake_export_discount(product_id):
             p = Product.objects.get(pk=product_id)
             p.prestashop_specific_price_id = 500
-            p.sync_required = False
             p.last_sync_error = ""
             p.last_synced_at = p.updated_at
             p.save()
@@ -356,13 +354,11 @@ class TestExportDiscountTask:
         product = _make_product(discount_percent=Decimal("0"))
         _make_product_mapping(product, 22)
         product.prestashop_specific_price_id = 500
-        product.sync_required = True
-        product.save(update_fields=["prestashop_specific_price_id", "sync_required"])
+        product.save(update_fields=["prestashop_specific_price_id"])
 
         def fake_export_discount(product_id):
             p = Product.objects.get(pk=product_id)
             p.prestashop_specific_price_id = None
-            p.sync_required = False
             p.last_sync_error = ""
             p.last_synced_at = p.updated_at
             p.save()
