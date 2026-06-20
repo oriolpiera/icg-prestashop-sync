@@ -128,7 +128,7 @@ class TestStockExport:
 
         result = export_stock(stock.pk, client=client)
 
-        assert result == {"stock_id": stock.pk, "prestashop_combination_id": 55}
+        assert result == {"stock_id": stock.pk, "prestashop_combination_id": 55, "quantity": 42}
         client.upsert_stock.assert_called_once_with(55, 42)
         stock.refresh_from_db()
         assert stock.sync_required is False
@@ -240,7 +240,7 @@ class TestStockExportTask:
             s.last_sync_error = ""
             s.last_synced_at = s.updated_at
             s.save()
-            return {"stock_id": stock_id, "prestashop_combination_id": 55}
+            return {"stock_id": stock_id, "prestashop_combination_id": 55, "quantity": s.quantity}
 
         monkeypatch.setattr("apps.sync.tasks.export_stock", fake_export)
 
@@ -298,10 +298,10 @@ class TestPrestashopClientStockExport:
         assert get_call.args[0] == "GET"
         assert "/combinations/55" in get_call.args[1]
 
-        patch_call = session.request.call_args_list[1]
-        assert patch_call.args[0] == "PATCH"
-        assert "/stock_availables/33" in patch_call.args[1]
-        payload = patch_call.kwargs["data"]
+        put_call = session.request.call_args_list[1]
+        assert put_call.args[0] == "PUT"
+        assert "/stock_availables/33" in put_call.args[1]
+        payload = put_call.kwargs["data"]
         assert "<id>33</id>" in payload
         assert "<quantity>42</quantity>" in payload
 

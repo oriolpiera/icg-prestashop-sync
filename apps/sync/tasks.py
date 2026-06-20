@@ -256,7 +256,6 @@ def export_stocks() -> dict:
                 "stock_id": stock.pk,
                 "combination_id": stock.combination_id,
                 "product_reference": stock.combination.product.reference,
-                "quantity": stock.quantity,
             },
         )
 

@@ -340,6 +340,7 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
         return {
             "stock_id": stock.pk,
             "prestashop_combination_id": comb_mapping.prestashop_combination_id,
+            "quantity": stock.quantity,
         }
     except Exception as exc:
         stock.sync_required = True

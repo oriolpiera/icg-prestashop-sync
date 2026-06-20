@@ -569,7 +569,7 @@ class PrestashopClient:
         sa_qty.text = str(quantity)
 
         self._request(
-            "PATCH",
+            "PUT",
             "stock_availables",
             resource_id=stock_available_id,
             data=ElementTree.tostring(payload_root, encoding="unicode"),
