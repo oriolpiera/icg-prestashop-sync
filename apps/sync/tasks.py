@@ -371,3 +371,53 @@ def export_discounts() -> dict:
         "processed": processed,
         "failed": failed,
     }
+
+
+_EXPORT_DISPATCH = {
+    "manufacturer": (SyncJobType.EXPORT_MANUFACTURER, export_manufacturer),
+    "category": (SyncJobType.EXPORT_CATEGORY, export_category),
+    "product": (SyncJobType.EXPORT_PRODUCT, export_product),
+    "combination": (SyncJobType.EXPORT_COMBINATION, export_combination),
+    "price": (SyncJobType.EXPORT_PRICE, export_price),
+    "stock": (SyncJobType.EXPORT_STOCK, export_stock),
+    "discount": (SyncJobType.EXPORT_DISCOUNT, export_discount),
+}
+
+
+@shared_task
+def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict:
+    entry = _EXPORT_DISPATCH.get(entity_type)
+    if entry is None:
+        return {"status": "error", "detail": f"Unknown entity_type: {entity_type}"}
+
+    job_type, export_fn = entry
+    job = SyncJob.objects.create(
+        job_type=job_type,
+        entity_type=entity_type,
+        entity_key=entity_key or str(entity_id),
+        status=SyncJobStatus.RUNNING,
+        attempts=1,
+        started_at=timezone.now(),
+        payload={"entity_id": entity_id, "entity_type": entity_type},
+    )
+
+    try:
+        result = export_fn(entity_id)
+    except Exception as exc:
+        error = format_sync_error(exc)
+        job.status = SyncJobStatus.FAILED
+        job.last_error = error
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "last_error", "finished_at", "updated_at"])
+        return {
+            "status": "failed",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "error": error,
+        }
+
+    job.status = SyncJobStatus.SUCCEEDED
+    job.payload = {**job.payload, **result}
+    job.finished_at = timezone.now().astimezone(UTC)
+    job.save(update_fields=["status", "payload", "finished_at", "updated_at"])
+    return {"status": "succeeded", "entity_type": entity_type, "entity_id": entity_id, **result}
