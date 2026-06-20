@@ -62,7 +62,9 @@ class TestProductExport:
         assert mapping.prestashop_product_id == 77
         assert product.sync_required is False
         assert product.last_sync_error == ""
-        client.upsert_product.assert_called_once_with(product, prestashop_id=None)
+        client.upsert_product.assert_called_once_with(
+            product, prestashop_id=None, tax_rules_group_id=None
+        )
 
     def test_export_reuses_existing_prestashop_product_by_reference(self):
         product = _make_product(reference="REF-EXISTING")
@@ -74,7 +76,9 @@ class TestProductExport:
 
         mapping = PrestashopMapping.objects.get(product=product)
         assert mapping.prestashop_product_id == 45
-        client.upsert_product.assert_called_once_with(product, prestashop_id=45)
+        client.upsert_product.assert_called_once_with(
+            product, prestashop_id=45, tax_rules_group_id=None
+        )
 
     def test_export_updates_already_mapped_product(self):
         product = _make_product()
@@ -85,7 +89,9 @@ class TestProductExport:
         export_product(product.pk, client=client)
 
         client.find_product_id_by_reference.assert_not_called()
-        client.upsert_product.assert_called_once_with(product, prestashop_id=34)
+        client.upsert_product.assert_called_once_with(
+            product, prestashop_id=34, tax_rules_group_id=None
+        )
 
     def test_export_uses_race_safe_mapping_upsert(self):
         product = _make_product()

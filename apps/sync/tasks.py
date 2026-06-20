@@ -4,13 +4,14 @@ from datetime import UTC
 from celery import shared_task
 from django.utils import timezone
 
-from apps.catalog.models import Combination, Manufacturer, Product
+from apps.catalog.models import Combination, Manufacturer, Price, Product
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
 from apps.prestashop.services import (
     export_combination,
     export_manufacturer,
+    export_price,
     export_product,
     format_sync_error,
 )
@@ -163,6 +164,55 @@ def export_combinations() -> dict:
 
         try:
             result = export_combination(combination.pk)
+        except Exception as exc:
+            failed += 1
+            error = format_sync_error(exc)
+            job.status = SyncJobStatus.FAILED
+            job.last_error = error
+        else:
+            processed += 1
+            job.status = SyncJobStatus.SUCCEEDED
+            job.payload = {**job.payload, **result}
+
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.save(update_fields=["status", "payload", "last_error", "finished_at", "updated_at"])
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "failed": failed,
+    }
+
+
+@shared_task
+def export_prices() -> dict:
+    logger.info("Celery task: export_prices")
+    processed = 0
+    failed = 0
+
+    for price in (
+        Price.objects.select_related("combination__product")
+        .filter(sync_required=True)
+        .order_by("pk")
+    ):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRICE,
+            entity_type="price",
+            entity_key=f"{price.combination.product.reference}/{price.combination.icg_size}/{price.combination.icg_color}",
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={
+                "price_id": price.pk,
+                "combination_id": price.combination_id,
+                "product_reference": price.combination.product.reference,
+                "amount_ex_vat": str(price.amount_ex_vat),
+                "vat_rate": str(price.vat_rate),
+            },
+        )
+
+        try:
+            result = export_price(price.pk)
         except Exception as exc:
             failed += 1
             error = format_sync_error(exc)
