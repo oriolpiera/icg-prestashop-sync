@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.sync.models import SyncLock
@@ -43,22 +43,26 @@ def _acquire_lock(lock_key: str, timeout_minutes: int) -> SyncLock | None:
 
         if lock is not None:
             if lock.locked_at < timezone.now() - timedelta(minutes=timeout_minutes):
+                previous_owner = lock.locked_by
                 lock.locked_by = _owner_id()
                 lock.locked_at = timezone.now()
                 lock.save(update_fields=["locked_by", "locked_at", "updated_at"])
                 logger.info(
                     "Acquired stale lock '%s' from %s",
                     lock_key,
-                    lock.locked_by,
+                    previous_owner,
                 )
                 return lock
             return None
 
-        return SyncLock.objects.create(
-            lock_key=lock_key,
-            locked_by=_owner_id(),
-            locked_at=timezone.now(),
-        )
+        try:
+            return SyncLock.objects.create(
+                lock_key=lock_key,
+                locked_by=_owner_id(),
+                locked_at=timezone.now(),
+            )
+        except IntegrityError:
+            return None
 
 
 def _owner_id() -> str:

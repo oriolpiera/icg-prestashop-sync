@@ -40,9 +40,10 @@ def _record_sync_error(
     exc: Exception,
     *,
     error_type: str | None = None,
-) -> None:
+) -> str:
     if error_type is None:
         error_type = classify_error(exc)
+    error_message = format_sync_error(exc)
     SyncError.objects.create(
         job=job,
         entity_type=job.entity_type,
@@ -52,7 +53,7 @@ def _record_sync_error(
         details=job.payload,
     )
     job.status = SyncJobStatus.FAILED
-    job.last_error = format_sync_error(exc)
+    job.last_error = error_message
     job.finished_at = timezone.now().astimezone(UTC)
 
     if error_type == SyncErrorType.TRANSIENT and job.attempts < MAX_SYNC_RETRIES:
@@ -66,6 +67,8 @@ def _record_sync_error(
                 "updated_at",
             ]
         )
+
+    return error_message
 
 
 def _run_export_batch(
@@ -170,7 +173,7 @@ def export_manufacturers() -> dict:
         entity_type="manufacturer",
         entity_key_fn=lambda m: m.icg_code,
         export_fn=export_manufacturer,
-        payload_fn=lambda m: {"manufacturer_id": m.pk, "icg_code": m.icg_code},
+        payload_fn=lambda m: {"entity_id": m.pk, "manufacturer_id": m.pk, "icg_code": m.icg_code},
         lock_key="export_manufacturers",
     )
 
@@ -188,6 +191,7 @@ def export_categories() -> dict:
         entity_key_fn=lambda c: c.name,
         export_fn=export_category,
         payload_fn=lambda c: {
+            "entity_id": c.pk,
             "category_id": c.pk,
             "prestashop_id": c.prestashop_id,
             "name": c.name,
@@ -206,6 +210,7 @@ def export_products() -> dict:
         entity_key_fn=lambda p: p.reference,
         export_fn=export_product,
         payload_fn=lambda p: {
+            "entity_id": p.pk,
             "product_id": p.pk,
             "icg_id": p.icg_id,
             "reference": p.reference,
@@ -226,6 +231,7 @@ def export_combinations() -> dict:
         entity_key_fn=lambda c: f"{c.product.reference}/{c.icg_size}/{c.icg_color}",
         export_fn=export_combination,
         payload_fn=lambda c: {
+            "entity_id": c.pk,
             "combination_id": c.pk,
             "product_reference": c.product.reference,
             "icg_size": c.icg_size,
@@ -250,6 +256,7 @@ def export_prices() -> dict:
         ),
         export_fn=export_price,
         payload_fn=lambda p: {
+            "entity_id": p.pk,
             "price_id": p.pk,
             "combination_id": p.combination_id,
             "product_reference": p.combination.product.reference,
@@ -275,6 +282,7 @@ def export_stocks() -> dict:
         ),
         export_fn=export_stock,
         payload_fn=lambda s: {
+            "entity_id": s.pk,
             "stock_id": s.pk,
             "combination_id": s.combination_id,
             "product_reference": s.combination.product.reference,
@@ -293,6 +301,7 @@ def export_discounts() -> dict:
         entity_key_fn=lambda p: p.reference,
         export_fn=export_discount,
         payload_fn=lambda p: {
+            "entity_id": p.pk,
             "product_id": p.pk,
             "reference": p.reference,
             "discount_percent": str(p.discount_percent),
@@ -332,12 +341,12 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
     try:
         result = export_fn(entity_id)
     except Exception as exc:
-        _record_sync_error(job, exc)
+        error = _record_sync_error(job, exc)
         return {
             "status": "failed",
             "entity_type": entity_type,
             "entity_id": entity_id,
-            "error": job.last_error,
+            "error": error,
         }
 
     job.status = SyncJobStatus.SUCCEEDED

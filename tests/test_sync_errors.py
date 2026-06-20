@@ -483,3 +483,41 @@ class TestRetryFailedJobs:
         assert result["retried"] == 0
         job.refresh_from_db()
         assert job.status == SyncJobStatus.FAILED
+
+    def test_retries_job_with_batch_payload_entity_id(self):
+        product = Product.objects.create(
+            icg_id=1004,
+            reference="REF004",
+            name="Test Product 4",
+        )
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF004",
+            status=SyncJobStatus.FAILED,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={
+                "entity_id": product.pk,
+                "product_id": product.pk,
+                "icg_id": product.icg_id,
+                "reference": product.reference,
+            },
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="product",
+            entity_key="REF004",
+            error_type=SyncErrorType.TRANSIENT,
+            message="server error",
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._RETRYABLE_EXPORT_MAP",
+            {SyncJobType.EXPORT_PRODUCT: mock_export},
+        ):
+            result = retry_failed_jobs()
+
+        assert result["retried"] == 1
+        mock_export.assert_called_once_with(product.pk)
