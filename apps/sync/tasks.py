@@ -143,7 +143,9 @@ def export_combinations() -> dict:
     processed = 0
     failed = 0
 
-    for combination in Combination.objects.filter(sync_required=True).order_by("pk"):
+    for combination in (
+        Combination.objects.select_related("product").filter(sync_required=True).order_by("pk")
+    ):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_COMBINATION,
             entity_type="combination",

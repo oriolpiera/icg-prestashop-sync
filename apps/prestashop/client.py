@@ -455,7 +455,12 @@ class PrestashopClient:
 
     def deactivate_combination(self, prestashop_id: int) -> None:
         root = self.get_combination_xml(prestashop_id)
-        self._set_text(root, "active", "0")
+        comb_node = root.find("./combination")
+        if comb_node is None:
+            raise PrestashopError(
+                "Prestashop combination payload did not include a combination node."
+            )
+        self._set_text(comb_node, "active", "0")
         self._request(
             "PUT",
             "combinations",

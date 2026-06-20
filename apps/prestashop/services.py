@@ -123,7 +123,6 @@ def ensure_attribute_group(icg_type: str, client: PrestashopClient | None = None
 
 def ensure_attribute_value(
     group_ps_id: int,
-    icg_type: str,
     value_name: str,
     client: PrestashopClient | None = None,
 ) -> int:
@@ -192,14 +191,14 @@ def export_combination(
         if combination.icg_size:
             size_group_ps_id = ensure_attribute_group("size", client=client)
             size_value_ps_id = ensure_attribute_value(
-                size_group_ps_id, "size", combination.icg_size, client=client
+                size_group_ps_id, combination.icg_size, client=client
             )
             size_ps_ids = [size_value_ps_id]
 
         if combination.icg_color:
             color_group_ps_id = ensure_attribute_group("color", client=client)
             color_value_ps_id = ensure_attribute_value(
-                color_group_ps_id, "color", combination.icg_color, client=client
+                color_group_ps_id, combination.icg_color, client=client
             )
             color_ps_ids = [color_value_ps_id]
 

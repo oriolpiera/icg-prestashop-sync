@@ -159,7 +159,7 @@ class TestEnsureAttributeValue:
         client.find_attribute_value_id.return_value = None
         client.create_attribute_value.return_value = 100
 
-        ps_id = ensure_attribute_value(10, "size", "M", client=client)
+        ps_id = ensure_attribute_value(10, "M", client=client)
 
         assert ps_id == 100
         av = AttributeValue.objects.get(attribute_group=ag, icg_value="M")
@@ -170,7 +170,7 @@ class TestEnsureAttributeValue:
         AttributeValue.objects.create(attribute_group=ag, icg_value="M", name="M", prestashop_id=55)
         client = Mock()
 
-        ps_id = ensure_attribute_value(10, "size", "M", client=client)
+        ps_id = ensure_attribute_value(10, "M", client=client)
 
         assert ps_id == 55
         client.find_attribute_value_id.assert_not_called()
@@ -180,7 +180,7 @@ class TestEnsureAttributeValue:
         client = Mock()
         client.find_attribute_value_id.return_value = 77
 
-        ps_id = ensure_attribute_value(10, "size", "L", client=client)
+        ps_id = ensure_attribute_value(10, "L", client=client)
 
         assert ps_id == 77
         client.create_attribute_value.assert_not_called()
@@ -457,6 +457,14 @@ class TestPrestashopClientCombinationExport:
         assert put_call.args[0] == "PUT"
         payload = put_call.kwargs["data"]
         assert "<active>0</active>" in payload
+        from xml.etree import ElementTree
+
+        root = ElementTree.fromstring(payload)
+        comb_active = root.find("./combination/active")
+        assert comb_active is not None
+        assert comb_active.text == "0"
+        root_active = root.find("./active")
+        assert root_active is None
 
     def test_find_attribute_group_uses_exact_match_filter(self, settings):
         response = _response(
