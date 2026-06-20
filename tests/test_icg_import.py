@@ -334,7 +334,7 @@ class TestPriceImport:
         assert result["skipped"] >= 1
         assert Price.objects.count() == 0
 
-    def test_discount_takes_max_across_combinations(self):
+    def test_discount_last_row_wins(self):
         man = _make_manufacturer()
         prod = _make_product(man)
         Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
