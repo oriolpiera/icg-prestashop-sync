@@ -182,8 +182,8 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
         new_discount = Decimal(str(discount_percent or 0))
         if current_discount != new_discount:
             product.discount_percent = new_discount
-            product.sync_required = True
-            product.save(update_fields=["discount_percent", "sync_required", "updated_at"])
+            product.discount_sync_required = True
+            product.save(update_fields=["discount_percent", "discount_sync_required", "updated_at"])
             discount_changed = True
 
         if changed or discount_changed:

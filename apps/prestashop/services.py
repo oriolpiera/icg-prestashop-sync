@@ -502,11 +502,13 @@ def export_discount(
             product.prestashop_specific_price_id = None
             product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
 
+        product.discount_sync_required = False
         product.last_sync_error = ""
         product.last_synced_at = timezone.now().astimezone(UTC)
         product.save(
             update_fields=[
                 "prestashop_specific_price_id",
+                "discount_sync_required",
                 "last_sync_error",
                 "last_synced_at",
                 "updated_at",

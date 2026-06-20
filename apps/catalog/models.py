@@ -103,6 +103,10 @@ class Product(SyncTrackedModel):
         null=True,
         help_text="Prestashop specific_price ID for the product-level discount.",
     )
+    discount_sync_required = models.BooleanField(
+        default=False,
+        help_text="Whether the discount needs to be re-exported to Prestashop.",
+    )
 
     class Meta:
         ordering = ["reference"]

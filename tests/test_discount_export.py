@@ -297,7 +297,7 @@ class TestPrestashopClientSpecificPrices:
 @pytest.mark.django_db
 class TestExportDiscountTask:
     def test_task_exports_pending_discounts(self, monkeypatch):
-        product = _make_product(discount_percent=Decimal("20"))
+        product = _make_product(discount_percent=Decimal("20"), discount_sync_required=True)
         _make_product_mapping(product, 22)
 
         def fake_export_discount(product_id):
@@ -322,7 +322,7 @@ class TestExportDiscountTask:
         assert SyncJob.objects.filter(status=SyncJobStatus.SUCCEEDED).count() == 1
 
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
-        product = _make_product(discount_percent=Decimal("20"))
+        product = _make_product(discount_percent=Decimal("20"), discount_sync_required=True)
         _make_product_mapping(product, 22)
 
         def fake_export_discount(product_id):
@@ -351,7 +351,7 @@ class TestExportDiscountTask:
         assert SyncJob.objects.count() == 0
 
     def test_task_includes_products_with_existing_specific_price(self):
-        product = _make_product(discount_percent=Decimal("0"))
+        product = _make_product(discount_percent=Decimal("0"), discount_sync_required=True)
         _make_product_mapping(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
