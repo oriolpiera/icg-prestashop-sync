@@ -484,6 +484,36 @@ class TestRetryFailedJobs:
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
 
+    def test_marks_job_failed_when_max_retries_exhausted(self):
+        product = Product.objects.create(
+            icg_id=1005,
+            reference="REF005",
+            name="Test Product 5",
+        )
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF005",
+            status=SyncJobStatus.PENDING,
+            attempts=MAX_SYNC_RETRIES,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": product.pk},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="product",
+            entity_key="REF005",
+            error_type=SyncErrorType.TRANSIENT,
+            message="server error",
+        )
+
+        result = retry_failed_jobs()
+
+        assert result["skipped"] >= 1
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.FAILED
+        assert job.finished_at is not None
+
     def test_retries_job_with_batch_payload_entity_id(self):
         product = Product.objects.create(
             icg_id=1004,
