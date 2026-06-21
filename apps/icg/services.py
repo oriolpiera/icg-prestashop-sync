@@ -14,6 +14,9 @@ class ICGSettings(Protocol):
     ICG_MSSQL_USER: str
     ICG_MSSQL_PASSWORD: str
     ICG_MSSQL_DRIVER: str
+    ICG_MSSQL_LOGIN_TIMEOUT: int
+    ICG_MSSQL_QUERY_TIMEOUT: int
+    ICG_MSSQL_TRUST_SERVER_CERTIFICATE: bool
 
 
 @dataclass(slots=True)
@@ -23,6 +26,9 @@ class ICGConnectionSettings:
     user: str
     password: str
     driver: str
+    login_timeout: int
+    query_timeout: int
+    trust_server_certificate: bool
 
 
 class ICGCatalogReader:
@@ -34,6 +40,9 @@ class ICGCatalogReader:
             user=typed_settings.ICG_MSSQL_USER,
             password=typed_settings.ICG_MSSQL_PASSWORD,
             driver=typed_settings.ICG_MSSQL_DRIVER,
+            login_timeout=typed_settings.ICG_MSSQL_LOGIN_TIMEOUT,
+            query_timeout=typed_settings.ICG_MSSQL_QUERY_TIMEOUT,
+            trust_server_certificate=typed_settings.ICG_MSSQL_TRUST_SERVER_CERTIFICATE,
         )
 
     def _connect(self):
@@ -46,9 +55,17 @@ class ICGCatalogReader:
             f"DATABASE={cs.database};"
             f"UID={cs.user};"
             f"PWD={cs.password};"
+            f"Encrypt=yes;"
+            f"TrustServerCertificate={'yes' if cs.trust_server_certificate else 'no'};"
+            f"Login Timeout={cs.login_timeout};"
+            f"Connection Timeout={cs.query_timeout};"
         )
         logger.info("Connecting to ICG MSSQL on %s/%s", cs.server, cs.database)
-        return pyodbc.connect(conn_str)
+        try:
+            return pyodbc.connect(conn_str)
+        except pyodbc.Error:
+            logger.exception("Failed to connect to ICG MSSQL on %s/%s", cs.server, cs.database)
+            raise
 
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
