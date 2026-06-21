@@ -90,7 +90,7 @@ class SyncJob(TimeStampedModel):
         from datetime import timedelta
 
         self.attempts += 1
-        delay_index = min(self.attempts - 1, len(BACKOFF_SCHEDULE_SECONDS) - 1)
+        delay_index = min(self.attempts - 2, len(BACKOFF_SCHEDULE_SECONDS) - 1)
         delay = BACKOFF_SCHEDULE_SECONDS[delay_index]
         self.available_at = timezone.now() + timedelta(seconds=delay)
         self.status = SyncJobStatus.PENDING

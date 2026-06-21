@@ -239,7 +239,7 @@ class TestSyncJobRetry:
             entity_type="product",
             entity_key="REF001",
             status=SyncJobStatus.FAILED,
-            attempts=0,
+            attempts=1,
         )
 
         before = timezone.now()
