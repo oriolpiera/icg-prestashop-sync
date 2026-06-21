@@ -150,7 +150,7 @@ class TestRecordSyncError:
             entity_type="product",
             entity_key="REF001",
             status=SyncJobStatus.RUNNING,
-            attempts=MAX_SYNC_RETRIES,
+            attempts=MAX_SYNC_RETRIES + 1,
             started_at=timezone.now(),
         )
 
@@ -159,7 +159,7 @@ class TestRecordSyncError:
 
         job.refresh_from_db()
         assert job.status == SyncJobStatus.FAILED
-        assert job.attempts == MAX_SYNC_RETRIES
+        assert job.attempts == MAX_SYNC_RETRIES + 1
 
 
 # --- SyncJob retry logic ---
@@ -207,7 +207,7 @@ class TestSyncJobRetry:
             entity_type="product",
             entity_key="REF001",
             status=SyncJobStatus.PENDING,
-            attempts=MAX_SYNC_RETRIES,
+            attempts=MAX_SYNC_RETRIES + 1,
         )
         SyncError.objects.create(
             job=job,
@@ -495,7 +495,7 @@ class TestRetryFailedJobs:
             entity_type="product",
             entity_key="REF005",
             status=SyncJobStatus.PENDING,
-            attempts=MAX_SYNC_RETRIES,
+            attempts=MAX_SYNC_RETRIES + 1,
             available_at=timezone.now() - timedelta(minutes=1),
             payload={"entity_id": product.pk},
         )
