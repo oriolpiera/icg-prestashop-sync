@@ -172,7 +172,7 @@ class TestSyncJobRetry:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF001",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
         )
         SyncError.objects.create(
@@ -189,7 +189,7 @@ class TestSyncJobRetry:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF001",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
         )
         SyncError.objects.create(
@@ -206,7 +206,7 @@ class TestSyncJobRetry:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF001",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=MAX_SYNC_RETRIES,
         )
         SyncError.objects.create(
@@ -402,7 +402,7 @@ class TestRetryFailedJobs:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF001",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
             available_at=timezone.now() - timedelta(minutes=1),
             payload={"entity_id": product.pk},
@@ -436,7 +436,7 @@ class TestRetryFailedJobs:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF002",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
             available_at=timezone.now() - timedelta(minutes=1),
             payload={"entity_id": product.pk},
@@ -453,7 +453,7 @@ class TestRetryFailedJobs:
 
         assert result["skipped"] >= 1
         job.refresh_from_db()
-        assert job.status == SyncJobStatus.FAILED
+        assert job.status == SyncJobStatus.PENDING
 
     def test_skips_jobs_not_yet_available(self):
         product = Product.objects.create(
@@ -465,7 +465,7 @@ class TestRetryFailedJobs:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF003",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
             available_at=timezone.now() + timedelta(hours=1),
             payload={"entity_id": product.pk},
@@ -482,7 +482,7 @@ class TestRetryFailedJobs:
 
         assert result["retried"] == 0
         job.refresh_from_db()
-        assert job.status == SyncJobStatus.FAILED
+        assert job.status == SyncJobStatus.PENDING
 
     def test_retries_job_with_batch_payload_entity_id(self):
         product = Product.objects.create(
@@ -494,7 +494,7 @@ class TestRetryFailedJobs:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key="REF004",
-            status=SyncJobStatus.FAILED,
+            status=SyncJobStatus.PENDING,
             attempts=1,
             available_at=timezone.now() - timedelta(minutes=1),
             payload={

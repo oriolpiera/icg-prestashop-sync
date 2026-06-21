@@ -76,7 +76,7 @@ class SyncJob(TimeStampedModel):
     @property
     def is_retryable(self) -> bool:
         return (
-            self.status == SyncJobStatus.FAILED
+            self.status == SyncJobStatus.PENDING
             and self.attempts < MAX_SYNC_RETRIES
             and self.error_type == SyncErrorType.TRANSIENT
         )

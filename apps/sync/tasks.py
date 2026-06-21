@@ -376,7 +376,7 @@ def retry_failed_jobs() -> dict:
     try:
         with sync_lock("retry_failed_jobs"):
             retryable_jobs = SyncJob.objects.filter(
-                status=SyncJobStatus.FAILED,
+                status=SyncJobStatus.PENDING,
                 available_at__lte=timezone.now(),
             ).order_by("available_at")
 
