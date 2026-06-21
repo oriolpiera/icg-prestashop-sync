@@ -58,7 +58,6 @@ class ICGCatalogReader:
             f"Encrypt=yes;"
             f"TrustServerCertificate={'yes' if cs.trust_server_certificate else 'no'};"
             f"Login Timeout={cs.login_timeout};"
-            f"Connection Timeout={cs.query_timeout};"
         )
         logger.info("Connecting to ICG MSSQL on %s/%s", cs.server, cs.database)
         try:
@@ -72,6 +71,7 @@ class ICGCatalogReader:
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
+            db_cursor.timeout = self.connection_settings().query_timeout
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_articles "
@@ -100,6 +100,7 @@ class ICGCatalogReader:
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
+            db_cursor.timeout = self.connection_settings().query_timeout
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_preus "
@@ -128,6 +129,7 @@ class ICGCatalogReader:
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
+            db_cursor.timeout = self.connection_settings().query_timeout
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_stocks "
