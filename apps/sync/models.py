@@ -3,6 +3,9 @@ from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
 
+MAX_SYNC_RETRIES = 2
+BACKOFF_SCHEDULE_SECONDS = [300, 1800]
+
 
 class SyncCursorSource(models.TextChoices):
     PRODUCTS = "products", "Products"
@@ -28,6 +31,12 @@ class SyncJobStatus(models.TextChoices):
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
+
+
+class SyncErrorType(models.TextChoices):
+    TRANSIENT = "transient", "Transient (retryable)"
+    PERMANENT = "permanent", "Permanent"
+    VALIDATION = "validation", "Validation"
 
 
 class SyncCursor(TimeStampedModel):
@@ -63,3 +72,73 @@ class SyncJob(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.job_type} [{self.entity_type}:{self.entity_key}]"
+
+    @property
+    def is_retryable(self) -> bool:
+        return (
+            self.status == SyncJobStatus.PENDING
+            and self.attempts < MAX_SYNC_RETRIES
+            and self.error_type == SyncErrorType.TRANSIENT
+        )
+
+    @property
+    def error_type(self) -> str | None:
+        cache = getattr(self, "_prefetched_objects_cache", None)
+        if cache and "errors" in cache:
+            errors = cache["errors"]
+            if errors:
+                return max(errors, key=lambda e: e.created_at).error_type
+            return None
+        last = self.errors.order_by("-created_at").first()
+        return last.error_type if last else None
+
+    def schedule_retry(self) -> None:
+        from datetime import timedelta
+
+        self.attempts += 1
+        delay_index = min(self.attempts - 2, len(BACKOFF_SCHEDULE_SECONDS) - 1)
+        delay = BACKOFF_SCHEDULE_SECONDS[delay_index]
+        self.available_at = timezone.now() + timedelta(seconds=delay)
+        self.status = SyncJobStatus.PENDING
+        self.last_error = ""
+        self.save(
+            update_fields=[
+                "attempts",
+                "available_at",
+                "status",
+                "last_error",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+
+
+class SyncError(TimeStampedModel):
+    job = models.ForeignKey(SyncJob, on_delete=models.CASCADE, related_name="errors")
+    entity_type = models.CharField(max_length=32)
+    entity_key = models.CharField(max_length=128)
+    error_type = models.CharField(
+        max_length=16,
+        choices=SyncErrorType.choices,
+    )
+    message = models.TextField()
+    details = models.JSONField(default=dict, blank=True)
+    resolved = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.error_type} on {self.entity_type}:{self.entity_key}"
+
+
+class SyncLock(TimeStampedModel):
+    lock_key = models.CharField(max_length=64, unique=True)
+    locked_by = models.CharField(max_length=128, blank=True)
+    locked_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["lock_key"]
+
+    def __str__(self) -> str:
+        return f"Lock: {self.lock_key} ({self.locked_by})"

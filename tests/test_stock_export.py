@@ -285,7 +285,8 @@ class TestStockExportTask:
         stock.refresh_from_db()
         job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_STOCK)
         assert result == {"status": "success", "processed": 0, "failed": 1}
-        assert job.status == SyncJobStatus.FAILED
+        assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 2
         assert json.loads(stock.last_sync_error)["status_code"] == 503
 
 

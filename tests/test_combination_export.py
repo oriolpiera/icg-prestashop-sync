@@ -406,7 +406,8 @@ class TestCombinationExportTask:
         combination.refresh_from_db()
         job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_COMBINATION)
         assert result == {"status": "success", "processed": 0, "failed": 1}
-        assert job.status == SyncJobStatus.FAILED
+        assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 2
         assert json.loads(combination.last_sync_error)["status_code"] == 503
 
 
