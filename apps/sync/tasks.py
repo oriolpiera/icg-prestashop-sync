@@ -375,10 +375,14 @@ def retry_failed_jobs() -> dict:
 
     try:
         with sync_lock("retry_failed_jobs"):
-            retryable_jobs = SyncJob.objects.filter(
-                status=SyncJobStatus.PENDING,
-                available_at__lte=timezone.now(),
-            ).order_by("available_at")
+            retryable_jobs = (
+                SyncJob.objects.filter(
+                    status=SyncJobStatus.PENDING,
+                    available_at__lte=timezone.now(),
+                )
+                .prefetch_related("errors")
+                .order_by("available_at")
+            )
 
             for job in retryable_jobs:
                 latest_error_type = job.error_type
