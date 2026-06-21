@@ -56,7 +56,7 @@ def _record_sync_error(
     job.last_error = error_message
     job.finished_at = timezone.now().astimezone(UTC)
 
-    if error_type == SyncErrorType.TRANSIENT and job.attempts <= MAX_SYNC_RETRIES:
+    if error_type == SyncErrorType.TRANSIENT and job.attempts < MAX_SYNC_RETRIES:
         job.schedule_retry()
     else:
         job.save(
