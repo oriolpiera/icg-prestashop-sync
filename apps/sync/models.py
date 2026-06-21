@@ -101,6 +101,7 @@ class SyncJob(TimeStampedModel):
                 "available_at",
                 "status",
                 "last_error",
+                "finished_at",
                 "updated_at",
             ]
         )
