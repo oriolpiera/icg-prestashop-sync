@@ -3,8 +3,8 @@ from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
 
-MAX_SYNC_RETRIES = 3
-BACKOFF_SCHEDULE_SECONDS = [300, 1800, 7200]
+MAX_SYNC_RETRIES = 2
+BACKOFF_SCHEDULE_SECONDS = [300, 1800]
 
 
 class SyncCursorSource(models.TextChoices):
