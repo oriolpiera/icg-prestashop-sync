@@ -83,6 +83,12 @@ class SyncJob(TimeStampedModel):
 
     @property
     def error_type(self) -> str | None:
+        cache = getattr(self, "_prefetched_objects_cache", None)
+        if cache and "errors" in cache:
+            errors = cache["errors"]
+            if errors:
+                return max(errors, key=lambda e: e.created_at).error_type
+            return None
         last = self.errors.order_by("-created_at").first()
         return last.error_type if last else None
 

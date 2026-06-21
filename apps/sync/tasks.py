@@ -390,7 +390,7 @@ def retry_failed_jobs() -> dict:
                     skipped += 1
                     continue
 
-                if job.attempts >= MAX_SYNC_RETRIES:
+                if job.attempts > MAX_SYNC_RETRIES:
                     job.status = SyncJobStatus.FAILED
                     job.finished_at = timezone.now().astimezone(UTC)
                     job.save(update_fields=["status", "finished_at", "updated_at"])
