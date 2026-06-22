@@ -1,15 +1,17 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, cast
+from typing import cast
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 
-class ICGSettings(Protocol):
+class ICGSettings:
+    ICG_ODBC_CONNECTION_STRING: str
     ICG_MSSQL_SERVER: str
+    ICG_MSSQL_SERVERNAME: str
     ICG_MSSQL_DATABASE: str
     ICG_MSSQL_USER: str
     ICG_MSSQL_PASSWORD: str
@@ -21,7 +23,9 @@ class ICGSettings(Protocol):
 
 @dataclass(slots=True)
 class ICGConnectionSettings:
+    odbc_connection_string: str
     server: str
+    servername: str
     database: str
     user: str
     password: str
@@ -35,7 +39,9 @@ class ICGCatalogReader:
     def connection_settings(self) -> ICGConnectionSettings:
         typed_settings = cast(ICGSettings, settings)
         return ICGConnectionSettings(
+            odbc_connection_string=typed_settings.ICG_ODBC_CONNECTION_STRING,
             server=typed_settings.ICG_MSSQL_SERVER,
+            servername=typed_settings.ICG_MSSQL_SERVERNAME,
             database=typed_settings.ICG_MSSQL_DATABASE,
             user=typed_settings.ICG_MSSQL_USER,
             password=typed_settings.ICG_MSSQL_PASSWORD,
@@ -45,25 +51,41 @@ class ICGCatalogReader:
             trust_server_certificate=typed_settings.ICG_MSSQL_TRUST_SERVER_CERTIFICATE,
         )
 
+    def build_connection_string(self) -> str:
+        cs = self.connection_settings()
+        if cs.odbc_connection_string:
+            return cs.odbc_connection_string
+
+        driver_name = cs.driver.lower()
+        server_part = f"SERVERNAME={cs.servername};" if cs.servername else f"SERVER={cs.server};"
+        trust_part = (
+            f"TrustServerCertificate={'yes' if cs.trust_server_certificate else 'no'};"
+            if "freetds" not in driver_name
+            else ""
+        )
+        encrypt_part = "Encrypt=yes;" if "freetds" not in driver_name else ""
+        return (
+            f"DRIVER={{{cs.driver}}};"
+            f"{server_part}"
+            f"DATABASE={cs.database};"
+            f"UID={cs.user};"
+            f"PWD={cs.password};"
+            f"{encrypt_part}"
+            f"{trust_part}"
+            f"Login Timeout={cs.login_timeout};"
+        )
+
     def _connect(self):
         import pyodbc
 
         cs = self.connection_settings()
-        conn_str = (
-            f"DRIVER={{{cs.driver}}};"
-            f"SERVER={cs.server};"
-            f"DATABASE={cs.database};"
-            f"UID={cs.user};"
-            f"PWD={cs.password};"
-            f"Encrypt=yes;"
-            f"TrustServerCertificate={'yes' if cs.trust_server_certificate else 'no'};"
-            f"Login Timeout={cs.login_timeout};"
-        )
-        logger.info("Connecting to ICG MSSQL on %s/%s", cs.server, cs.database)
+        conn_str = self.build_connection_string()
+        target = cs.servername or cs.server
+        logger.info("Connecting to ICG MSSQL on %s/%s", target, cs.database)
         try:
             return pyodbc.connect(conn_str)
         except pyodbc.Error:
-            logger.exception("Failed to connect to ICG MSSQL on %s/%s", cs.server, cs.database)
+            logger.exception("Failed to connect to ICG MSSQL on %s/%s", target, cs.database)
             raise
 
     def fetch_products_after(
