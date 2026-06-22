@@ -465,7 +465,7 @@ class PrestashopClient:
         root = self.get_blank_attribute_group_xml()
         group = root.find("./product_option")
         if group is None:
-            raise PrestashopError("Prestashop product option payload did not include a product_option node.")
+            raise PrestashopError("Prestashop product option payload did not include a product_option node.")  # noqa: E501
         self._set_text(group, "is_color_group", "0")
         self._set_text(group, "group_type", "select")
         self._set_text(group, "position", group.findtext("position") or "1")
@@ -518,7 +518,7 @@ class PrestashopClient:
         value = root.find("./product_option_value")
         if value is None:
             raise PrestashopError(
-                "Prestashop product option value payload did not include a product_option_value node."
+                "Prestashop product option value payload did not include a product_option_value node."  # noqa: E501
             )
         self._set_text(value, "id_attribute_group", str(group_ps_id))
         self._set_text(value, "color", "")
@@ -813,7 +813,7 @@ class PrestashopClient:
             stock_available_id = self.find_stock_available_id_by_combination_id(combination_ps_id)
             if stock_available_id is None:
                 raise PrestashopError(
-                    f"Prestashop combination {combination_ps_id} has no stock_available association."
+                    f"Prestashop combination {combination_ps_id} has no stock_available association."  # noqa: E501
                 )
         else:
             stock_available_id = int(stock_available_node.text)
