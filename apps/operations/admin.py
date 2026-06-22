@@ -11,7 +11,6 @@ from apps.catalog.models import (
     Category,
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Price,
     Product,
     Stock,
@@ -180,6 +179,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_display = (
         "reference",
         "name",
+        "prestashop_id",
         "manufacturer",
         "category_default",
         "visible_web",
@@ -200,6 +200,7 @@ class ProductAdmin(admin.ModelAdmin):
 class CombinationAdmin(admin.ModelAdmin):
     list_display = (
         "product",
+        "prestashop_id",
         "icg_size",
         "icg_color",
         "ean13",
@@ -261,18 +262,6 @@ class AttributeValueAdmin(admin.ModelAdmin):
     list_display = ("attribute_group", "icg_value", "name", "prestashop_id", "updated_at")
     list_filter = ("attribute_group__icg_type",)
     search_fields = ("icg_value", "name")
-
-
-@admin.register(PrestashopMapping)
-class PrestashopMappingAdmin(admin.ModelAdmin):
-    list_display = (
-        "product",
-        "combination",
-        "prestashop_product_id",
-        "prestashop_combination_id",
-        "updated_at",
-    )
-    search_fields = ("product__reference", "prestashop_product_id", "prestashop_combination_id")
 
 
 @admin.register(SyncCursor)

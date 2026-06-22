@@ -11,7 +11,6 @@ from apps.catalog.models import (
     CategoryType,
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Price,
     Product,
     TaxRuleMapping,
@@ -31,7 +30,6 @@ from apps.sync.tasks import export_prices
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
-    PrestashopMapping.objects.all().delete()
     Price.objects.all().delete()
     AttributeValue.objects.all().delete()
     AttributeGroup.objects.all().delete()
@@ -101,11 +99,9 @@ def _make_tax_mapping(vat_rate=21, ps_group_id=1, label="IVA 21%"):
     )
 
 
-def _make_product_mapping(product, prestashop_product_id):
-    return PrestashopMapping.objects.create(
-        product=product,
-        prestashop_product_id=prestashop_product_id,
-    )
+def _make_product_prestashop_id(product, prestashop_product_id):
+    product.prestashop_id = prestashop_product_id
+    product.save(update_fields=["prestashop_id"])
 
 
 def _response(payload: str, status_code: int = 200):
@@ -154,7 +150,7 @@ class TestPriceExport:
     def test_export_price_syncs_product_and_combination(self, _default_category):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
@@ -194,7 +190,7 @@ class TestPriceExport:
     def test_export_price_passes_vat_to_product(self, _default_category):
         _make_tax_mapping(vat_rate=10, ps_group_id=2)
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination, amount_ex_vat=55.00, vat_rate=10)
 
@@ -224,7 +220,7 @@ class TestPriceExport:
     def test_export_price_stores_structured_error(self, _default_category):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination)
 
@@ -255,7 +251,7 @@ class TestPriceExport:
     def test_export_price_fails_on_unsupported_vat(self, settings):
         settings.PRESTASHOP_DEFAULT_TAX_RULES_GROUP_ID = None
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination, vat_rate=16.5)
 
@@ -277,7 +273,7 @@ class TestPriceExport:
 class TestCombinationPricePassthrough:
     def test_combination_export_passes_price_to_client(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
@@ -300,7 +296,7 @@ class TestCombinationPricePassthrough:
 
     def test_combination_export_defaults_to_zero_when_no_price(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
@@ -505,7 +501,7 @@ class TestPriceExportTask:
     def test_task_exports_pending_prices(self, monkeypatch):
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
@@ -542,7 +538,7 @@ class TestPriceExportTask:
 
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination)
 
@@ -565,7 +561,7 @@ class TestPriceExportTask:
 
     def test_task_skips_prices_without_sync_required(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination)
         price.sync_required = False

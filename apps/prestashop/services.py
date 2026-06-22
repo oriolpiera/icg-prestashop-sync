@@ -10,7 +10,6 @@ from apps.catalog.models import (
     CategoryType,
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Price,
     Product,
     Stock,
@@ -206,7 +205,6 @@ def export_product(
     tax_rules_group_id: int | None = None,
 ) -> dict[str, int]:
     product = Product.objects.select_related("manufacturer", "category_default").get(pk=product_id)
-    mapping = PrestashopMapping.objects.filter(product=product).first()
     client = client or PrestashopClient()
 
     try:
@@ -218,7 +216,7 @@ def export_product(
 
         default_category, category_ids = resolve_product_categories(product, client=client)
 
-        prestashop_id = mapping.prestashop_product_id if mapping else None
+        prestashop_id = product.prestashop_id
         if prestashop_id is None:
             prestashop_id = client.find_product_id_by_reference(product.reference)
 
@@ -230,16 +228,18 @@ def export_product(
             category_ids=category_ids,
         )
 
-        PrestashopMapping.objects.update_or_create(
-            product=product,
-            defaults={"prestashop_product_id": prestashop_id},
-        )
-
+        product.prestashop_id = prestashop_id
         product.sync_required = False
         product.last_sync_error = ""
         product.last_synced_at = timezone.now().astimezone(UTC)
         product.save(
-            update_fields=["sync_required", "last_sync_error", "last_synced_at", "updated_at"]
+            update_fields=[
+                "prestashop_id",
+                "sync_required",
+                "last_sync_error",
+                "last_synced_at",
+                "updated_at",
+            ]
         )
         return {"product_id": product.pk, "prestashop_id": prestashop_id}
     except Exception as exc:
@@ -341,9 +341,8 @@ def export_combination(
 
     try:
         if not combination.active:
-            comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
-            if comb_mapping and comb_mapping.prestashop_combination_id:
-                client.deactivate_combination(comb_mapping.prestashop_combination_id)
+            if combination.prestashop_id:
+                client.deactivate_combination(combination.prestashop_id)
 
             combination.sync_required = False
             combination.last_sync_error = ""
@@ -358,18 +357,15 @@ def export_combination(
             )
             return {
                 "combination_id": combination.pk,
-                "prestashop_combination_id": (
-                    comb_mapping.prestashop_combination_id if comb_mapping else 0
-                ),
+                "prestashop_combination_id": combination.prestashop_id or 0,
             }
 
-        product_mapping = PrestashopMapping.objects.filter(product=combination.product).first()
-        if not product_mapping or not product_mapping.prestashop_product_id:
+        if not combination.product.prestashop_id:
             raise PrestashopError(
                 f"Product {combination.product.reference} must be exported before combination sync."
             )
 
-        product_ps_id = product_mapping.prestashop_product_id
+        product_ps_id = combination.product.prestashop_id
 
         size_ps_ids = []
         color_ps_ids = []
@@ -393,8 +389,7 @@ def export_combination(
         if not attribute_value_ps_ids:
             raise PrestashopError(f"Combination {combination} has neither size nor color.")
 
-        comb_mapping = PrestashopMapping.objects.filter(combination=combination).first()
-        prestashop_combination_id = comb_mapping.prestashop_combination_id if comb_mapping else None
+        prestashop_combination_id = combination.prestashop_id
 
         price_obj = getattr(combination, "price", None)
         combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
@@ -408,16 +403,13 @@ def export_combination(
             price=combination_price,
         )
 
-        PrestashopMapping.objects.update_or_create(
-            combination=combination,
-            defaults={"prestashop_combination_id": prestashop_combination_id},
-        )
-
+        combination.prestashop_id = prestashop_combination_id
         combination.sync_required = False
         combination.last_sync_error = ""
         combination.last_synced_at = timezone.now().astimezone(UTC)
         combination.save(
             update_fields=[
+                "prestashop_id",
                 "sync_required",
                 "last_sync_error",
                 "last_synced_at",
@@ -440,13 +432,12 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
-        comb_mapping = PrestashopMapping.objects.filter(combination=stock.combination).first()
-        if not comb_mapping or not comb_mapping.prestashop_combination_id:
+        if not stock.combination.prestashop_id:
             raise PrestashopError(
                 f"Combination {stock.combination} must be exported before stock sync."
             )
 
-        client.upsert_stock(comb_mapping.prestashop_combination_id, stock.quantity)
+        client.upsert_stock(stock.combination.prestashop_id, stock.quantity)
 
         stock.sync_required = False
         stock.last_sync_error = ""
@@ -461,7 +452,7 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
         )
         return {
             "stock_id": stock.pk,
-            "prestashop_combination_id": comb_mapping.prestashop_combination_id,
+            "prestashop_combination_id": stock.combination.prestashop_id,
             "quantity": stock.quantity,
         }
     except Exception as exc:
@@ -479,13 +470,12 @@ def export_discount(
     client = client or PrestashopClient()
 
     try:
-        product_mapping = PrestashopMapping.objects.filter(product=product).first()
-        if not product_mapping or not product_mapping.prestashop_product_id:
+        if not product.prestashop_id:
             raise PrestashopError(
                 f"Product {product.reference} must be exported before discount sync."
             )
 
-        product_ps_id = product_mapping.prestashop_product_id
+        product_ps_id = product.prestashop_id
         discount = product.discount_percent
         existing_ps_id = product.prestashop_specific_price_id
 
