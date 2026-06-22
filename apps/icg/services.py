@@ -64,7 +64,7 @@ class ICGCatalogReader:
             else ""
         )
         encrypt_part = "Encrypt=yes;" if "freetds" not in driver_name else ""
-        driver_part = f"DRIVER={cs.driver};" if "freetds" in driver_name else f"DRIVER={{{cs.driver}}};"
+        driver_part = f"DRIVER={cs.driver};" if "freetds" in driver_name else f"DRIVER={{{cs.driver}}};"  # noqa: E501
         return (
             f"{driver_part}"
             f"{server_part}"

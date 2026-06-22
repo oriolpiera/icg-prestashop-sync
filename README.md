@@ -47,6 +47,32 @@ python manage.py runserver
 
 The project loads environment variables from `.env` automatically.
 
+## ICG source backends
+
+The default ICG reader uses direct MSSQL access through `pyodbc`:
+
+```env
+```
+
+If the legacy SQL Server only works through FreeTDS, the main Django app can also use either:
+
+```env
+ICG_MSSQL_DRIVER=FreeTDS
+ICG_MSSQL_SERVERNAME=legacy-sql-alias
+ICG_MSSQL_DATABASE=legacy_database
+ICG_MSSQL_USER=legacy_user
+ICG_MSSQL_PASSWORD=change-me
+```
+
+or a raw ODBC override:
+
+```env
+ICG_ODBC_CONNECTION_STRING=DRIVER=FreeTDS;SERVERNAME=legacy-sql-alias;DATABASE=legacy_database;UID=legacy_user;PWD=change-me;
+```
+
+`SERVERNAME` requires a matching alias in `/etc/freetds/freetds.conf` inside the runtime container.
+In the current Docker deployment, the simplest setup is to mount the host file into `django` and `celery` as `/etc/freetds/freetds.conf:ro`.
+
 Optional worker processes:
 
 ```bash
