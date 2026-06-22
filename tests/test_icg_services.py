@@ -29,7 +29,7 @@ def test_mssql_reader_supports_freetds_servername_connections():
     reader = ICGCatalogReader()
 
     assert reader.build_connection_string() == (
-        "DRIVER={FreeTDS};"
+        "DRIVER=FreeTDS;"
         "SERVERNAME=legacy-sql-alias;"
         "DATABASE=legacy_database;"
         "UID=legacy_user;"

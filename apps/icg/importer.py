@@ -23,6 +23,19 @@ def _escape(value: str) -> str:
     return value.replace("{", "").replace("}", "").replace("'", "")
 
 
+def _normalize_ean13(value) -> str:
+    if not value:
+        return ""
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    parts = [part for part in raw.split() if part]
+    if len(parts) > 1:
+        logger.warning("Normalizing multi-value EAN13 %r to first token %r", raw, parts[0])
+    normalized = parts[0] if parts else raw
+    return normalized[:32]
+
+
 def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
     icg_id = int(row[0])
     reference = str(row[1]).strip()
@@ -36,7 +49,7 @@ def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
 
     icg_size = _escape(str(row[2]))
     icg_color = _escape(str(row[3]))
-    ean13 = str(row[4]).strip() if row[4] else ""
+    ean13 = _normalize_ean13(row[4])
     name = str(row[6]).strip() if row[6] else ""
     visible_web = str(row[12]).strip().upper() == "T"
     manufacturer_code = str(row[13]).strip() if row[13] else ""

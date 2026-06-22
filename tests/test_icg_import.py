@@ -248,6 +248,84 @@ class TestProductImport:
         for c in Combination.objects.all():
             assert c.sync_required is True
 
+    def test_import_normalizes_multi_value_ean13_to_first_token(self):
+        row = _FakeRow(
+            14362,
+            "0930788",
+            "COLORES",
+            "12",
+            "8712079454364 09360325024 8712079454333 0936032501",
+            "",
+            "Product Three",
+            1,
+            21,
+            93,
+            "TALENS",
+            datetime(2026, 3, 1, 10, 0, 0),
+            "T",
+            14000,
+            "ARTECREATION",
+            "F",
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_products_after.return_value = ([row], False)
+            result = import_products()
+
+        assert result["processed"] == 1
+        combination = Combination.objects.get(product__icg_id=14362)
+        assert combination.ean13 == "8712079454364"
+
+    def test_import_allows_duplicate_references_for_different_icg_ids(self):
+        duplicate_rows = [
+            _FakeRow(
+                11006,
+                "0090496",
+                "",
+                "",
+                "1234567890123",
+                "",
+                "Tablero Inclinable",
+                1,
+                21,
+                93,
+                "TALENS",
+                datetime(2026, 3, 1, 10, 0, 0),
+                "T",
+                14000,
+                "ARTECREATION",
+                "F",
+            ),
+            _FakeRow(
+                9650,
+                "0090496",
+                "",
+                "",
+                "1234567890456",
+                "",
+                "Pintar x Números Acrílico Intermedio",
+                1,
+                21,
+                93,
+                "TALENS",
+                datetime(2026, 3, 1, 10, 5, 0),
+                "T",
+                14000,
+                "ARTECREATION",
+                "F",
+            ),
+        ]
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_products_after.return_value = (duplicate_rows, False)
+            result = import_products()
+
+        assert result["processed"] == 2
+        assert Product.objects.filter(reference="0090496").count() == 2
+        assert Product.objects.filter(icg_id__in=[11006, 9650]).count() == 2
+
     def test_multiple_batches_process_all_rows(self):
         def fetch_side_effect(cursor_at=None, last_source_key="", limit=5000):
             if cursor_at is None:

@@ -64,8 +64,9 @@ class ICGCatalogReader:
             else ""
         )
         encrypt_part = "Encrypt=yes;" if "freetds" not in driver_name else ""
+        driver_part = f"DRIVER={cs.driver};" if "freetds" in driver_name else f"DRIVER={{{cs.driver}}};"
         return (
-            f"DRIVER={{{cs.driver}}};"
+            f"{driver_part}"
             f"{server_part}"
             f"DATABASE={cs.database};"
             f"UID={cs.user};"
@@ -88,12 +89,18 @@ class ICGCatalogReader:
             logger.exception("Failed to connect to ICG MSSQL on %s/%s", target, cs.database)
             raise
 
+    def _set_query_timeout(self, db_cursor) -> None:
+        try:
+            db_cursor.timeout = self.connection_settings().query_timeout
+        except AttributeError:
+            logger.debug("ODBC cursor does not support timeout attribute; continuing without it")
+
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            db_cursor.timeout = self.connection_settings().query_timeout
+            self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_articles "
@@ -122,7 +129,7 @@ class ICGCatalogReader:
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            db_cursor.timeout = self.connection_settings().query_timeout
+            self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_preus "
@@ -151,7 +158,7 @@ class ICGCatalogReader:
     ) -> tuple[list, bool]:
         with self._connect() as conn:
             db_cursor = conn.cursor()
-            db_cursor.timeout = self.connection_settings().query_timeout
+            self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
                 db_cursor.execute(
                     "SELECT * FROM view_imp_stocks "

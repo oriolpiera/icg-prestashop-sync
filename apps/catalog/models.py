@@ -67,7 +67,7 @@ class Manufacturer(SyncTrackedModel):
 
 class Product(SyncTrackedModel):
     icg_id = models.PositiveIntegerField(unique=True)
-    reference = models.CharField(max_length=64, unique=True)
+    reference = models.CharField(max_length=64)
     name = models.CharField(max_length=255)
     manufacturer = models.ForeignKey(
         Manufacturer,

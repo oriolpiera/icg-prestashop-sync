@@ -319,6 +319,15 @@ class PrestashopClient:
         self._set_text(product_node, "available_for_order", "0" if product.discontinued else "1")
         self._set_text(product_node, "show_price", "1")
         self._set_text(product_node, "visibility", visibility)
+        if is_create:
+            self._remove_node(product_node, "position_in_category")
+            self._remove_node(product_node, "position")
+        else:
+            self._set_text(
+                product_node,
+                "position_in_category",
+                product_node.findtext("position_in_category") or "1",
+            )
         self._set_text(
             product_node,
             "minimal_quantity",
@@ -359,10 +368,29 @@ class PrestashopClient:
             node = ElementTree.SubElement(parent, tag)
         node.text = value
 
-    def _set_multilang_text(self, parent: ElementTree.Element, tag: str, value: str) -> None:
+    def _remove_node(self, parent: ElementTree.Element, tag: str) -> None:
+        node = parent.find(f"./{tag}")
+        if node is not None:
+            parent.remove(node)
+
+    def _set_multilang_text(
+        self,
+        parent: ElementTree.Element,
+        tag: str,
+        value: str,
+        *,
+        fill_all_languages: bool = False,
+    ) -> None:
         node = parent.find(f"./{tag}")
         if node is None:
             node = ElementTree.SubElement(parent, tag)
+
+        if fill_all_languages:
+            languages = node.findall("./language")
+            if languages:
+                for language in languages:
+                    language.text = value
+                return
 
         default_language_id = str(self.credentials().default_language_id)
         language = None
@@ -429,13 +457,20 @@ class PrestashopClient:
         response = self._request("GET", "product_options", resource_id=group_id)
         return self._parse_xml(response.text)
 
+    def get_blank_attribute_group_xml(self) -> ElementTree.Element:
+        response = self._request("GET", "product_options", params={"schema": "blank"})
+        return self._parse_xml(response.text)
+
     def create_attribute_group(self, name: str) -> int:
-        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
-        group = ElementTree.SubElement(root, "product_option")
-        group_type = ElementTree.SubElement(group, "group_type")
-        group_type.text = "select"
-        self._set_multilang_text(group, "name", name)
-        self._set_multilang_text(group, "public_name", name)
+        root = self.get_blank_attribute_group_xml()
+        group = root.find("./product_option")
+        if group is None:
+            raise PrestashopError("Prestashop product option payload did not include a product_option node.")
+        self._set_text(group, "is_color_group", "0")
+        self._set_text(group, "group_type", "select")
+        self._set_text(group, "position", group.findtext("position") or "1")
+        self._set_multilang_text(group, "name", name, fill_all_languages=True)
+        self._set_multilang_text(group, "public_name", name, fill_all_languages=True)
         response = self._request(
             "POST",
             "product_options",
@@ -474,12 +509,21 @@ class PrestashopClient:
             )
         return int(value_id)
 
+    def get_blank_attribute_value_xml(self) -> ElementTree.Element:
+        response = self._request("GET", "product_option_values", params={"schema": "blank"})
+        return self._parse_xml(response.text)
+
     def create_attribute_value(self, name: str, group_ps_id: int) -> int:
-        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
-        value = ElementTree.SubElement(root, "product_option_value")
-        id_group = ElementTree.SubElement(value, "id_attribute_group")
-        id_group.text = str(group_ps_id)
-        self._set_multilang_text(value, "name", name)
+        root = self.get_blank_attribute_value_xml()
+        value = root.find("./product_option_value")
+        if value is None:
+            raise PrestashopError(
+                "Prestashop product option value payload did not include a product_option_value node."
+            )
+        self._set_text(value, "id_attribute_group", str(group_ps_id))
+        self._set_text(value, "color", "")
+        self._set_text(value, "position", value.findtext("position") or "1")
+        self._set_multilang_text(value, "name", name, fill_all_languages=True)
         response = self._request(
             "POST",
             "product_option_values",
@@ -733,6 +777,29 @@ class PrestashopClient:
         response = self._request("GET", "stock_availables", resource_id=stock_available_id)
         return self._parse_xml(response.text)
 
+    def find_stock_available_id_by_combination_id(self, combination_ps_id: int) -> int | None:
+        response = self._request(
+            "GET",
+            "stock_availables",
+            params={
+                "filter[id_product_attribute]": str(combination_ps_id),
+                "limit": "1",
+            },
+        )
+        root = self._parse_xml(response.text)
+        stock_available = root.find("./stock_availables/stock_available")
+        if stock_available is None:
+            return None
+
+        stock_available_id = stock_available.attrib.get("id")
+        if not stock_available_id:
+            stock_available_id = stock_available.findtext("id")
+        if not stock_available_id:
+            raise PrestashopError(
+                "Prestashop stock_available search response did not include an id."
+            )
+        return int(stock_available_id)
+
     def upsert_stock(self, combination_ps_id: int, quantity: int) -> None:
         root = self.get_combination_xml(combination_ps_id)
         comb_node = root.find("./combination")
@@ -743,11 +810,18 @@ class PrestashopClient:
 
         stock_available_node = comb_node.find("./associations/stock_availables/stock_available/id")
         if stock_available_node is None or not stock_available_node.text:
+            stock_available_id = self.find_stock_available_id_by_combination_id(combination_ps_id)
+            if stock_available_id is None:
+                raise PrestashopError(
+                    f"Prestashop combination {combination_ps_id} has no stock_available association."
+                )
+        else:
+            stock_available_id = int(stock_available_node.text)
+
+        if stock_available_id is None:
             raise PrestashopError(
                 f"Prestashop combination {combination_ps_id} has no stock_available association."
             )
-
-        stock_available_id = int(stock_available_node.text)
 
         sa_root = self.get_stock_available_xml(stock_available_id)
         sa_node = sa_root.find("./stock_available")
