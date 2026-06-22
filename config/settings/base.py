@@ -25,6 +25,7 @@ def env_list(name: str, default: list[str] | None = None) -> list[str]:
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "unsafe-development-key")
 DEBUG = env_bool("DJANGO_DEBUG", False)
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -102,8 +104,16 @@ TIME_ZONE = os.getenv("TIME_ZONE", "Europe/Madrid")
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -143,8 +153,13 @@ PRESTASHOP_ROOT_CATEGORY_ID = int(os.getenv("PRESTASHOP_ROOT_CATEGORY_ID", "2"))
 _tax_raw = int(os.getenv("PRESTASHOP_DEFAULT_TAX_RULES_GROUP_ID", "0"))
 PRESTASHOP_DEFAULT_TAX_RULES_GROUP_ID = _tax_raw or None
 
+ICG_ODBC_CONNECTION_STRING = os.getenv("ICG_ODBC_CONNECTION_STRING", "")
 ICG_MSSQL_SERVER = os.getenv("ICG_MSSQL_SERVER", "")
+ICG_MSSQL_SERVERNAME = os.getenv("ICG_MSSQL_SERVERNAME", "")
 ICG_MSSQL_DATABASE = os.getenv("ICG_MSSQL_DATABASE", "")
 ICG_MSSQL_USER = os.getenv("ICG_MSSQL_USER", "")
 ICG_MSSQL_PASSWORD = os.getenv("ICG_MSSQL_PASSWORD", "")
 ICG_MSSQL_DRIVER = os.getenv("ICG_MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
+ICG_MSSQL_LOGIN_TIMEOUT = int(os.getenv("ICG_MSSQL_LOGIN_TIMEOUT", "10"))
+ICG_MSSQL_QUERY_TIMEOUT = int(os.getenv("ICG_MSSQL_QUERY_TIMEOUT", "30"))
+ICG_MSSQL_TRUST_SERVER_CERTIFICATE = env_bool("ICG_MSSQL_TRUST_SERVER_CERTIFICATE", False)

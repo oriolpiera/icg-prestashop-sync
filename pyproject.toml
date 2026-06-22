@@ -21,6 +21,7 @@ dependencies = [
   "python-dotenv>=1.0,<2",
   "requests>=2.32,<3",
   "gunicorn>=21,<23",
+  "whitenoise>=6.9,<7",
 ]
 
 [project.optional-dependencies]
