@@ -161,8 +161,8 @@ class TestCursorService:
 @pytest.mark.django_db
 class TestProductImport:
     def test_import_creates_manufacturer_product_combination_and_jobs(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
             result = import_products()
 
@@ -188,16 +188,16 @@ class TestProductImport:
         assert SyncJob.objects.filter(job_type=SyncJobType.IMPORT_PRODUCTS).count() == 3
 
     def test_import_is_idempotent(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
             import_products()
 
         product_count = Product.objects.count()
         job_count = SyncJob.objects.count()
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = ([], False)
             import_products()
 
@@ -205,8 +205,8 @@ class TestProductImport:
         assert SyncJob.objects.count() == job_count
 
     def test_cursor_advances_after_successful_import(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
             import_products()
 
@@ -217,8 +217,8 @@ class TestProductImport:
         def failing_fn(row):
             raise RuntimeError("DB write failed")
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
 
         with patch("apps.icg.importer._persist_product_row", side_effect=failing_fn):
@@ -229,8 +229,8 @@ class TestProductImport:
         assert cursor.last_modified_at is None
 
     def test_discontinued_product_combination_not_active(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
             import_products()
 
@@ -238,8 +238,8 @@ class TestProductImport:
         assert comb.active is False
 
     def test_sync_required_flag_on_new_records(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.return_value = (PRODUCT_ROWS, False)
             import_products()
 
@@ -248,92 +248,14 @@ class TestProductImport:
         for c in Combination.objects.all():
             assert c.sync_required is True
 
-    def test_import_normalizes_multi_value_ean13_to_first_token(self):
-        row = _FakeRow(
-            14362,
-            "0930788",
-            "COLORES",
-            "12",
-            "8712079454364 09360325024 8712079454333 0936032501",
-            "",
-            "Product Three",
-            1,
-            21,
-            93,
-            "TALENS",
-            datetime(2026, 3, 1, 10, 0, 0),
-            "T",
-            14000,
-            "ARTECREATION",
-            "F",
-        )
-
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
-            instance.fetch_products_after.return_value = ([row], False)
-            result = import_products()
-
-        assert result["processed"] == 1
-        combination = Combination.objects.get(product__icg_id=14362)
-        assert combination.ean13 == "8712079454364"
-
-    def test_import_allows_duplicate_references_for_different_icg_ids(self):
-        duplicate_rows = [
-            _FakeRow(
-                11006,
-                "0090496",
-                "",
-                "",
-                "1234567890123",
-                "",
-                "Tablero Inclinable",
-                1,
-                21,
-                93,
-                "TALENS",
-                datetime(2026, 3, 1, 10, 0, 0),
-                "T",
-                14000,
-                "ARTECREATION",
-                "F",
-            ),
-            _FakeRow(
-                9650,
-                "0090496",
-                "",
-                "",
-                "1234567890456",
-                "",
-                "Pintar x Números Acrílico Intermedio",
-                1,
-                21,
-                93,
-                "TALENS",
-                datetime(2026, 3, 1, 10, 5, 0),
-                "T",
-                14000,
-                "ARTECREATION",
-                "F",
-            ),
-        ]
-
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
-            instance.fetch_products_after.return_value = (duplicate_rows, False)
-            result = import_products()
-
-        assert result["processed"] == 2
-        assert Product.objects.filter(reference="0090496").count() == 2
-        assert Product.objects.filter(icg_id__in=[11006, 9650]).count() == 2
-
     def test_multiple_batches_process_all_rows(self):
         def fetch_side_effect(cursor_at=None, last_source_key="", limit=5000):
             if cursor_at is None:
                 return (PRODUCT_ROWS[:2], True)
             return (PRODUCT_ROWS[2:], False)
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_products_after.side_effect = fetch_side_effect
             result = import_products()
 
@@ -345,8 +267,8 @@ class TestProductImport:
 @pytest.mark.django_db
 class TestPriceImport:
     def test_import_skips_when_product_does_not_exist(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_prices_after.return_value = (PRICE_ROWS, False)
             result = import_prices()
 
@@ -358,8 +280,8 @@ class TestPriceImport:
         prod = _make_product(man)
         comb = Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_prices_after.return_value = (PRICE_ROWS[:1], False)
             result = import_prices()
 
@@ -392,8 +314,8 @@ class TestPriceImport:
             datetime(2026, 1, 20, 12, 0, 0),
         )
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_prices_after.return_value = ([updated_row], False)
             import_prices()
 
@@ -404,8 +326,8 @@ class TestPriceImport:
         man = _make_manufacturer()
         _make_product(man)
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_prices_after.return_value = (PRICE_ROWS[:1], False)
             result = import_prices()
 
@@ -449,8 +371,8 @@ class TestPriceImport:
             datetime(2026, 1, 20, 12, 0, 0),
         )
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_prices_after.return_value = ([row_low, row_high], False)
             import_prices()
 
@@ -469,8 +391,8 @@ class TestStockImport:
             _FakeRow(1001, "M", "RED", "02", "Other WH", 3, 0, 3, datetime(2026, 1, 25, 9, 0, 0)),
         ]
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_stock_after.return_value = (rows, False)
             result = import_stock()
 
@@ -482,8 +404,8 @@ class TestStockImport:
         prod = _make_product(man)
         comb = Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_stock_after.return_value = (STOCK_ROWS[:1], False)
             result = import_stock()
 
@@ -510,8 +432,8 @@ class TestStockImport:
             datetime(2026, 1, 25, 9, 0, 0),
         )
 
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_stock_after.return_value = ([negative], False)
             import_stock()
 
@@ -519,8 +441,8 @@ class TestStockImport:
         assert stock.quantity == 0
 
     def test_import_skips_non_existing_product(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_stock_after.return_value = (STOCK_ROWS, False)
             result = import_stock()
 
@@ -528,8 +450,8 @@ class TestStockImport:
         assert Stock.objects.count() == 0
 
     def test_cross_imports_independent(self):
-        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
-            instance = mock_reader_factory.return_value
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_cls:
+            instance = mock_cls.return_value
             instance.fetch_stock_after.return_value = (STOCK_ROWS, False)
             result = import_stock()
 

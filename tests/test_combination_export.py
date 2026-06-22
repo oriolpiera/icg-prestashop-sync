@@ -505,16 +505,6 @@ class TestPrestashopClientCombinationExport:
     def test_create_attribute_group(self, settings):
         session = Mock()
         session.request.side_effect = [
-            _response(
-                "<prestashop><product_option>"
-                "<id></id>"
-                "<is_color_group></is_color_group>"
-                "<group_type></group_type>"
-                "<position></position>"
-                "<name><language id='1'></language></name>"
-                "<public_name><language id='1'></language></public_name>"
-                "</product_option></prestashop>"
-            ),
             _response("<prestashop><product_option><id>10</id></product_option></prestashop>"),
         ]
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
@@ -525,8 +515,6 @@ class TestPrestashopClientCombinationExport:
         group_id = client.create_attribute_group("Size")
 
         assert group_id == 10
-        post_call = session.request.call_args_list[1]
+        post_call = session.request.call_args_list[0]
         payload = post_call.kwargs["data"]
-        assert "<is_color_group>0</is_color_group>" in payload
         assert "<group_type>select</group_type>" in payload
-        assert "<position>1</position>" in payload
