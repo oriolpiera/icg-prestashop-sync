@@ -7,7 +7,6 @@ import pytest
 from apps.catalog.models import (
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Price,
     Product,
 )
@@ -20,7 +19,6 @@ from apps.sync.tasks import export_discounts
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
-    PrestashopMapping.objects.all().delete()
     Price.objects.all().delete()
     Combination.objects.all().delete()
     Product.objects.all().delete()
@@ -50,11 +48,9 @@ def _make_product(**overrides):
     )
 
 
-def _make_product_mapping(product, prestashop_product_id):
-    return PrestashopMapping.objects.create(
-        product=product,
-        prestashop_product_id=prestashop_product_id,
-    )
+def _make_product_prestashop_id(product, prestashop_product_id):
+    product.prestashop_id = prestashop_product_id
+    product.save(update_fields=["prestashop_id"])
 
 
 # ─── Export discount service ─────────────────────────────────────
@@ -64,7 +60,7 @@ def _make_product_mapping(product, prestashop_product_id):
 class TestExportDiscount:
     def test_nonzero_discount_creates_specific_price(self):
         product = _make_product(discount_percent=Decimal("20"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         client = Mock()
         client.upsert_specific_price.return_value = 500
@@ -80,7 +76,7 @@ class TestExportDiscount:
 
     def test_nonzero_discount_updates_existing_specific_price(self):
         product = _make_product(discount_percent=Decimal("15"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 
@@ -94,7 +90,7 @@ class TestExportDiscount:
 
     def test_zero_discount_deletes_existing_specific_price(self):
         product = _make_product(discount_percent=Decimal("0"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 
@@ -110,7 +106,7 @@ class TestExportDiscount:
 
     def test_zero_discount_with_no_existing_does_nothing(self):
         product = _make_product(discount_percent=Decimal("0"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         client = Mock()
 
@@ -122,7 +118,7 @@ class TestExportDiscount:
 
     def test_delete_persists_id_before_final_save(self):
         product = _make_product(discount_percent=Decimal("0"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 
@@ -158,7 +154,7 @@ class TestExportDiscount:
 
     def test_stores_structured_error_on_failure(self):
         product = _make_product(discount_percent=Decimal("10"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         client = Mock()
         client.upsert_specific_price.side_effect = PrestashopError(
@@ -298,7 +294,7 @@ class TestPrestashopClientSpecificPrices:
 class TestExportDiscountTask:
     def test_task_exports_pending_discounts(self, monkeypatch):
         product = _make_product(discount_percent=Decimal("20"), discount_sync_required=True)
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         def fake_export_discount(product_id):
             p = Product.objects.get(pk=product_id)
@@ -323,7 +319,7 @@ class TestExportDiscountTask:
 
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
         product = _make_product(discount_percent=Decimal("20"), discount_sync_required=True)
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         def fake_export_discount(product_id):
             p = Product.objects.get(pk=product_id)
@@ -344,7 +340,7 @@ class TestExportDiscountTask:
 
     def test_task_skips_products_without_discount_and_no_specific_price(self):
         product = _make_product(discount_percent=Decimal("0"))
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         result = export_discounts()
 
@@ -353,7 +349,7 @@ class TestExportDiscountTask:
 
     def test_task_includes_products_with_existing_specific_price(self):
         product = _make_product(discount_percent=Decimal("0"), discount_sync_required=True)
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 

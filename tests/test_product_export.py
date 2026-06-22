@@ -1,9 +1,9 @@
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
-from apps.catalog.models import Category, CategoryType, Manufacturer, PrestashopMapping, Product
+from apps.catalog.models import Category, CategoryType, Manufacturer, Product
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.prestashop.services import export_product, format_sync_error
 from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
@@ -13,7 +13,6 @@ from apps.sync.tasks import export_products
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
-    PrestashopMapping.objects.all().delete()
     Product.objects.all().delete()
     Manufacturer.objects.all().delete()
     Category.objects.all().delete()
@@ -67,9 +66,8 @@ class TestProductExport:
         result = export_product(product.pk, client=client)
 
         product.refresh_from_db()
-        mapping = PrestashopMapping.objects.get(product=product)
         assert result == {"product_id": product.pk, "prestashop_id": 77}
-        assert mapping.prestashop_product_id == 77
+        assert product.prestashop_id == 77
         assert product.sync_required is False
         assert product.last_sync_error == ""
         client.upsert_product.assert_called_once_with(
@@ -88,8 +86,8 @@ class TestProductExport:
 
         export_product(product.pk, client=client)
 
-        mapping = PrestashopMapping.objects.get(product=product)
-        assert mapping.prestashop_product_id == 45
+        product.refresh_from_db()
+        assert product.prestashop_id == 45
         client.upsert_product.assert_called_once_with(
             product,
             prestashop_id=45,
@@ -100,7 +98,8 @@ class TestProductExport:
 
     def test_export_updates_already_mapped_product(self, _default_category):
         product = _make_product()
-        PrestashopMapping.objects.create(product=product, prestashop_product_id=34)
+        product.prestashop_id = 34
+        product.save(update_fields=["prestashop_id"])
         client = Mock()
         client.upsert_product.return_value = 34
 
@@ -121,16 +120,11 @@ class TestProductExport:
         client.find_product_id_by_reference.return_value = None
         client.upsert_product.return_value = 77
 
-        with patch(
-            "apps.prestashop.services.PrestashopMapping.objects.update_or_create"
-        ) as mock_upsert:
-            result = export_product(product.pk, client=client)
+        result = export_product(product.pk, client=client)
 
         assert result == {"product_id": product.pk, "prestashop_id": 77}
-        mock_upsert.assert_called_once_with(
-            product=product,
-            defaults={"prestashop_product_id": 77},
-        )
+        product.refresh_from_db()
+        assert product.prestashop_id == 77
 
     def test_export_requires_mapped_manufacturer(self, _default_category):
         manufacturer = Manufacturer.objects.create(icg_code="15000", name="Brand X")
@@ -218,10 +212,7 @@ class TestProductExportTask:
 
         def fake_export(product_id: int):
             product = Product.objects.get(pk=product_id)
-            PrestashopMapping.objects.update_or_create(
-                product=product,
-                defaults={"prestashop_product_id": product.pk + 100},
-            )
+            product.prestashop_id = product.pk + 100
             product.sync_required = False
             product.last_sync_error = ""
             product.last_synced_at = product.updated_at

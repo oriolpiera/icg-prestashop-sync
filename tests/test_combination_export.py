@@ -8,7 +8,6 @@ from apps.catalog.models import (
     AttributeValue,
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Product,
 )
 from apps.prestashop.client import PrestashopClient, PrestashopError
@@ -25,7 +24,6 @@ from apps.sync.tasks import export_combinations
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
-    PrestashopMapping.objects.all().delete()
     AttributeValue.objects.all().delete()
     AttributeGroup.objects.all().delete()
     Combination.objects.all().delete()
@@ -67,11 +65,9 @@ def _make_combination(**overrides):
     )
 
 
-def _make_product_mapping(product, prestashop_product_id):
-    return PrestashopMapping.objects.create(
-        product=product,
-        prestashop_product_id=prestashop_product_id,
-    )
+def _make_product_prestashop_id(product, prestashop_product_id):
+    product.prestashop_id = prestashop_product_id
+    product.save(update_fields=["prestashop_id"])
 
 
 def _response(payload: str, status_code: int = 200):
@@ -195,7 +191,7 @@ class TestEnsureAttributeValue:
 class TestCombinationExport:
     def test_export_creates_and_maps_new_combination(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
@@ -214,9 +210,8 @@ class TestCombinationExport:
         result = export_combination(combination.pk, client=client)
 
         assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
-        mapping = PrestashopMapping.objects.get(combination=combination)
-        assert mapping.prestashop_combination_id == 55
         combination.refresh_from_db()
+        assert combination.prestashop_id == 55
         assert combination.sync_required is False
         assert combination.last_sync_error == ""
         client.upsert_combination.assert_called_once_with(
@@ -230,7 +225,7 @@ class TestCombinationExport:
 
     def test_export_updates_existing_mapped_combination(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
@@ -242,7 +237,8 @@ class TestCombinationExport:
         )
 
         combination = _make_combination(product=product)
-        PrestashopMapping.objects.create(combination=combination, prestashop_combination_id=88)
+        combination.prestashop_id = 88
+        combination.save(update_fields=["prestashop_id"])
 
         client = Mock()
         client.upsert_combination.return_value = 88
@@ -260,7 +256,7 @@ class TestCombinationExport:
 
     def test_export_creates_attribute_groups_and_values(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
 
         client = Mock()
@@ -292,9 +288,10 @@ class TestCombinationExport:
 
     def test_export_deactivates_inactive_combination(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product, active=False)
-        PrestashopMapping.objects.create(combination=combination, prestashop_combination_id=77)
+        combination.prestashop_id = 77
+        combination.save(update_fields=["prestashop_id"])
 
         client = Mock()
 
@@ -322,7 +319,7 @@ class TestCombinationExport:
 
     def test_export_stores_structured_error(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
         AttributeValue.objects.create(
@@ -356,7 +353,7 @@ class TestCombinationExport:
 class TestCombinationExportTask:
     def test_task_exports_pending_combinations(self, monkeypatch):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
@@ -370,10 +367,7 @@ class TestCombinationExportTask:
 
         def fake_export(combination_id):
             c = Combination.objects.get(pk=combination_id)
-            PrestashopMapping.objects.update_or_create(
-                combination=c,
-                defaults={"prestashop_combination_id": c.pk + 100},
-            )
+            c.prestashop_id = c.pk + 100
             c.sync_required = False
             c.last_sync_error = ""
             c.last_synced_at = c.updated_at
@@ -390,7 +384,7 @@ class TestCombinationExportTask:
 
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
 
         def fake_export(combination_id):

@@ -67,6 +67,7 @@ class Manufacturer(SyncTrackedModel):
 
 class Product(SyncTrackedModel):
     icg_id = models.PositiveIntegerField(unique=True)
+    prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
     reference = models.CharField(max_length=64)
     name = models.CharField(max_length=255)
     manufacturer = models.ForeignKey(
@@ -117,6 +118,7 @@ class Product(SyncTrackedModel):
 
 class Combination(SyncTrackedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="combinations")
+    prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
     icg_size = models.CharField(max_length=64, blank=True)
     icg_color = models.CharField(max_length=64, blank=True)
     ean13 = models.CharField(max_length=32, blank=True)
@@ -221,35 +223,3 @@ class TaxRuleMapping(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.vat_rate}% → PS group {self.prestashop_tax_rules_group_id}"
-
-
-class PrestashopMapping(TimeStampedModel):
-    product = models.OneToOneField(
-        Product,
-        on_delete=models.CASCADE,
-        related_name="prestashop_mapping",
-        null=True,
-        blank=True,
-    )
-    combination = models.OneToOneField(
-        Combination,
-        on_delete=models.CASCADE,
-        related_name="prestashop_mapping",
-        null=True,
-        blank=True,
-    )
-    prestashop_product_id = models.PositiveIntegerField(blank=True, null=True)
-    prestashop_combination_id = models.PositiveIntegerField(blank=True, null=True)
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(
-                condition=(models.Q(product__isnull=False) | models.Q(combination__isnull=False)),
-                name="catalog_mapping_has_target",
-            )
-        ]
-
-    def __str__(self) -> str:
-        if self.combination_id:
-            return f"Combination mapping #{self.prestashop_combination_id or 'new'}"
-        return f"Product mapping #{self.prestashop_product_id or 'new'}"

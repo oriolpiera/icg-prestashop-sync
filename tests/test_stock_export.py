@@ -6,7 +6,6 @@ import pytest
 from apps.catalog.models import (
     Combination,
     Manufacturer,
-    PrestashopMapping,
     Product,
     Stock,
 )
@@ -19,7 +18,6 @@ from apps.sync.tasks import export_stocks
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
-    PrestashopMapping.objects.all().delete()
     Stock.objects.all().delete()
     Combination.objects.all().delete()
     Product.objects.all().delete()
@@ -70,18 +68,14 @@ def _make_stock(**overrides):
     )
 
 
-def _make_product_mapping(product, prestashop_product_id):
-    return PrestashopMapping.objects.create(
-        product=product,
-        prestashop_product_id=prestashop_product_id,
-    )
+def _make_product_prestashop_id(product, prestashop_product_id):
+    product.prestashop_id = prestashop_product_id
+    product.save(update_fields=["prestashop_id"])
 
 
-def _make_combination_mapping(combination, prestashop_combination_id):
-    return PrestashopMapping.objects.create(
-        combination=combination,
-        prestashop_combination_id=prestashop_combination_id,
-    )
+def _make_combination_prestashop_id(combination, prestashop_combination_id):
+    combination.prestashop_id = prestashop_combination_id
+    combination.save(update_fields=["prestashop_id"])
 
 
 def _response(payload: str, status_code: int = 200):
@@ -134,9 +128,9 @@ def _stock_available_xml(sa_id=33, quantity=5, depends_on_stock=0, out_of_stock=
 class TestStockExport:
     def test_export_updates_prestashop_stock(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
-        _make_combination_mapping(combination, 55)
+        _make_combination_prestashop_id(combination, 55)
         stock = _make_stock(combination=combination, quantity=42)
 
         client = Mock()
@@ -167,7 +161,6 @@ class TestStockExport:
     def test_export_combination_mapping_without_prestashop_id(self):
         product = _make_product()
         combination = _make_combination(product=product)
-        PrestashopMapping.objects.create(combination=combination, prestashop_combination_id=None)
         stock = _make_stock(combination=combination)
 
         client = Mock()
@@ -180,9 +173,9 @@ class TestStockExport:
 
     def test_export_stores_structured_error(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
-        _make_combination_mapping(combination, 55)
+        _make_combination_prestashop_id(combination, 55)
         stock = _make_stock(combination=combination)
 
         client = Mock()
@@ -202,9 +195,9 @@ class TestStockExport:
 
     def test_export_zero_quantity(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
-        _make_combination_mapping(combination, 55)
+        _make_combination_prestashop_id(combination, 55)
         stock = _make_stock(combination=combination, quantity=0)
 
         client = Mock()
@@ -215,9 +208,9 @@ class TestStockExport:
 
     def test_export_is_idempotent(self):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
-        _make_combination_mapping(combination, 55)
+        _make_combination_prestashop_id(combination, 55)
         stock = _make_stock(combination=combination, quantity=25)
 
         client = Mock()
@@ -241,11 +234,11 @@ class TestStockExport:
 class TestStockExportTask:
     def test_task_exports_pending_stocks(self, monkeypatch):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         comb1 = _make_combination(product=product, icg_size="M", icg_color="Red")
         comb2 = _make_combination(product=product, icg_size="L", icg_color="Blue")
-        _make_combination_mapping(comb1, 55)
-        _make_combination_mapping(comb2, 56)
+        _make_combination_prestashop_id(comb1, 55)
+        _make_combination_prestashop_id(comb2, 56)
         _make_stock(combination=comb1, quantity=10)
         _make_stock(combination=comb2, quantity=20)
 
@@ -267,9 +260,9 @@ class TestStockExportTask:
 
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
         product = _make_product()
-        _make_product_mapping(product, 22)
+        _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
-        _make_combination_mapping(combination, 55)
+        _make_combination_prestashop_id(combination, 55)
         stock = _make_stock(combination=combination)
 
         def fake_export(stock_id):
