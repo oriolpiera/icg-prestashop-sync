@@ -518,7 +518,7 @@ class PrestashopClient:
         value = root.find("./product_option_value")
         if value is None:
             raise PrestashopError(
-                "Prestashop product option value payload did not include a product_option_value node."
+                "Prestashop product option value payload did not include a product_option_value node."  # noqa: E501
             )
         self._set_text(value, "id_attribute_group", str(group_ps_id))
         self._set_text(value, "color", "")
