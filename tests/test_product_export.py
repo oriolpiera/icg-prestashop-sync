@@ -332,6 +332,8 @@ class TestPrestashopClientProductExport:
         assert "<visibility>none</visibility>" in payload
         assert "<active>1</active>" in payload
         assert "<id_category_default>251</id_category_default>" in payload
+        assert "position_in_category" not in payload
+        assert "<position>" not in payload
         assert "<id>251</id>" in payload
         assert "<id>300</id>" in payload
 

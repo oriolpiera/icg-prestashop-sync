@@ -368,6 +368,46 @@ class TestPrestashopClientStockExport:
         with pytest.raises(PrestashopError, match="no stock_available association"):
             client.upsert_stock(55, 42)
 
+    def test_upsert_stock_falls_back_to_stock_available_lookup(self, settings):
+        combination_without_stock = (
+            "<prestashop><combination>"
+            "<id>55</id>"
+            "<id_product>22</id_product>"
+            "<associations>"
+            "<stock_availables></stock_availables>"
+            "</associations>"
+            "</combination></prestashop>"
+        )
+        stock_available_search = (
+            "<prestashop><stock_availables>"
+            "<stock_available><id>64</id><id_product>22</id_product>"
+            "<id_product_attribute>55</id_product_attribute><quantity>0</quantity></stock_available>"
+            "</stock_availables></prestashop>"
+        )
+        session = Mock()
+        session.request.side_effect = [
+            _response(combination_without_stock),
+            _response(stock_available_search),
+            _response(_stock_available_xml(64, quantity=5)),
+            _response("<prestashop><stock_available><id>64</id></stock_available></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        client.upsert_stock(55, 42)
+
+        assert session.request.call_count == 4
+        search_call = session.request.call_args_list[1]
+        assert search_call.kwargs["params"] == {
+            "filter[id_product_attribute]": "55",
+            "limit": "1",
+        }
+        put_call = session.request.call_args_list[3]
+        assert "/stock_availables/64" in put_call.args[1]
+        assert "<quantity>42</quantity>" in put_call.kwargs["data"]
+
     def test_upsert_stock_fails_without_combination_node(self, settings):
         session = Mock()
         session.request.return_value = _response("<prestashop></prestashop>")

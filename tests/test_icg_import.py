@@ -248,7 +248,6 @@ class TestProductImport:
         for c in Combination.objects.all():
             assert c.sync_required is True
 
-
     def test_import_normalizes_multi_value_ean13_to_first_token(self):
         row = _FakeRow(
             14362,
