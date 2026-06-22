@@ -165,10 +165,10 @@ def import_stock() -> dict:
 
 
 @shared_task
-def export_manufacturers() -> dict:
+def export_manufacturers(limit: int = 10) -> dict:
     return _run_export_batch(
         task_name="export_manufacturers",
-        queryset=Manufacturer.objects.filter(sync_required=True).order_by("pk"),
+        queryset=Manufacturer.objects.filter(sync_required=True).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_MANUFACTURER,
         entity_type="manufacturer",
         entity_key_fn=lambda m: m.icg_code,
@@ -179,13 +179,13 @@ def export_manufacturers() -> dict:
 
 
 @shared_task
-def export_categories() -> dict:
+def export_categories(limit: int = 10) -> dict:
     return _run_export_batch(
         task_name="export_categories",
         queryset=Category.objects.filter(
             models.Q(sync_required=True, active=True)
             | models.Q(active=False, prestashop_id__isnull=False)
-        ).order_by("position", "pk"),
+        ).order_by("position", "pk")[:limit],
         job_type=SyncJobType.EXPORT_CATEGORY,
         entity_type="category",
         entity_key_fn=lambda c: c.name,
@@ -201,10 +201,10 @@ def export_categories() -> dict:
 
 
 @shared_task
-def export_products() -> dict:
+def export_products(limit: int = 100) -> dict:
     return _run_export_batch(
         task_name="export_products",
-        queryset=Product.objects.filter(sync_required=True).order_by("pk"),
+        queryset=Product.objects.filter(sync_required=True).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRODUCT,
         entity_type="product",
         entity_key_fn=lambda p: p.reference,
@@ -220,12 +220,12 @@ def export_products() -> dict:
 
 
 @shared_task
-def export_combinations() -> dict:
+def export_combinations(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_combinations",
         queryset=Combination.objects.select_related("product")
         .filter(sync_required=True)
-        .order_by("pk"),
+        .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_COMBINATION,
         entity_type="combination",
         entity_key_fn=lambda c: f"{c.product.reference}/{c.icg_size}/{c.icg_color}",
@@ -242,12 +242,12 @@ def export_combinations() -> dict:
 
 
 @shared_task
-def export_prices() -> dict:
+def export_prices(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_prices",
         queryset=Price.objects.select_related("combination__product")
         .filter(sync_required=True)
-        .order_by("pk"),
+        .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRICE,
         entity_type="price",
         entity_key_fn=lambda p: (
@@ -268,12 +268,12 @@ def export_prices() -> dict:
 
 
 @shared_task
-def export_stocks() -> dict:
+def export_stocks(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_stocks",
         queryset=Stock.objects.select_related("combination__product")
         .filter(sync_required=True)
-        .order_by("pk"),
+        .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_STOCK,
         entity_type="stock",
         entity_key_fn=lambda s: (
@@ -292,10 +292,10 @@ def export_stocks() -> dict:
 
 
 @shared_task
-def export_discounts() -> dict:
+def export_discounts(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_discounts",
-        queryset=Product.objects.filter(discount_sync_required=True).order_by("pk"),
+        queryset=Product.objects.filter(discount_sync_required=True).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
         entity_key_fn=lambda p: p.reference,
