@@ -330,7 +330,7 @@ class TestPrestashopClientProductExport:
         post_call = session.request.call_args_list[1]
         payload = post_call.kwargs["data"]
         assert "<visibility>none</visibility>" in payload
-        assert "<active>1</active>" in payload
+        assert "<active>0</active>" in payload
         assert "<id_category_default>251</id_category_default>" in payload
         assert "position_in_category" not in payload
         assert "<position>" not in payload
@@ -418,3 +418,47 @@ class TestPrestashopClientProductExport:
         assert '<language id="2">Nom catala</language>' in payload
         assert '<language id="1">updated-product</language>' in payload
         assert '<language id="2">nom-catala</language>' in payload
+
+    def test_upsert_product_fills_all_languages_on_create(self, settings):
+        product = _make_product(name="Nou Producte")
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product>"
+                "<id_category_default></id_category_default>"
+                "<id_manufacturer></id_manufacturer>"
+                "<reference></reference>"
+                "<price></price>"
+                "<state></state>"
+                "<active></active>"
+                "<available_for_order></available_for_order>"
+                "<show_price></show_price>"
+                "<visibility></visibility>"
+                "<minimal_quantity></minimal_quantity>"
+                "<name><language id='1'></language>"
+                "<language id='2'></language></name>"
+                "<link_rewrite><language id='1'></language>"
+                "<language id='2'></language></link_rewrite>"
+                "<associations><categories></categories></associations>"
+                "</product></prestashop>"
+            ),
+            _response("<prestashop><product><id>88</id></product></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+        settings.PRESTASHOP_DEFAULT_CATEGORY_ID = 2
+
+        client = PrestashopClient(session=session)
+
+        product_id = client.upsert_product(
+            product, category_default_id=251, category_ids=[251]
+        )
+
+        assert product_id == 88
+        post_call = session.request.call_args_list[1]
+        payload = post_call.kwargs["data"]
+        assert '<language id="1">Nou Producte</language>' in payload
+        assert '<language id="2">Nou Producte</language>' in payload
+        assert '<language id="1">nou-producte</language>' in payload
+        assert '<language id="2">nou-producte</language>' in payload

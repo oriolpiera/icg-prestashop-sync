@@ -322,6 +322,7 @@ class PrestashopClient:
         if is_create:
             self._remove_node(product_node, "position_in_category")
             self._remove_node(product_node, "position")
+            self._set_text(product_node, "active", "0")
         else:
             self._set_text(
                 product_node,
@@ -333,8 +334,12 @@ class PrestashopClient:
             "minimal_quantity",
             product_node.findtext("minimal_quantity") or "1",
         )
-        self._set_multilang_text(product_node, "name", product.name)
-        self._set_multilang_text(product_node, "link_rewrite", self._slug(product))
+        self._set_multilang_text(
+            product_node, "name", product.name, fill_all_languages=is_create
+        )
+        self._set_multilang_text(
+            product_node, "link_rewrite", self._slug(product), fill_all_languages=is_create
+        )
 
         effective_default = (
             str(category_default_id)
