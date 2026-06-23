@@ -206,10 +206,15 @@ def export_products(limit: int = 100) -> dict:
         sync_required=True, discontinued=True, prestashop_id__isnull=True
     ).update(sync_required=False)
 
+    Product.objects.filter(
+        sync_required=True, visible_web=False, prestashop_id__isnull=True
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_products",
         queryset=Product.objects.filter(sync_required=True)
         .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
+        .filter(models.Q(visible_web=True) | models.Q(prestashop_id__isnull=False))
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRODUCT,
         entity_type="product",
