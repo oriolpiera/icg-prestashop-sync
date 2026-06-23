@@ -244,7 +244,7 @@ def export_product(
         if not product.visible_web and product.prestashop_id is None:
             product.sync_required = False
             product.save(update_fields=["sync_required", "updated_at"])
-            return {"product_id": product.pk, "prestashop_id": 0}
+            return {"product_id": product.pk, "prestashop_id": None}
 
         if product.manufacturer and product.manufacturer.prestashop_id is None:
             raise PrestashopError(
