@@ -65,7 +65,6 @@ class Command(BaseCommand):
             if len(entries) < 2:
                 continue
 
-            total_duplicates += len(entries) - 1
             ps_ids = [e["ps_id"] for e in entries]
 
             django_av = AttributeValue.objects.filter(
@@ -93,9 +92,9 @@ class Command(BaseCommand):
                             "This should not happen; investigate manually."
                         )
                     )
-                    total_duplicates -= len(entries) - 1
-                    total_deleted -= len(to_delete)
                     continue
+
+            total_duplicates += len(entries) - 1
 
             self.stdout.write(f"  '{name}': PS IDs {ps_ids} → keep {keep_id}, delete {to_delete}")
 
