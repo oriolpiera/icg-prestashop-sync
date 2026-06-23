@@ -1,6 +1,6 @@
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.sync.tasks import retry_failed_jobs
 
@@ -16,9 +16,7 @@ class Command(BaseCommand):
             result = retry_failed_jobs()
         except Exception:
             logger.exception("retry_failed_sync_jobs failed")
-            self.stderr.write(self.style.ERROR("retry_failed_sync_jobs failed. See logs."))
-            self.returncode = 1
-            return
+            raise CommandError("retry_failed_sync_jobs failed. See logs.") from None
 
         status = result.get("status", "unknown")
         retried = result.get("retried", 0)
