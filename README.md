@@ -181,3 +181,23 @@ apps/prestashop/ Prestashop client placeholders
 apps/operations/ Django admin configuration for operations
 tests/           Repository smoke tests
 ```
+
+# Admin commands
+## Clean all prestashop_id to resync
+
+```python
+python manage.py reset_prestashop_ids <entity_type> [--dry-run]
+
+# Veure què es netejaria sense tocar res
+python manage.py reset_prestashop_ids product --dry-run
+
+# Netejar tots els productes (es tornaran a crear a PrestaShop)
+python manage.py reset_prestashop_ids product
+
+# Netejar combinacions
+python manage.py reset_prestashop_ids combination
+
+# Fabricants
+python manage.py reset_prestashop_ids manufacturer
+```
+
