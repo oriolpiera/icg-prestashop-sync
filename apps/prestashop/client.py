@@ -520,17 +520,35 @@ class PrestashopClient:
         )
         root = self._parse_xml(response.text)
         value = root.find("./product_option_values/product_option_value")
-        if value is None:
-            return None
+        if value is not None:
+            value_id = value.attrib.get("id")
+            if not value_id:
+                value_id = value.findtext("id")
+            if not value_id:
+                raise PrestashopError(
+                    "Prestashop attribute value search response did not include an id."
+                )
+            return int(value_id)
 
-        value_id = value.attrib.get("id")
-        if not value_id:
-            value_id = value.findtext("id")
-        if not value_id:
-            raise PrestashopError(
-                "Prestashop attribute value search response did not include an id."
-            )
-        return int(value_id)
+        # Fallback: list all values in the group and match by default language name.
+        # The filter[name] API call may fail to match due to encoding or API quirks.
+        response = self._request(
+            "GET",
+            "product_option_values",
+            params={
+                "filter[id_attribute_group]": str(group_ps_id),
+                "display": "full",
+            },
+        )
+        root = self._parse_xml(response.text)
+        default_lang = str(self.credentials().default_language_id)
+        for item in root.findall("./product_option_values/product_option_value"):
+            for lang in item.findall("./name/language"):
+                if lang.attrib.get("id") == default_lang and lang.text == name:
+                    vid = item.attrib.get("id") or item.findtext("id")
+                    if vid:
+                        return int(vid)
+        return None
 
     def get_blank_attribute_value_xml(self) -> ElementTree.Element:
         response = self._request("GET", "product_option_values", params={"schema": "blank"})
