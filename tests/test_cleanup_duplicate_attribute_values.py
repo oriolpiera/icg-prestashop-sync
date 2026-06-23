@@ -120,3 +120,31 @@ class TestCleanupDuplicateAttributeValues:
         out = StringIO()
         call_command("cleanup_duplicate_attribute_values", stdout=out)
         assert "No global size attribute group found" in out.getvalue()
+
+    def test_no_false_all_clear_when_all_skipped(self):
+        """When still_in_use > 0 for every duplicate group, the command must
+        NOT say 'No duplicate attribute values found'. It should still report
+        the number of duplicates detected even if none were deleted."""
+        size_group = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        AttributeValue.objects.create(
+            attribute_group=size_group, icg_value="M", name="M", prestashop_id=51
+        )
+        other_group = AttributeGroup.objects.create(
+            icg_type="color", name="Color", prestashop_id=11
+        )
+        AttributeValue.objects.create(
+            attribute_group=other_group, icg_value="Red", name="Red", prestashop_id=52
+        )
+
+        with patch(
+            "apps.sync.management.commands.cleanup_duplicate_attribute_values.PrestashopClient"
+        ) as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.list_attribute_values.return_value = _FAKE_VALUES
+
+            out = StringIO()
+            call_command("cleanup_duplicate_attribute_values", "--apply", "--force", stdout=out)
+
+            assert "No duplicate attribute values found" not in out.getvalue()
+            assert "Found 1 duplicate(s)" in out.getvalue()
+            mock_client.delete_attribute_value.assert_not_called()

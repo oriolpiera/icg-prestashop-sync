@@ -78,6 +78,8 @@ class Command(BaseCommand):
 
             to_delete = [pid for pid in ps_ids if pid != keep_id]
 
+            total_duplicates += len(entries) - 1
+
             if apply:
                 still_in_use = (
                     AttributeValue.objects.filter(prestashop_id__in=to_delete)
@@ -93,8 +95,6 @@ class Command(BaseCommand):
                         )
                     )
                     continue
-
-            total_duplicates += len(entries) - 1
 
             self.stdout.write(f"  '{name}': PS IDs {ps_ids} → keep {keep_id}, delete {to_delete}")
 
