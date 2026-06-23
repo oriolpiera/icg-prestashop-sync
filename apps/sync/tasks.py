@@ -308,9 +308,9 @@ def export_stocks(limit: int = 1000) -> dict:
 def export_discounts(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_discounts",
-        queryset=Product.objects.filter(discount_sync_required=True)
-        .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
-        .order_by("pk")[:limit],
+        queryset=Product.objects.filter(
+            discount_sync_required=True, prestashop_id__isnull=False
+        ).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
         entity_key_fn=lambda p: p.reference,
