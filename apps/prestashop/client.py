@@ -327,6 +327,7 @@ class PrestashopClient:
 
         self._set_text(product_node, "id_manufacturer", manufacturer_id)
         self._remove_node(product_node, "manufacturer_name")
+        self._remove_node(product_node, "quantity")
         if tax_rules_group_id is not None:
             self._set_text(product_node, "id_tax_rules_group", str(tax_rules_group_id))
         self._set_text(product_node, "reference", product.reference)
