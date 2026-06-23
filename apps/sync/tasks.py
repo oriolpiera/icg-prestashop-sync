@@ -260,6 +260,11 @@ def export_combinations(limit: int = 1000) -> dict:
 def export_prices(limit: int = 1000) -> dict:
     Price.objects.filter(
         sync_required=True,
+        combination__active=False,
+    ).update(sync_required=False)
+
+    Price.objects.filter(
+        sync_required=True,
         combination__product__discontinued=True,
         combination__product__prestashop_id__isnull=True,
     ).update(sync_required=False)
@@ -267,7 +272,7 @@ def export_prices(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_prices",
         queryset=Price.objects.select_related("combination__product")
-        .filter(sync_required=True)
+        .filter(sync_required=True, combination__active=True)
         .filter(
             models.Q(combination__product__discontinued=False)
             | models.Q(combination__product__prestashop_id__isnull=False)
@@ -296,6 +301,11 @@ def export_prices(limit: int = 1000) -> dict:
 def export_stocks(limit: int = 1000) -> dict:
     Stock.objects.filter(
         sync_required=True,
+        combination__active=False,
+    ).update(sync_required=False)
+
+    Stock.objects.filter(
+        sync_required=True,
         combination__product__discontinued=True,
         combination__product__prestashop_id__isnull=True,
     ).update(sync_required=False)
@@ -303,7 +313,7 @@ def export_stocks(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_stocks",
         queryset=Stock.objects.select_related("combination__product")
-        .filter(sync_required=True)
+        .filter(sync_required=True, combination__active=True)
         .filter(
             models.Q(combination__product__discontinued=False)
             | models.Q(combination__product__prestashop_id__isnull=False)

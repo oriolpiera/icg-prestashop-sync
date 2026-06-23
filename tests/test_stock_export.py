@@ -193,6 +193,23 @@ class TestStockExport:
         assert payload["status_code"] == 500
         assert stock.sync_required is True
 
+    def test_export_stock_skips_inactive_combination(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product, active=False)
+        _make_combination_prestashop_id(combination, 55)
+        stock = _make_stock(combination=combination, quantity=42)
+
+        client = Mock()
+
+        result = export_stock(stock.pk, client=client)
+
+        assert result == {"stock_id": stock.pk, "prestashop_combination_id": 55, "quantity": 42}
+        client.upsert_stock.assert_not_called()
+        stock.refresh_from_db()
+        assert stock.sync_required is False
+        assert stock.last_sync_error == ""
+
     def test_export_zero_quantity(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
@@ -281,6 +298,20 @@ class TestStockExportTask:
         assert job.status == SyncJobStatus.PENDING
         assert job.attempts == 2
         assert json.loads(stock.last_sync_error)["status_code"] == 503
+
+    def test_task_skips_inactive_combination(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product, active=False)
+        _make_combination_prestashop_id(combination, 55)
+        stock = _make_stock(combination=combination, quantity=10)
+
+        result = export_stocks()
+
+        assert result == {"status": "success", "processed": 0, "failed": 0}
+        assert SyncJob.objects.count() == 0
+        stock.refresh_from_db()
+        assert stock.sync_required is False
 
 
 # ─── PrestaShopClient stock methods ─────────────────────────────────
