@@ -338,11 +338,17 @@ def ensure_attribute_value(
     client: PrestashopClient | None = None,
     texture_image_path: str | None = None,
 ) -> int:
+    from django.conf import settings
+
     client = client or PrestashopClient()
     ag = AttributeGroup.objects.get(prestashop_id=group_ps_id)
     existing = AttributeValue.objects.filter(attribute_group=ag, icg_value=value_name).first()
     if existing is not None:
-        if texture_image_path and not existing.texture_synced:
+        if (
+            texture_image_path
+            and not existing.texture_synced
+            and getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+        ):
             client.upload_attribute_value_image(existing.prestashop_id, texture_image_path)
             existing.texture_synced = True
             existing.save(update_fields=["texture_synced", "updated_at"])
@@ -352,7 +358,8 @@ def ensure_attribute_value(
     if ps_id is None:
         ps_id = client.create_attribute_value(value_name, group_ps_id)
 
-    if texture_image_path:
+    sync_images = getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+    if texture_image_path and sync_images:
         client.upload_attribute_value_image(ps_id, texture_image_path)
 
     AttributeValue.objects.update_or_create(
@@ -361,7 +368,7 @@ def ensure_attribute_value(
         defaults={
             "name": value_name,
             "prestashop_id": ps_id,
-            "texture_synced": bool(texture_image_path),
+            "texture_synced": bool(texture_image_path and sync_images),
         },
     )
     return ps_id
