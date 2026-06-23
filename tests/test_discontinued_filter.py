@@ -49,12 +49,14 @@ def _make_combination(product, **overrides):
 @pytest.mark.django_db
 class TestDiscontinuedFilter:
     def test_export_products_skips_discontinued_without_prestashop_id(self):
-        _make_product(discontinued=True, sync_required=True)
+        product = _make_product(discontinued=True, sync_required=True)
 
         result = export_products()
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+        product.refresh_from_db()
+        assert product.sync_required is False
 
     def test_export_products_includes_discontinued_with_prestashop_id(self):
         product = _make_product(discontinued=True, sync_required=True)
@@ -78,12 +80,14 @@ class TestDiscontinuedFilter:
 
     def test_export_combinations_skips_discontinued_product_without_prestashop_id(self):
         product = _make_product(discontinued=True)
-        _make_combination(product, sync_required=True)
+        combination = _make_combination(product, sync_required=True)
 
         result = export_combinations()
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+        combination.refresh_from_db()
+        assert combination.sync_required is False
 
     def test_export_combinations_includes_discontinued_product_with_prestashop_id(self):
         product = _make_product(discontinued=True)
@@ -105,7 +109,7 @@ class TestDiscontinuedFilter:
     def test_export_prices_skips_discontinued_product_without_prestashop_id(self):
         product = _make_product(discontinued=True)
         combination = _make_combination(product)
-        Price.objects.create(
+        price = Price.objects.create(
             combination=combination,
             amount_ex_vat=Decimal("10.00"),
             vat_rate=Decimal("21.00"),
@@ -116,11 +120,13 @@ class TestDiscontinuedFilter:
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+        price.refresh_from_db()
+        assert price.sync_required is False
 
     def test_export_stocks_skips_discontinued_product_without_prestashop_id(self):
         product = _make_product(discontinued=True)
         combination = _make_combination(product)
-        Stock.objects.create(
+        stock = Stock.objects.create(
             combination=combination,
             quantity=10,
             sync_required=True,
@@ -130,9 +136,11 @@ class TestDiscontinuedFilter:
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+        stock.refresh_from_db()
+        assert stock.sync_required is False
 
     def test_export_discounts_skips_discontinued_without_prestashop_id(self):
-        _make_product(
+        product = _make_product(
             discontinued=True,
             discount_percent=Decimal("30"),
             discount_sync_required=True,
@@ -142,6 +150,8 @@ class TestDiscontinuedFilter:
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+        product.refresh_from_db()
+        assert product.discount_sync_required is False
 
     def test_export_discounts_includes_discontinued_with_prestashop_id(self):
         product = _make_product(

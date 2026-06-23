@@ -202,6 +202,10 @@ def export_categories(limit: int = 10) -> dict:
 
 @shared_task
 def export_products(limit: int = 100) -> dict:
+    Product.objects.filter(
+        sync_required=True, discontinued=True, prestashop_id__isnull=True
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_products",
         queryset=Product.objects.filter(sync_required=True)
@@ -223,6 +227,12 @@ def export_products(limit: int = 100) -> dict:
 
 @shared_task
 def export_combinations(limit: int = 1000) -> dict:
+    Combination.objects.filter(
+        sync_required=True,
+        product__discontinued=True,
+        product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_combinations",
         queryset=Combination.objects.select_related("product")
@@ -248,6 +258,12 @@ def export_combinations(limit: int = 1000) -> dict:
 
 @shared_task
 def export_prices(limit: int = 1000) -> dict:
+    Price.objects.filter(
+        sync_required=True,
+        combination__product__discontinued=True,
+        combination__product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_prices",
         queryset=Price.objects.select_related("combination__product")
@@ -278,6 +294,12 @@ def export_prices(limit: int = 1000) -> dict:
 
 @shared_task
 def export_stocks(limit: int = 1000) -> dict:
+    Stock.objects.filter(
+        sync_required=True,
+        combination__product__discontinued=True,
+        combination__product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_stocks",
         queryset=Stock.objects.select_related("combination__product")
@@ -306,6 +328,10 @@ def export_stocks(limit: int = 1000) -> dict:
 
 @shared_task
 def export_discounts(limit: int = 1000) -> dict:
+    Product.objects.filter(
+        discount_sync_required=True, discontinued=True, prestashop_id__isnull=True
+    ).update(discount_sync_required=False)
+
     return _run_export_batch(
         task_name="export_discounts",
         queryset=Product.objects.filter(
