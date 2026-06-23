@@ -13,6 +13,7 @@ from requests.auth import HTTPBasicAuth
 class PrestashopSettings(Protocol):
     PRESTASHOP_BASE_URL: str
     PRESTASHOP_API_KEY: str
+    PRESTASHOP_HOST: str
     PRESTASHOP_DEFAULT_LANGUAGE_ID: int
     PRESTASHOP_DEFAULT_CATEGORY_ID: int
 
@@ -33,6 +34,7 @@ class ProductPayload(Protocol):
 class PrestashopCredentials:
     base_url: str
     api_key: str
+    host: str
     default_language_id: int
     default_category_id: int
 
@@ -55,6 +57,7 @@ class PrestashopClient:
         return PrestashopCredentials(
             base_url=typed_settings.PRESTASHOP_BASE_URL,
             api_key=typed_settings.PRESTASHOP_API_KEY,
+            host=typed_settings.PRESTASHOP_HOST,
             default_language_id=typed_settings.PRESTASHOP_DEFAULT_LANGUAGE_ID,
             default_category_id=typed_settings.PRESTASHOP_DEFAULT_CATEGORY_ID,
         )
@@ -98,8 +101,12 @@ class PrestashopClient:
                 params=params,
                 data=data,
                 auth=self._auth(),
-                headers={"Content-Type": "application/xml"},
+                headers={
+                    "Content-Type": "application/xml",
+                    "Host": self.credentials().host,
+                },
                 timeout=30,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise PrestashopError(f"Prestashop request failed: {exc}") from exc
@@ -560,7 +567,9 @@ class PrestashopClient:
                     self._api_image_url("product_option_values", value_ps_id),
                     files={"image": image_file},
                     auth=self._auth(),
+                    headers={"Host": self.credentials().host},
                     timeout=30,
+                    allow_redirects=False,
                 )
         except (requests.RequestException, OSError) as exc:
             raise PrestashopError(f"Failed to upload attribute value image: {exc}") from exc
@@ -580,7 +589,9 @@ class PrestashopClient:
                 "DELETE",
                 self._api_image_url("product_option_values", value_ps_id),
                 auth=self._auth(),
+                headers={"Host": self.credentials().host},
                 timeout=30,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise PrestashopError(f"Failed to delete attribute value image: {exc}") from exc
