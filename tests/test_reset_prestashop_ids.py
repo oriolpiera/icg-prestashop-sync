@@ -2,7 +2,6 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
-
 from django.core.management.base import CommandError
 
 from apps.catalog.models import Category, Combination, Manufacturer, Product
@@ -21,16 +20,28 @@ class TestResetPrestashopIds:
         m1 = Manufacturer.objects.create(icg_code="M-1001", name="Brand A", prestashop_id=10)
         m2 = Manufacturer.objects.create(icg_code="M-1002", name="Brand B", prestashop_id=11)
         p1 = Product.objects.create(
-            icg_id=1001, reference="REF001", name="P1", manufacturer=m1,
-            prestashop_id=10, sync_required=False,
+            icg_id=1001,
+            reference="REF001",
+            name="P1",
+            manufacturer=m1,
+            prestashop_id=10,
+            sync_required=False,
         )
         p2 = Product.objects.create(
-            icg_id=1002, reference="REF002", name="P2", manufacturer=m2,
-            prestashop_id=20, sync_required=False,
+            icg_id=1002,
+            reference="REF002",
+            name="P2",
+            manufacturer=m2,
+            prestashop_id=20,
+            sync_required=False,
         )
         p3 = Product.objects.create(
-            icg_id=1003, reference="REF003", name="P3", manufacturer=m1,
-            prestashop_id=None, sync_required=False,
+            icg_id=1003,
+            reference="REF003",
+            name="P3",
+            manufacturer=m1,
+            prestashop_id=None,
+            sync_required=False,
         )
 
         out = StringIO()
@@ -51,16 +62,28 @@ class TestResetPrestashopIds:
     def test_resets_combination_prestashop_ids(self):
         m = Manufacturer.objects.create(icg_code="M-1001", name="Brand", prestashop_id=10)
         product = Product.objects.create(
-            icg_id=1001, reference="REF001", name="P1", manufacturer=m,
-            prestashop_id=22, sync_required=False,
+            icg_id=1001,
+            reference="REF001",
+            name="P1",
+            manufacturer=m,
+            prestashop_id=22,
+            sync_required=False,
         )
         c1 = Combination.objects.create(
-            product=product, icg_size="M", icg_color="Red",
-            ean13="111", prestashop_id=55, sync_required=False,
+            product=product,
+            icg_size="M",
+            icg_color="Red",
+            ean13="111",
+            prestashop_id=55,
+            sync_required=False,
         )
         c2 = Combination.objects.create(
-            product=product, icg_size="L", icg_color="Blue",
-            ean13="222", prestashop_id=None, sync_required=False,
+            product=product,
+            icg_size="L",
+            icg_color="Blue",
+            ean13="222",
+            prestashop_id=None,
+            sync_required=False,
         )
 
         out = StringIO()
@@ -87,7 +110,10 @@ class TestResetPrestashopIds:
 
     def test_resets_manufacturer_prestashop_ids(self):
         m = Manufacturer.objects.create(
-            icg_code="M-2000", name="Brand", prestashop_id=44, sync_required=False,
+            icg_code="M-2000",
+            name="Brand",
+            prestashop_id=44,
+            sync_required=False,
         )
 
         out = StringIO()
@@ -100,8 +126,12 @@ class TestResetPrestashopIds:
     def test_dry_run_does_not_modify_database(self):
         m = Manufacturer.objects.create(icg_code="M-1001", name="Brand", prestashop_id=10)
         p = Product.objects.create(
-            icg_id=1001, reference="REF001", name="P1", manufacturer=m,
-            prestashop_id=10, sync_required=False,
+            icg_id=1001,
+            reference="REF001",
+            name="P1",
+            manufacturer=m,
+            prestashop_id=10,
+            sync_required=False,
         )
 
         out = StringIO()
@@ -115,8 +145,12 @@ class TestResetPrestashopIds:
     def test_warns_when_no_records_with_prestashop_id(self):
         m = Manufacturer.objects.create(icg_code="M-1001", name="Brand", prestashop_id=10)
         Product.objects.create(
-            icg_id=1001, reference="REF001", name="P1", manufacturer=m,
-            prestashop_id=None, sync_required=False,
+            icg_id=1001,
+            reference="REF001",
+            name="P1",
+            manufacturer=m,
+            prestashop_id=None,
+            sync_required=False,
         )
 
         out = StringIO()
