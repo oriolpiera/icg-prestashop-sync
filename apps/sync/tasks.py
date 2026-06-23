@@ -206,10 +206,15 @@ def export_products(limit: int = 100) -> dict:
         sync_required=True, discontinued=True, prestashop_id__isnull=True
     ).update(sync_required=False)
 
+    Product.objects.filter(
+        sync_required=True, visible_web=False, prestashop_id__isnull=True
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_products",
         queryset=Product.objects.filter(sync_required=True)
         .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
+        .filter(models.Q(visible_web=True) | models.Q(prestashop_id__isnull=False))
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRODUCT,
         entity_type="product",
@@ -233,12 +238,21 @@ def export_combinations(limit: int = 1000) -> dict:
         product__prestashop_id__isnull=True,
     ).update(sync_required=False)
 
+    Combination.objects.filter(
+        sync_required=True,
+        product__visible_web=False,
+        product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_combinations",
         queryset=Combination.objects.select_related("product")
         .filter(sync_required=True)
         .filter(
             models.Q(product__discontinued=False) | models.Q(product__prestashop_id__isnull=False)
+        )
+        .filter(
+            models.Q(product__visible_web=True) | models.Q(product__prestashop_id__isnull=False)
         )
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_COMBINATION,
@@ -269,12 +283,22 @@ def export_prices(limit: int = 1000) -> dict:
         combination__product__prestashop_id__isnull=True,
     ).update(sync_required=False)
 
+    Price.objects.filter(
+        sync_required=True,
+        combination__product__visible_web=False,
+        combination__product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_prices",
         queryset=Price.objects.select_related("combination__product")
         .filter(sync_required=True, combination__active=True)
         .filter(
             models.Q(combination__product__discontinued=False)
+            | models.Q(combination__product__prestashop_id__isnull=False)
+        )
+        .filter(
+            models.Q(combination__product__visible_web=True)
             | models.Q(combination__product__prestashop_id__isnull=False)
         )
         .order_by("pk")[:limit],
@@ -310,12 +334,22 @@ def export_stocks(limit: int = 1000) -> dict:
         combination__product__prestashop_id__isnull=True,
     ).update(sync_required=False)
 
+    Stock.objects.filter(
+        sync_required=True,
+        combination__product__visible_web=False,
+        combination__product__prestashop_id__isnull=True,
+    ).update(sync_required=False)
+
     return _run_export_batch(
         task_name="export_stocks",
         queryset=Stock.objects.select_related("combination__product")
         .filter(sync_required=True, combination__active=True)
         .filter(
             models.Q(combination__product__discontinued=False)
+            | models.Q(combination__product__prestashop_id__isnull=False)
+        )
+        .filter(
+            models.Q(combination__product__visible_web=True)
             | models.Q(combination__product__prestashop_id__isnull=False)
         )
         .order_by("pk")[:limit],
@@ -342,10 +376,17 @@ def export_discounts(limit: int = 1000) -> dict:
         discount_sync_required=False
     )
 
+    Product.objects.filter(
+        discount_sync_required=True, visible_web=False, prestashop_id__isnull=True
+    ).update(discount_sync_required=False)
+
     return _run_export_batch(
         task_name="export_discounts",
         queryset=Product.objects.filter(
-            discount_sync_required=True, discontinued=False, prestashop_id__isnull=False
+            discount_sync_required=True,
+            discontinued=False,
+            visible_web=True,
+            prestashop_id__isnull=False,
         ).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
