@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.catalog.models import AttributeGroup, AttributeValue
 from apps.prestashop.client import PrestashopClient
@@ -19,9 +19,26 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete duplicates from PrestaShop. Default is dry-run only.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help=(
+                "Acknowledge that deleted PS IDs may be referenced by live "
+                "product combinations. Required together with --apply."
+            ),
+        )
 
     def handle(self, *args, **options):
         apply = options["apply"]
+        force = options["force"]
+
+        if apply and not force:
+            raise CommandError(
+                "Use --force to confirm you understand: deleted PS IDs may still "
+                "be referenced by product combinations on the PrestaShop side. "
+                "Run with --force --apply to proceed, or run without --apply for a dry run."
+            )
+
         client = PrestashopClient()
 
         size_group = AttributeGroup.objects.filter(icg_type="size", product__isnull=True).first()
@@ -62,7 +79,33 @@ class Command(BaseCommand):
 
             to_delete = [pid for pid in ps_ids if pid != keep_id]
 
+            if apply:
+                still_in_use = (
+                    AttributeValue.objects.filter(prestashop_id__in=to_delete)
+                    .exclude(pk=django_av.pk if django_av else None)
+                    .count()
+                )
+                if still_in_use > 0:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"    Skipping '{name}' — {still_in_use} Django AttributeValue "
+                            f"record(s) point to a to-be-deleted PS ID. "
+                            "This should not happen; investigate manually."
+                        )
+                    )
+                    total_duplicates -= len(entries) - 1
+                    total_deleted -= len(to_delete)
+                    continue
+
             self.stdout.write(f"  '{name}': PS IDs {ps_ids} → keep {keep_id}, delete {to_delete}")
+
+            if not apply:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "    WARNING: these PS IDs may be referenced by product "
+                        "combinations. Use --force --apply to confirm deletion."
+                    )
+                )
 
             if django_av and django_av.prestashop_id not in ps_ids:
                 self.stdout.write(

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from apps.catalog.models import AttributeGroup, AttributeValue
 
@@ -60,6 +61,10 @@ class TestCleanupDuplicateAttributeValues:
             assert "DRY RUN" in out.getvalue()
             mock_client.delete_attribute_value.assert_not_called()
 
+    def test_requires_force_with_apply(self):
+        with pytest.raises(CommandError, match="Use --force"):
+            call_command("cleanup_duplicate_attribute_values", "--apply")
+
     def test_applies_and_deletes_duplicates(self):
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         AttributeValue.objects.create(attribute_group=ag, icg_value="M", name="M", prestashop_id=51)
@@ -71,7 +76,7 @@ class TestCleanupDuplicateAttributeValues:
             mock_client.list_attribute_values.return_value = _FAKE_VALUES
 
             out = StringIO()
-            call_command("cleanup_duplicate_attribute_values", "--apply", stdout=out)
+            call_command("cleanup_duplicate_attribute_values", "--apply", "--force", stdout=out)
 
             assert "APPLIED" in out.getvalue()
             mock_client.delete_attribute_value.assert_called_once_with(52)
@@ -89,7 +94,7 @@ class TestCleanupDuplicateAttributeValues:
             mock_client.list_attribute_values.return_value = _FAKE_VALUES
 
             out = StringIO()
-            call_command("cleanup_duplicate_attribute_values", "--apply", stdout=out)
+            call_command("cleanup_duplicate_attribute_values", "--apply", "--force", stdout=out)
 
             assert "No Django record for 'M'" in out.getvalue()
             mock_client.delete_attribute_value.assert_called_once_with(52)
@@ -105,7 +110,7 @@ class TestCleanupDuplicateAttributeValues:
             mock_client.list_attribute_values.return_value = _FAKE_VALUES
 
             out = StringIO()
-            call_command("cleanup_duplicate_attribute_values", "--apply", stdout=out)
+            call_command("cleanup_duplicate_attribute_values", "--apply", "--force", stdout=out)
 
             assert "Django points to PS ID 99" in out.getvalue()
             av = AttributeValue.objects.get(attribute_group=ag, icg_value="M")
