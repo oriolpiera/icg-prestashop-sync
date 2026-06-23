@@ -115,7 +115,6 @@ def retry_discount_sync(modeladmin, request, queryset):
 
     eligible = queryset.filter(
         discontinued=False,
-        discount_percent__gt=0,
         prestashop_id__isnull=False,
     )
     skipped = queryset.count() - eligible.count()
@@ -127,7 +126,7 @@ def retry_discount_sync(modeladmin, request, queryset):
 
     msg = f"Dispatched {count} discount(s) for retry."
     if skipped:
-        msg += f" Skipped {skipped} (discontinued, no discount, or not synced to PS)."
+        msg += f" Skipped {skipped} (discontinued or not synced to PS)."
     modeladmin.message_user(request, msg, messages.SUCCESS)
 
 
