@@ -498,3 +498,82 @@ class TestPrestashopClientProductExport:
         assert '<language id="2">Nou Producte</language>' in payload
         assert '<language id="1">nou-producte</language>' in payload
         assert '<language id="2">nou-producte</language>' in payload
+
+    def test_upsert_product_strips_manufacturer_name_on_create(self, settings):
+        product = _make_product()
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product>"
+                "<id_category_default></id_category_default>"
+                "<id_manufacturer>12</id_manufacturer>"
+                "<manufacturer_name>Acme</manufacturer_name>"
+                "<reference></reference>"
+                "<price></price>"
+                "<state></state>"
+                "<active></active>"
+                "<available_for_order></available_for_order>"
+                "<show_price></show_price>"
+                "<visibility></visibility>"
+                "<minimal_quantity></minimal_quantity>"
+                "<name><language id='1'></language></name>"
+                "<link_rewrite><language id='1'></language></link_rewrite>"
+                "<associations><categories></categories></associations>"
+                "</product></prestashop>"
+            ),
+            _response("<prestashop><product><id>77</id></product></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+        settings.PRESTASHOP_DEFAULT_CATEGORY_ID = 2
+
+        client = PrestashopClient(session=session)
+
+        product_id = client.upsert_product(product, category_default_id=2, category_ids=[2])
+
+        assert product_id == 77
+        post_call = session.request.call_args_list[1]
+        payload = post_call.kwargs["data"]
+        assert "manufacturer_name" not in payload
+        assert "<id_manufacturer>" in payload
+
+    def test_upsert_product_strips_manufacturer_name_on_update(self, settings):
+        product = _make_product()
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product>"
+                "<id>44</id>"
+                "<id_manufacturer>12</id_manufacturer>"
+                "<manufacturer_name>Acme</manufacturer_name>"
+                "<reference>OLD</reference>"
+                "<price>0</price>"
+                "<state>1</state>"
+                "<active>1</active>"
+                "<available_for_order>1</available_for_order>"
+                "<show_price>1</show_price>"
+                "<visibility>both</visibility>"
+                "<minimal_quantity>1</minimal_quantity>"
+                "<name><language id='1'>Old name</language></name>"
+                "<link_rewrite><language id='1'>old-name</language></link_rewrite>"
+                "</product></prestashop>"
+            ),
+            _response("<prestashop><product><id>44</id></product></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+        settings.PRESTASHOP_DEFAULT_CATEGORY_ID = 2
+
+        client = PrestashopClient(session=session)
+
+        product_id = client.upsert_product(
+            product, prestashop_id=44, category_default_id=2, category_ids=[2]
+        )
+
+        assert product_id == 44
+        put_call = session.request.call_args_list[1]
+        payload = put_call.kwargs["data"]
+        assert "manufacturer_name" not in payload
+        assert "<id_manufacturer>" in payload
