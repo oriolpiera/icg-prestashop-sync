@@ -70,6 +70,15 @@ class PrestashopClient:
             url = f"{url}/{resource_id}"
         return url
 
+    def _api_image_url(self, resource_type: str, resource_id: int) -> str:
+        """Build URL for image endpoints like /api/images/product_option_values/{id}."""
+        credentials = self.credentials()
+        base_url = credentials.base_url.rstrip("/")
+        if not base_url or not credentials.api_key:
+            raise PrestashopError("Prestashop credentials are not configured.")
+
+        return f"{base_url}/api/images/{resource_type}/{resource_id}"
+
     def _auth(self) -> HTTPBasicAuth:
         return HTTPBasicAuth(self.credentials().api_key, "")
 
@@ -334,9 +343,7 @@ class PrestashopClient:
             "minimal_quantity",
             product_node.findtext("minimal_quantity") or "1",
         )
-        self._set_multilang_text(
-            product_node, "name", product.name, fill_all_languages=is_create
-        )
+        self._set_multilang_text(product_node, "name", product.name, fill_all_languages=is_create)
         self._set_multilang_text(
             product_node, "link_rewrite", self._slug(product), fill_all_languages=is_create
         )
@@ -466,13 +473,15 @@ class PrestashopClient:
         response = self._request("GET", "product_options", params={"schema": "blank"})
         return self._parse_xml(response.text)
 
-    def create_attribute_group(self, name: str) -> int:
+    def create_attribute_group(self, name: str, *, is_color_group: bool = False) -> int:
         root = self.get_blank_attribute_group_xml()
         group = root.find("./product_option")
         if group is None:
-            raise PrestashopError("Prestashop product option payload did not include a product_option node.")  # noqa: E501
-        self._set_text(group, "is_color_group", "0")
-        self._set_text(group, "group_type", "select")
+            raise PrestashopError(
+                "Prestashop product option payload did not include a product_option node."
+            )
+        self._set_text(group, "is_color_group", "1" if is_color_group else "0")
+        self._set_text(group, "group_type", "select" if not is_color_group else "color")
         self._set_text(group, "position", group.findtext("position") or "1")
         self._set_multilang_text(group, "name", name, fill_all_languages=True)
         self._set_multilang_text(group, "public_name", name, fill_all_languages=True)
@@ -541,6 +550,48 @@ class PrestashopClient:
                 "Prestashop create attribute value response did not include an id."
             )
         return int(value_id)
+
+    def upload_attribute_value_image(self, value_ps_id: int, image_path: str) -> None:
+        """Upload a texture/color swatch image to an existing attribute value."""
+        try:
+            with open(image_path, "rb") as image_file:
+                response = self.session.request(
+                    "POST",
+                    self._api_image_url("product_option_values", value_ps_id),
+                    files={"image": image_file},
+                    auth=self._auth(),
+                    timeout=30,
+                )
+        except (requests.RequestException, OSError) as exc:
+            raise PrestashopError(f"Failed to upload attribute value image: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise PrestashopError(
+                f"Prestashop returned HTTP {response.status_code}"
+                " for attribute value image upload.",
+                status_code=response.status_code,
+                body=response.text,
+            )
+
+    def delete_attribute_value_image(self, value_ps_id: int) -> None:
+        """Delete the image associated with an attribute value."""
+        try:
+            response = self.session.request(
+                "DELETE",
+                self._api_image_url("product_option_values", value_ps_id),
+                auth=self._auth(),
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise PrestashopError(f"Failed to delete attribute value image: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise PrestashopError(
+                f"Prestashop returned HTTP {response.status_code}"
+                " for attribute value image delete.",
+                status_code=response.status_code,
+                body=response.text,
+            )
 
     # Utility for admin/discovery — not called by service layer (which uses
     # TaxRuleMapping ORM lookups instead). Useful for validating tax rule names

@@ -5,15 +5,23 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('catalog', '0010_product_discount_sync_required'),
+        ("catalog", "0010_product_discount_sync_required"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='product',
-            name='discount_percent',
-            field=models.DecimalField(decimal_places=2, default=0, help_text="Product-level discount percentage (0 = no discount). Exported as a Prestashop specific_price with reduction_type='percentage'.", max_digits=5, validators=[django.core.validators.MinValueValidator(0), django.core.validators.MaxValueValidator(100)]),
+            model_name="product",
+            name="discount_percent",
+            field=models.DecimalField(
+                decimal_places=2,
+                default=0,
+                help_text="Product-level discount percentage (0 = no discount). Exported as a Prestashop specific_price with reduction_type='percentage'.",
+                max_digits=5,
+                validators=[
+                    django.core.validators.MinValueValidator(0),
+                    django.core.validators.MaxValueValidator(100),
+                ],
+            ),
         ),
     ]

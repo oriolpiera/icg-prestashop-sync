@@ -174,6 +174,29 @@ class CategoryAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
+class CombinationInline(admin.TabularInline):
+    model = Combination
+    extra = 0
+    readonly_fields = (
+        "prestashop_id",
+        "ean13",
+        "active",
+        "sync_required",
+        "last_synced_at",
+        _sync_error_display,
+    )
+    fields = (
+        "icg_size",
+        "icg_color",
+        "prestashop_id",
+        "ean13",
+        "active",
+        "sync_required",
+        "last_synced_at",
+        _sync_error_display,
+    )
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
@@ -194,6 +217,7 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = ("reference", "name", "icg_id")
     filter_horizontal = ("categories",)
     actions = (mark_for_resync, retry_entity_sync)
+    inlines = [CombinationInline]
 
 
 @admin.register(Combination)
@@ -253,15 +277,24 @@ class StockAdmin(admin.ModelAdmin):
 
 @admin.register(AttributeGroup)
 class AttributeGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "icg_type", "prestashop_id", "updated_at")
-    search_fields = ("name", "icg_type")
+    list_display = ("name", "icg_type", "product", "prestashop_id", "updated_at")
+    search_fields = ("name", "icg_type", "product__reference")
+    list_filter = ("icg_type",)
 
 
 @admin.register(AttributeValue)
 class AttributeValueAdmin(admin.ModelAdmin):
-    list_display = ("attribute_group", "icg_value", "name", "prestashop_id", "updated_at")
-    list_filter = ("attribute_group__icg_type",)
-    search_fields = ("icg_value", "name")
+    list_display = (
+        "attribute_group",
+        "icg_value",
+        "name",
+        "prestashop_id",
+        "texture_synced",
+        "updated_at",
+    )
+    list_filter = ("attribute_group__icg_type", "texture_synced")
+    search_fields = ("icg_value", "name", "attribute_group__product__reference")
+    readonly_fields = ("texture_synced",)
 
 
 @admin.register(SyncCursor)

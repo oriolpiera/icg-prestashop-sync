@@ -155,7 +155,10 @@ class TestPriceExport:
         price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -195,7 +198,10 @@ class TestPriceExport:
         price = _make_price(combination, amount_ex_vat=55.00, vat_rate=10)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -225,7 +231,10 @@ class TestPriceExport:
         price = _make_price(combination)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -278,7 +287,10 @@ class TestCombinationPricePassthrough:
         _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -300,7 +312,10 @@ class TestCombinationPricePassthrough:
         combination = _make_combination(product=product)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -506,7 +521,10 @@ class TestPriceExportTask:
         price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )

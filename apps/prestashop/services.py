@@ -241,6 +241,13 @@ def export_product(
                 "updated_at",
             ]
         )
+
+        has_colors = (
+            product.combinations.filter(icg_color__isnull=False).exclude(icg_color="").exists()
+        )
+        if has_colors:
+            ensure_attribute_group("color", client=client, product=product)
+
         return {"product_id": product.pk, "prestashop_id": prestashop_id}
     except Exception as exc:
         product.sync_required = True
@@ -286,23 +293,38 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
 
 ATTRIBUTE_GROUP_NAMES = {
     "size": "Size",
-    "color": "Color",
 }
 
 
-def ensure_attribute_group(icg_type: str, client: PrestashopClient | None = None) -> int:
+def ensure_attribute_group(
+    icg_type: str,
+    *,
+    client: PrestashopClient | None = None,
+    product: Product | None = None,
+) -> int:
     client = client or PrestashopClient()
-    existing = AttributeGroup.objects.filter(icg_type=icg_type).first()
+
+    if icg_type == "color":
+        if product is None:
+            raise PrestashopError("Color attribute groups require a product reference.")
+        display_name = f"{product.reference}_color"
+        is_color_group = True
+        existing = AttributeGroup.objects.filter(icg_type="color", product=product).first()
+    else:
+        display_name = ATTRIBUTE_GROUP_NAMES.get(icg_type, icg_type.title())
+        is_color_group = False
+        existing = AttributeGroup.objects.filter(icg_type=icg_type, product__isnull=True).first()
+
     if existing is not None:
         return existing.prestashop_id
 
-    display_name = ATTRIBUTE_GROUP_NAMES.get(icg_type, icg_type.title())
     ps_id = client.find_attribute_group_id_by_name(display_name)
     if ps_id is None:
-        ps_id = client.create_attribute_group(display_name)
+        ps_id = client.create_attribute_group(display_name, is_color_group=is_color_group)
 
     AttributeGroup.objects.update_or_create(
         icg_type=icg_type,
+        product=product,
         defaults={"name": display_name, "prestashop_id": ps_id},
     )
     return ps_id
@@ -311,22 +333,42 @@ def ensure_attribute_group(icg_type: str, client: PrestashopClient | None = None
 def ensure_attribute_value(
     group_ps_id: int,
     value_name: str,
+    *,
     client: PrestashopClient | None = None,
+    texture_image_path: str | None = None,
 ) -> int:
+    from django.conf import settings
+
     client = client or PrestashopClient()
     ag = AttributeGroup.objects.get(prestashop_id=group_ps_id)
     existing = AttributeValue.objects.filter(attribute_group=ag, icg_value=value_name).first()
     if existing is not None:
+        if (
+            texture_image_path
+            and not existing.texture_synced
+            and getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+        ):
+            client.upload_attribute_value_image(existing.prestashop_id, texture_image_path)
+            existing.texture_synced = True
+            existing.save(update_fields=["texture_synced", "updated_at"])
         return existing.prestashop_id
 
     ps_id = client.find_attribute_value_id(value_name, group_ps_id)
     if ps_id is None:
         ps_id = client.create_attribute_value(value_name, group_ps_id)
 
+    sync_images = getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+    if texture_image_path and sync_images:
+        client.upload_attribute_value_image(ps_id, texture_image_path)
+
     AttributeValue.objects.update_or_create(
         attribute_group=ag,
         icg_value=value_name,
-        defaults={"name": value_name, "prestashop_id": ps_id},
+        defaults={
+            "name": value_name,
+            "prestashop_id": ps_id,
+            "texture_synced": bool(texture_image_path and sync_images),
+        },
     )
     return ps_id
 
@@ -378,9 +420,23 @@ def export_combination(
             size_ps_ids = [size_value_ps_id]
 
         if combination.icg_color:
-            color_group_ps_id = ensure_attribute_group("color", client=client)
+            color_group_ps_id = ensure_attribute_group(
+                "color", client=client, product=combination.product
+            )
+
+            texture_image_path = None
+            color_value = AttributeValue.objects.filter(
+                attribute_group__prestashop_id=color_group_ps_id,
+                icg_value=combination.icg_color,
+            ).first()
+            if color_value and color_value.texture_image:
+                texture_image_path = color_value.texture_image.path
+
             color_value_ps_id = ensure_attribute_value(
-                color_group_ps_id, combination.icg_color, client=client
+                color_group_ps_id,
+                combination.icg_color,
+                client=client,
+                texture_image_path=texture_image_path,
             )
             color_ps_ids = [color_value_ps_id]
 
