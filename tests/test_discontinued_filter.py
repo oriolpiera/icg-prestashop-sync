@@ -153,7 +153,7 @@ class TestDiscontinuedFilter:
         product.refresh_from_db()
         assert product.discount_sync_required is False
 
-    def test_export_discounts_includes_discontinued_with_prestashop_id(self):
+    def test_export_discounts_skips_discontinued_with_prestashop_id(self):
         product = _make_product(
             discontinued=True,
             discount_percent=Decimal("30"),
@@ -162,15 +162,9 @@ class TestDiscontinuedFilter:
         product.prestashop_id = 22
         product.save(update_fields=["prestashop_id"])
 
-        mock_export = Mock(
-            return_value={
-                "product_id": product.pk,
-                "prestashop_product_id": 22,
-                "prestashop_specific_price_id": 500,
-                "discount_percent": "30.00",
-            }
-        )
-        with patch("apps.sync.tasks.export_discount", mock_export):
-            result = export_discounts()
+        result = export_discounts()
 
-        assert result == {"status": "success", "processed": 1, "failed": 0}
+        assert result == {"status": "success", "processed": 0, "failed": 0}
+        assert SyncJob.objects.count() == 0
+        product.refresh_from_db()
+        assert product.discount_sync_required is False

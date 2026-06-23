@@ -328,14 +328,14 @@ def export_stocks(limit: int = 1000) -> dict:
 
 @shared_task
 def export_discounts(limit: int = 1000) -> dict:
-    Product.objects.filter(
-        discount_sync_required=True, discontinued=True, prestashop_id__isnull=True
-    ).update(discount_sync_required=False)
+    Product.objects.filter(discount_sync_required=True, discontinued=True).update(
+        discount_sync_required=False
+    )
 
     return _run_export_batch(
         task_name="export_discounts",
         queryset=Product.objects.filter(
-            discount_sync_required=True, prestashop_id__isnull=False
+            discount_sync_required=True, discontinued=False, prestashop_id__isnull=False
         ).order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
