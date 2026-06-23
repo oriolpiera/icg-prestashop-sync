@@ -271,6 +271,26 @@ class TestPriceExport:
         assert "Unsupported VAT rate" in payload["message"]
         assert price.sync_required is True
 
+    def test_export_price_skips_inactive_combination(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product, active=False)
+        combination.prestashop_id = 55
+        combination.save(update_fields=["prestashop_id"])
+        price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
+
+        client = Mock()
+
+        result = export_price(price.pk, client=client)
+
+        assert result["price_id"] == price.pk
+        assert result["combination_prestashop_id"] == 55
+        client.upsert_product.assert_not_called()
+        client.upsert_combination.assert_not_called()
+        price.refresh_from_db()
+        assert price.sync_required is False
+        assert price.last_sync_error == ""
+
 
 # ─── Combination price passthrough ──────────────────────────────────
 
@@ -583,3 +603,18 @@ class TestPriceExportTask:
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
+
+    def test_task_skips_inactive_combination(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product, active=False)
+        combination.prestashop_id = 55
+        combination.save(update_fields=["prestashop_id"])
+        price = _make_price(combination)
+
+        result = export_prices()
+
+        assert result == {"status": "success", "processed": 0, "failed": 0}
+        assert SyncJob.objects.count() == 0
+        price.refresh_from_db()
+        assert price.sync_required is False

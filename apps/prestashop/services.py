@@ -311,6 +311,24 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
+        if not price.combination.active:
+            price.sync_required = False
+            price.last_sync_error = ""
+            price.last_synced_at = timezone.now().astimezone(UTC)
+            price.save(
+                update_fields=[
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "price_id": price.pk,
+                "product_prestashop_id": price.combination.product.prestashop_id or 0,
+                "combination_prestashop_id": price.combination.prestashop_id or 0,
+            }
+
         tax_rules_group_id = resolve_tax_rules_group(price.vat_rate)
 
         combination = price.combination
@@ -551,6 +569,24 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
+        if not stock.combination.active:
+            stock.sync_required = False
+            stock.last_sync_error = ""
+            stock.last_synced_at = timezone.now().astimezone(UTC)
+            stock.save(
+                update_fields=[
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "stock_id": stock.pk,
+                "prestashop_combination_id": stock.combination.prestashop_id or 0,
+                "quantity": stock.quantity,
+            }
+
         if not stock.combination.prestashop_id:
             raise PrestashopError(
                 f"Combination {stock.combination} must be exported before stock sync."
