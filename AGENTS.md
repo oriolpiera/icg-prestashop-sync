@@ -72,6 +72,16 @@ That launcher expects:
 - `.venv` already created
 - `.env` present at repo root
 
+## Scheduled tasks
+
+Failed sync jobs with transient errors are retried via a system cron that calls a Django management command (no Celery worker required):
+
+```bash
+0 * * * * cd /home/oriol/src/casapiera/icg-prestashop-sync && .venv/bin/python manage.py retry_failed_sync_jobs >> /var/log/retry_sync.log 2>&1
+```
+
+This picks up `SyncJob` records with `status=PENDING` and `available_at <= now`, retries the export, and respects `MAX_SYNC_RETRIES` (2) and the backoff schedule (5min, 30min). The database lock (`SELECT FOR UPDATE SKIP LOCKED`) prevents concurrent executions.
+
 ## Preferred quality checks
 
 Run these before asking for review:
