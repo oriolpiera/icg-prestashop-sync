@@ -200,4 +200,3 @@ python manage.py reset_prestashop_ids combination
 # Fabricants
 python manage.py reset_prestashop_ids manufacturer
 ```
-

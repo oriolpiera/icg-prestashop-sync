@@ -204,7 +204,9 @@ def export_categories(limit: int = 10) -> dict:
 def export_products(limit: int = 100) -> dict:
     return _run_export_batch(
         task_name="export_products",
-        queryset=Product.objects.filter(sync_required=True).order_by("pk")[:limit],
+        queryset=Product.objects.filter(sync_required=True)
+        .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
+        .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRODUCT,
         entity_type="product",
         entity_key_fn=lambda p: p.reference,
@@ -225,6 +227,9 @@ def export_combinations(limit: int = 1000) -> dict:
         task_name="export_combinations",
         queryset=Combination.objects.select_related("product")
         .filter(sync_required=True)
+        .filter(
+            models.Q(product__discontinued=False) | models.Q(product__prestashop_id__isnull=False)
+        )
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_COMBINATION,
         entity_type="combination",
@@ -247,6 +252,10 @@ def export_prices(limit: int = 1000) -> dict:
         task_name="export_prices",
         queryset=Price.objects.select_related("combination__product")
         .filter(sync_required=True)
+        .filter(
+            models.Q(combination__product__discontinued=False)
+            | models.Q(combination__product__prestashop_id__isnull=False)
+        )
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_PRICE,
         entity_type="price",
@@ -273,6 +282,10 @@ def export_stocks(limit: int = 1000) -> dict:
         task_name="export_stocks",
         queryset=Stock.objects.select_related("combination__product")
         .filter(sync_required=True)
+        .filter(
+            models.Q(combination__product__discontinued=False)
+            | models.Q(combination__product__prestashop_id__isnull=False)
+        )
         .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_STOCK,
         entity_type="stock",
@@ -295,7 +308,9 @@ def export_stocks(limit: int = 1000) -> dict:
 def export_discounts(limit: int = 1000) -> dict:
     return _run_export_batch(
         task_name="export_discounts",
-        queryset=Product.objects.filter(discount_sync_required=True).order_by("pk")[:limit],
+        queryset=Product.objects.filter(discount_sync_required=True)
+        .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
+        .order_by("pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
         entity_key_fn=lambda p: p.reference,

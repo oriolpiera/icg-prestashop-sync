@@ -38,24 +38,19 @@ class Command(BaseCommand):
 
         if count == 0:
             self.stdout.write(
-                self.style.WARNING(
-                    f"No {entity_type} records with prestashop_id set."
-                )
+                self.style.WARNING(f"No {entity_type} records with prestashop_id set.")
             )
             return
 
         if dry_run:
             self.stdout.write(
                 self.style.WARNING(
-                    f"DRY RUN: {count} {entity_type}(s) would have "
-                    "prestashop_id cleared."
+                    f"DRY RUN: {count} {entity_type}(s) would have " "prestashop_id cleared."
                 )
             )
             return
 
         updated = qs.update(prestashop_id=None, sync_required=True)
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Cleared prestashop_id for {updated} {entity_type}(s)."
-            )
+            self.style.SUCCESS(f"Cleared prestashop_id for {updated} {entity_type}(s).")
         )
