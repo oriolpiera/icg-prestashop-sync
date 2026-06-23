@@ -507,6 +507,31 @@ class PrestashopClient:
             )
         return int(group_id)
 
+    def list_attribute_values(self, group_ps_id: int) -> list[dict[str, str | int]]:
+        """Return all attribute values for a group, with default-language name and PS ID."""
+        response = self._request(
+            "GET",
+            "product_option_values",
+            params={
+                "filter[id_attribute_group]": str(group_ps_id),
+                "display": "full",
+            },
+        )
+        root = self._parse_xml(response.text)
+        default_lang = str(self.credentials().default_language_id)
+        result: list[dict[str, str | int]] = []
+        for item in root.findall("./product_option_values/product_option_value"):
+            vid = item.attrib.get("id") or item.findtext("id")
+            if not vid:
+                continue
+            name_in_default_lang = ""
+            for lang in item.findall("./name/language"):
+                if lang.attrib.get("id") == default_lang:
+                    name_in_default_lang = lang.text or ""
+                    break
+            result.append({"ps_id": int(vid), "name": name_in_default_lang})
+        return result
+
     def find_attribute_value_id(self, name: str, group_ps_id: int) -> int | None:
         self._validate_exact_filter_value(name, field_name="attribute value name")
         response = self._request(
@@ -827,6 +852,9 @@ class PrestashopClient:
             data=ElementTree.tostring(root, encoding="unicode"),
         )
         return prestashop_id
+
+    def delete_attribute_value(self, value_ps_id: int) -> None:
+        self._request("DELETE", "product_option_values", resource_id=value_ps_id)
 
     def delete_specific_price(self, specific_price_id: int) -> None:
         self._request("DELETE", "specific_prices", resource_id=specific_price_id)

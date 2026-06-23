@@ -216,6 +216,44 @@ class TestEnsureAttributeValue:
         av = AttributeValue.objects.get(attribute_group=ag, icg_value="L")
         assert av.prestashop_id == 77
 
+    def test_idempotent_consecutive_calls_only_create_once(self):
+        ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        client = Mock()
+        client.find_attribute_value_id.return_value = None
+        client.create_attribute_value.return_value = 55
+
+        ps_id1 = ensure_attribute_value(10, "M", client=client)
+        ps_id2 = ensure_attribute_value(10, "M", client=client)
+
+        assert ps_id1 == 55
+        assert ps_id2 == 55
+        assert client.create_attribute_value.call_count == 1
+        av = AttributeValue.objects.get(attribute_group=ag, icg_value="M")
+        assert av.prestashop_id == 55
+
+    def test_race_protected_by_row_lock(self):
+        """Two concurrent calls with the same params should only create one PS entry.
+        This simulates the scenario where select_for_update serializes access."""
+        ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        client_a = Mock()
+        client_a.find_attribute_value_id.return_value = None
+        client_a.create_attribute_value.return_value = 100
+
+        client_b = Mock()
+        client_b.find_attribute_value_id.return_value = None
+
+        ps_id_a = ensure_attribute_value(10, "XL", client=client_a)
+
+        client_b.create_attribute_value.return_value = 101
+        ps_id_b = ensure_attribute_value(10, "XL", client=client_b)
+
+        assert ps_id_a == 100
+        assert ps_id_b == 100
+        assert client_a.create_attribute_value.call_count == 1
+        assert client_b.create_attribute_value.call_count == 0
+        av = AttributeValue.objects.get(attribute_group=ag, icg_value="XL")
+        assert av.prestashop_id == 100
+
 
 # ─── Combination export service ─────────────────────────────────────
 
