@@ -109,6 +109,28 @@ def retry_entity_sync(modeladmin, request, queryset):
     )
 
 
+@admin.action(description="Retry selected discounts now")
+def retry_discount_sync(modeladmin, request, queryset):
+    from apps.sync.tasks import retry_entity
+
+    eligible = queryset.filter(
+        discontinued=False,
+        discount_percent__gt=0,
+        prestashop_id__isnull=False,
+    )
+    skipped = queryset.count() - eligible.count()
+
+    count = 0
+    for obj in eligible:
+        retry_entity.delay("discount", obj.pk, obj.reference)
+        count += 1
+
+    msg = f"Dispatched {count} discount(s) for retry."
+    if skipped:
+        msg += f" Skipped {skipped} (discontinued, no discount, or not synced to PS)."
+    modeladmin.message_user(request, msg, messages.SUCCESS)
+
+
 @admin.action(description="Retry selected failed jobs")
 def retry_jobs(modeladmin, request, queryset):
     failed = queryset.filter(status=SyncJobStatus.FAILED)
@@ -216,7 +238,7 @@ class ProductAdmin(admin.ModelAdmin):
     list_filter = ("visible_web", "discontinued", "sync_required", FailedSyncFilter)
     search_fields = ("reference", "name", "icg_id")
     filter_horizontal = ("categories",)
-    actions = (mark_for_resync, retry_entity_sync)
+    actions = (mark_for_resync, retry_entity_sync, retry_discount_sync)
     inlines = [CombinationInline]
 
 
