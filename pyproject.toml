@@ -23,6 +23,7 @@ dependencies = [
   "gunicorn>=21,<23",
   "whitenoise>=6.9,<7",
   "Pillow>=10.0,<13",
+  "sentry-sdk[django]>=2.0,<3",
 ]
 
 [project.optional-dependencies]
