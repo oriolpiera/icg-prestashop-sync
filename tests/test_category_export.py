@@ -279,6 +279,46 @@ class TestCategoryExport:
         with pytest.raises(PrestashopError, match="Cyclic parent detected"):
             export_category(b.pk, client=client)
 
+    def test_export_recovers_when_category_deleted_from_prestashop(self):
+        cat = _make_category(prestashop_id=55, name="Deleted Cat")
+        client = Mock()
+        call_count = 0
+
+        def update_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if args[0] == 55:
+                raise PrestashopError(
+                    "Prestashop returned HTTP 404 for categories.",
+                    status_code=404,
+                )
+
+        client.update_category.side_effect = update_side_effect
+        client.find_category_id_by_name.return_value = 66
+
+        result = export_category(cat.pk, client=client)
+
+        cat.refresh_from_db()
+        assert result == {"category_id": cat.pk, "prestashop_id": 66}
+        assert cat.prestashop_id == 66
+        assert cat.sync_required is False
+        assert call_count == 2
+
+    def test_export_does_not_recover_category_on_non_404_error(self):
+        cat = _make_category(prestashop_id=55, name="Failing Cat")
+        client = Mock()
+        client.update_category.side_effect = PrestashopError(
+            "Prestashop returned HTTP 500 for categories.",
+            status_code=500,
+        )
+
+        with pytest.raises(PrestashopError):
+            export_category(cat.pk, client=client)
+
+        cat.refresh_from_db()
+        assert cat.prestashop_id == 55
+        assert cat.sync_required is True
+
 
 @pytest.mark.django_db
 class TestCategoryExportTask:

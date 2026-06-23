@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC
 
 from django.utils import timezone
@@ -16,6 +17,8 @@ from apps.catalog.models import (
     TaxRuleMapping,
 )
 from apps.prestashop.client import PrestashopClient, PrestashopError
+
+logger = logging.getLogger(__name__)
 
 
 def format_sync_error(exc: Exception) -> str:
@@ -156,6 +159,21 @@ def export_category(
             ]
         )
         return {"category_id": category.pk, "prestashop_id": ps_id}
+    except PrestashopError as exc:
+        if exc.status_code == 404 and category.prestashop_id is not None:
+            logger.warning(
+                "Category %s (prestashop_id=%d) not found in PrestaShop, "
+                "resetting and recreating.",
+                category.name,
+                category.prestashop_id,
+            )
+            category.prestashop_id = None
+            category.save(update_fields=["prestashop_id", "updated_at"])
+            return export_category(category_id, client=client, _ancestors=_ancestors)
+        category.sync_required = True
+        category.last_sync_error = format_sync_error(exc)
+        category.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         category.sync_required = True
         category.last_sync_error = format_sync_error(exc)
@@ -192,6 +210,21 @@ def export_manufacturer(
             ]
         )
         return {"manufacturer_id": manufacturer.pk, "prestashop_id": prestashop_id}
+    except PrestashopError as exc:
+        if exc.status_code == 404 and manufacturer.prestashop_id is not None:
+            logger.warning(
+                "Manufacturer %s (prestashop_id=%d) not found in PrestaShop, "
+                "resetting and recreating.",
+                manufacturer.name,
+                manufacturer.prestashop_id,
+            )
+            manufacturer.prestashop_id = None
+            manufacturer.save(update_fields=["prestashop_id", "updated_at"])
+            return export_manufacturer(manufacturer_id, client=client)
+        manufacturer.sync_required = True
+        manufacturer.last_sync_error = format_sync_error(exc)
+        manufacturer.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         manufacturer.sync_required = True
         manufacturer.last_sync_error = format_sync_error(exc)
@@ -249,6 +282,21 @@ def export_product(
             ensure_attribute_group("color", client=client, product=product)
 
         return {"product_id": product.pk, "prestashop_id": prestashop_id}
+    except PrestashopError as exc:
+        if exc.status_code == 404 and product.prestashop_id is not None:
+            logger.warning(
+                "Product %s (prestashop_id=%d) not found in PrestaShop, "
+                "resetting and recreating.",
+                product.reference,
+                product.prestashop_id,
+            )
+            product.prestashop_id = None
+            product.save(update_fields=["prestashop_id", "updated_at"])
+            return export_product(product_id, client=client, tax_rules_group_id=tax_rules_group_id)
+        product.sync_required = True
+        product.last_sync_error = format_sync_error(exc)
+        product.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         product.sync_required = True
         product.last_sync_error = format_sync_error(exc)
@@ -476,6 +524,21 @@ def export_combination(
             "combination_id": combination.pk,
             "prestashop_combination_id": prestashop_combination_id,
         }
+    except PrestashopError as exc:
+        if exc.status_code == 404 and combination.prestashop_id is not None:
+            logger.warning(
+                "Combination %s (prestashop_id=%d) not found in PrestaShop, "
+                "resetting and recreating.",
+                combination,
+                combination.prestashop_id,
+            )
+            combination.prestashop_id = None
+            combination.save(update_fields=["prestashop_id", "updated_at"])
+            return export_combination(combination_id, client=client)
+        combination.sync_required = True
+        combination.last_sync_error = format_sync_error(exc)
+        combination.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         combination.sync_required = True
         combination.last_sync_error = format_sync_error(exc)
@@ -566,6 +629,20 @@ def export_discount(
             "prestashop_specific_price_id": product.prestashop_specific_price_id,
             "discount_percent": str(discount),
         }
+    except PrestashopError as exc:
+        if exc.status_code == 404 and product.prestashop_specific_price_id is not None:
+            logger.warning(
+                "Specific price for product %s (prestashop_id=%d) not found in "
+                "PrestaShop, resetting and recreating.",
+                product.reference,
+                product.prestashop_specific_price_id,
+            )
+            product.prestashop_specific_price_id = None
+            product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
+            return export_discount(product_id, client=client)
+        product.last_sync_error = format_sync_error(exc)
+        product.save(update_fields=["last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         product.last_sync_error = format_sync_error(exc)
         product.save(update_fields=["last_sync_error", "updated_at"])
