@@ -293,7 +293,6 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
 
 ATTRIBUTE_GROUP_NAMES = {
     "size": "Size",
-    "color": "Color",
 }
 
 

@@ -237,6 +237,17 @@ class AttributeValue(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.attribute_group.icg_type}:{self.icg_value}"
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            current = (
+                AttributeValue.objects.filter(pk=self.pk)
+                .values_list("texture_image", flat=True)
+                .first()
+            )
+            if current is not None and current != self.texture_image:
+                self.texture_synced = False
+        super().save(*args, **kwargs)
+
 
 class TaxRuleMapping(TimeStampedModel):
     vat_rate = models.DecimalField(

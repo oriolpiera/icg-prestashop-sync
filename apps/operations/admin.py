@@ -192,6 +192,8 @@ class CombinationInline(admin.TabularInline):
         "ean13",
         "active",
         "sync_required",
+        "last_synced_at",
+        _sync_error_display,
     )
 
 

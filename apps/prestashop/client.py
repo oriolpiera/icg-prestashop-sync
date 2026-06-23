@@ -479,7 +479,7 @@ class PrestashopClient:
         if group is None:
             raise PrestashopError(
                 "Prestashop product option payload did not include a product_option node."
-            )  # noqa: E501
+            )
         self._set_text(group, "is_color_group", "1" if is_color_group else "0")
         self._set_text(group, "group_type", "select" if not is_color_group else "color")
         self._set_text(group, "position", group.findtext("position") or "1")
