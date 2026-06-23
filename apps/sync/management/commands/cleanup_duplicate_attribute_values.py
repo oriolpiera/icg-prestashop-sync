@@ -80,23 +80,26 @@ class Command(BaseCommand):
 
             total_duplicates += len(entries) - 1
 
-            if apply:
+            self.stdout.write(f"  '{name}': PS IDs {ps_ids} → keep {keep_id}, delete {to_delete}")
+
+            if to_delete:
                 still_in_use = (
                     AttributeValue.objects.filter(prestashop_id__in=to_delete)
                     .exclude(pk=django_av.pk if django_av else None)
                     .count()
                 )
-                if still_in_use > 0:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"    Skipping '{name}' — {still_in_use} Django AttributeValue "
-                            f"record(s) point to a to-be-deleted PS ID. "
-                            "This should not happen; investigate manually."
-                        )
-                    )
-                    continue
+            else:
+                still_in_use = 0
 
-            self.stdout.write(f"  '{name}': PS IDs {ps_ids} → keep {keep_id}, delete {to_delete}")
+            if still_in_use > 0:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"    Skipping — {still_in_use} Django AttributeValue "
+                        f"record(s) point to a to-be-deleted PS ID. "
+                        "Investigate manually."
+                    )
+                )
+                continue
 
             if not apply:
                 self.stdout.write(
@@ -105,6 +108,8 @@ class Command(BaseCommand):
                         "combinations. Use --force --apply to confirm deletion."
                     )
                 )
+                total_deleted += len(to_delete)
+                continue
 
             if django_av and django_av.prestashop_id not in ps_ids:
                 self.stdout.write(
@@ -113,27 +118,21 @@ class Command(BaseCommand):
                         f"which no longer exists in PrestaShop. Updating to {keep_id}."
                     )
                 )
-                if apply:
-                    django_av.prestashop_id = keep_id
-                    django_av.save(update_fields=["prestashop_id", "updated_at"])
+                django_av.prestashop_id = keep_id
+                django_av.save(update_fields=["prestashop_id", "updated_at"])
 
             if not django_av:
                 self.stdout.write(
                     f"    No Django record for '{name}' — will keep oldest PS ID {keep_id}."
                 )
 
-            if apply:
-                for pid in to_delete:
-                    try:
-                        client.delete_attribute_value(pid)
-                        self.stdout.write(f"    Deleted PS ID {pid}")
-                        total_deleted += 1
-                    except Exception as exc:
-                        self.stdout.write(
-                            self.style.ERROR(f"    Failed to delete PS ID {pid}: {exc}")
-                        )
-            else:
-                total_deleted += len(to_delete)
+            for pid in to_delete:
+                try:
+                    client.delete_attribute_value(pid)
+                    self.stdout.write(f"    Deleted PS ID {pid}")
+                    total_deleted += 1
+                except Exception as exc:
+                    self.stdout.write(self.style.ERROR(f"    Failed to delete PS ID {pid}: {exc}"))
 
         if total_duplicates == 0:
             self.stdout.write(self.style.SUCCESS("No duplicate attribute values found."))

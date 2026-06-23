@@ -479,7 +479,6 @@ def ensure_attribute_value(
             if attempt < _LOCK_RETRY_MAX - 1:
                 time.sleep(_LOCK_RETRY_DELAY)
                 continue
-            raise
 
     raise LockAcquisitionError(
         f"Cannot acquire lock for attribute value {value_name} "
