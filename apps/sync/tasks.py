@@ -376,9 +376,9 @@ def export_discounts(limit: int = 1000) -> dict:
         discount_sync_required=False
     )
 
-    Product.objects.filter(discount_sync_required=True, visible_web=False).update(
-        discount_sync_required=False
-    )
+    Product.objects.filter(
+        discount_sync_required=True, visible_web=False, prestashop_id__isnull=True
+    ).update(discount_sync_required=False)
 
     return _run_export_batch(
         task_name="export_discounts",

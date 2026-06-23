@@ -168,7 +168,7 @@ class TestVisibleWebFilter:
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.count() == 0
         product.refresh_from_db()
-        assert product.discount_sync_required is False
+        assert product.discount_sync_required is True
 
 
 @pytest.mark.django_db
