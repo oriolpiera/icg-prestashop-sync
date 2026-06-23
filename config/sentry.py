@@ -18,7 +18,7 @@ def init_sentry() -> None:
             LoggingIntegration(level="warning", event_level="error"),
             CeleryIntegration(),
         ],
-        send_default_pii=True,
+        send_default_pii=False,
         traces_sample_rate=0.1,
         profiles_sample_rate=0.1,
         environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
