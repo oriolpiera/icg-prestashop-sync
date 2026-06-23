@@ -13,7 +13,7 @@ from apps.sync.models import SyncLock
 
 logger = logging.getLogger(__name__)
 
-LOCK_TIMEOUT_MINUTES = 30
+LOCK_TIMEOUT_MINUTES = 5
 
 
 class LockAcquisitionError(Exception):
