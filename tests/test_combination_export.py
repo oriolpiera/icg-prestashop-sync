@@ -120,10 +120,10 @@ class TestEnsureAttributeGroup:
         ps_id = ensure_attribute_group("size", client=client)
 
         assert ps_id == 10
-        ag = AttributeGroup.objects.get(icg_type="size")
+        ag = AttributeGroup.objects.get(icg_type="size", product__isnull=True)
         assert ag.prestashop_id == 10
         assert ag.name == "Size"
-        client.create_attribute_group.assert_called_once_with("Size")
+        client.create_attribute_group.assert_called_once_with("Size", is_color_group=False)
 
     def test_reuses_existing_db_group(self):
         AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=42)
@@ -139,12 +139,46 @@ class TestEnsureAttributeGroup:
         client = Mock()
         client.find_attribute_group_id_by_name.return_value = 99
 
-        ps_id = ensure_attribute_group("color", client=client)
+        ps_id = ensure_attribute_group("size", client=client)
 
         assert ps_id == 99
         client.create_attribute_group.assert_not_called()
-        ag = AttributeGroup.objects.get(icg_type="color")
+        ag = AttributeGroup.objects.get(icg_type="size", product__isnull=True)
         assert ag.prestashop_id == 99
+
+    def test_color_group_requires_product(self):
+        client = Mock()
+
+        with pytest.raises(PrestashopError, match="require a product"):
+            ensure_attribute_group("color", client=client)
+
+    def test_color_group_creates_per_product(self):
+        product = _make_product()
+        client = Mock()
+        client.find_attribute_group_id_by_name.return_value = None
+        client.create_attribute_group.return_value = 20
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 20
+        ag = AttributeGroup.objects.get(icg_type="color", product=product)
+        assert ag.name == f"{product.reference}_color"
+        client.create_attribute_group.assert_called_once_with(
+            f"{product.reference}_color", is_color_group=True
+        )
+
+    def test_color_group_reuses_existing_db_group(self):
+        product = _make_product()
+        AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=30, product=product
+        )
+        client = Mock()
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 30
+        client.find_attribute_group_id_by_name.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -194,7 +228,10 @@ class TestCombinationExport:
         _make_product_prestashop_id(product, 22)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -228,7 +265,10 @@ class TestCombinationExport:
         _make_product_prestashop_id(product, 22)
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -272,6 +312,11 @@ class TestCombinationExport:
         assert AttributeValue.objects.count() == 2
         assert client.create_attribute_group.call_count == 2
         assert client.create_attribute_value.call_count == 2
+
+        size_ag = AttributeGroup.objects.get(icg_type="size", product__isnull=True)
+        color_ag = AttributeGroup.objects.get(icg_type="color", product=product)
+        assert size_ag.name == "Size"
+        assert color_ag.name == f"{product.reference}_color"
 
     def test_export_requires_product_mapping(self):
         product = _make_product()
@@ -321,7 +366,10 @@ class TestCombinationExport:
         product = _make_product()
         _make_product_prestashop_id(product, 22)
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
@@ -358,7 +406,10 @@ class TestCombinationExportTask:
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
-        color_ag = AttributeGroup.objects.create(icg_type="color", name="Color", prestashop_id=11)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color",
+            prestashop_id=11, product=product
+        )
         AttributeValue.objects.create(
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
@@ -524,3 +575,31 @@ class TestPrestashopClientCombinationExport:
         assert "<is_color_group>0</is_color_group>" in payload
         assert "<group_type>select</group_type>" in payload
         assert "<position>1</position>" in payload
+
+    def test_create_attribute_group_as_color_group(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product_option>"
+                "<id></id>"
+                "<is_color_group></is_color_group>"
+                "<group_type></group_type>"
+                "<position></position>"
+                "<name><language id='1'></language></name>"
+                "<public_name><language id='1'></language></public_name>"
+                "</product_option></prestashop>"
+            ),
+            _response("<prestashop><product_option><id>20</id></product_option></prestashop>"),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        group_id = client.create_attribute_group("REF001_color", is_color_group=True)
+
+        assert group_id == 20
+        post_call = session.request.call_args_list[1]
+        payload = post_call.kwargs["data"]
+        assert "<is_color_group>1</is_color_group>" in payload
+        assert "<group_type>color</group_type>" in payload

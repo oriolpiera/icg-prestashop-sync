@@ -172,15 +172,38 @@ class Stock(SyncTrackedModel):
 
 
 class AttributeGroup(TimeStampedModel):
-    icg_type = models.CharField(max_length=32, unique=True, help_text="size or color")
+    icg_type = models.CharField(max_length=32, help_text="size or color")
     name = models.CharField(max_length=255)
     prestashop_id = models.PositiveIntegerField(unique=True)
+    product = models.ForeignKey(
+        "Product",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="attribute_groups",
+        help_text=(
+            "For color groups: the product this group belongs to. " "Null for global size group."
+        ),
+    )
 
     class Meta:
-        ordering = ["icg_type"]
+        ordering = ["icg_type", "product__reference"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["icg_type"],
+                condition=models.Q(product__isnull=True),
+                name="unique_global_attribute_group",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "icg_type"],
+                condition=models.Q(product__isnull=False),
+                name="unique_product_attribute_group",
+            ),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.icg_type})"
+        suffix = f" ({self.product.reference})" if self.product else ""
+        return f"{self.name}{suffix} ({self.icg_type})"
 
 
 class AttributeValue(TimeStampedModel):
@@ -192,6 +215,15 @@ class AttributeValue(TimeStampedModel):
     icg_value = models.CharField(max_length=255)
     name = models.CharField(max_length=255)
     prestashop_id = models.PositiveIntegerField(unique=True)
+    texture_image = models.ImageField(
+        upload_to="attribute_textures/",
+        blank=True,
+        help_text="Texture/color swatch image shown in the attribute picker.",
+    )
+    texture_synced = models.BooleanField(
+        default=False,
+        help_text="Whether the texture image has been uploaded to PrestaShop.",
+    )
 
     class Meta:
         ordering = ["attribute_group__icg_type", "icg_value"]
