@@ -98,8 +98,12 @@ class PrestashopClient:
                 params=params,
                 data=data,
                 auth=self._auth(),
-                headers={"Content-Type": "application/xml"},
+                headers={
+                    "Content-Type": "application/xml",
+                    "Host": "prestashop",
+                },
                 timeout=30,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise PrestashopError(f"Prestashop request failed: {exc}") from exc
@@ -560,7 +564,9 @@ class PrestashopClient:
                     self._api_image_url("product_option_values", value_ps_id),
                     files={"image": image_file},
                     auth=self._auth(),
+                    headers={"Host": "prestashop"},
                     timeout=30,
+                    allow_redirects=False,
                 )
         except (requests.RequestException, OSError) as exc:
             raise PrestashopError(f"Failed to upload attribute value image: {exc}") from exc
@@ -580,7 +586,9 @@ class PrestashopClient:
                 "DELETE",
                 self._api_image_url("product_option_values", value_ps_id),
                 auth=self._auth(),
+                headers={"Host": "prestashop"},
                 timeout=30,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise PrestashopError(f"Failed to delete attribute value image: {exc}") from exc
