@@ -23,7 +23,7 @@ from apps.sync.locking import LockAcquisitionError, sync_lock
 
 logger = logging.getLogger(__name__)
 
-_LOCK_RETRY_MAX = 5
+_LOCK_RETRY_MAX = 30
 _LOCK_RETRY_DELAY = 1  # seconds between lock retries
 
 
@@ -483,7 +483,8 @@ def ensure_attribute_value(
 
     raise LockAcquisitionError(
         f"Cannot acquire lock for attribute value {value_name} "
-        f"(group PS ID {group_ps_id}) after {_LOCK_RETRY_MAX} attempts."
+        f"(group PS ID {group_ps_id}) after {_LOCK_RETRY_MAX} attempts "
+        f"({_LOCK_RETRY_MAX * _LOCK_RETRY_DELAY}s)."
     )
 
 
