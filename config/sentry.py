@@ -15,7 +15,7 @@ def init_sentry() -> None:
         dsn=dsn,
         integrations=[
             DjangoIntegration(),
-            LoggingIntegration(level="warning", event_level="error"),
+            LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
             CeleryIntegration(),
         ],
         send_default_pii=False,
