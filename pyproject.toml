@@ -22,6 +22,7 @@ dependencies = [
   "requests>=2.32,<3",
   "gunicorn>=21,<23",
   "whitenoise>=6.9,<7",
+  "Pillow>=10.0,<13",
 ]
 
 [project.optional-dependencies]
