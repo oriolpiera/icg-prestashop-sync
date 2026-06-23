@@ -82,6 +82,43 @@ class TestManufacturerExport:
         assert payload["status_code"] == 500
         assert manufacturer.sync_required is True
 
+    def test_export_recovers_when_manufacturer_deleted_from_prestashop(self):
+        manufacturer = Manufacturer.objects.create(
+            icg_code="18000", name="Deleted Brand", prestashop_id=44
+        )
+        client = Mock()
+        client.update_manufacturer.side_effect = PrestashopError(
+            "Prestashop returned HTTP 404 for manufacturers.",
+            status_code=404,
+        )
+        client.find_manufacturer_id_by_name.return_value = 55
+
+        result = export_manufacturer(manufacturer.pk, client=client)
+
+        manufacturer.refresh_from_db()
+        assert result == {"manufacturer_id": manufacturer.pk, "prestashop_id": 55}
+        assert manufacturer.prestashop_id == 55
+        assert manufacturer.sync_required is False
+        client.update_manufacturer.assert_called_once_with(44, "Deleted Brand")
+        client.find_manufacturer_id_by_name.assert_called_once_with("Deleted Brand")
+
+    def test_export_does_not_recover_manufacturer_on_non_404_error(self):
+        manufacturer = Manufacturer.objects.create(
+            icg_code="19000", name="Failing Brand", prestashop_id=44
+        )
+        client = Mock()
+        client.update_manufacturer.side_effect = PrestashopError(
+            "Prestashop returned HTTP 500 for manufacturers.",
+            status_code=500,
+        )
+
+        with pytest.raises(PrestashopError):
+            export_manufacturer(manufacturer.pk, client=client)
+
+        manufacturer.refresh_from_db()
+        assert manufacturer.prestashop_id == 44
+        assert manufacturer.sync_required is True
+
 
 @pytest.mark.django_db
 class TestManufacturerExportTask:

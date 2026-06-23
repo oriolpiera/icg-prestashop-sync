@@ -203,6 +203,53 @@ class TestProductExport:
         payload = json.loads(product.last_sync_error)
         assert "No default category" in payload["message"]
 
+    def test_export_recovers_when_product_deleted_from_prestashop(self, _default_category):
+        product = _make_product()
+        product.prestashop_id = 999
+        product.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+        call_count = 0
+
+        def upsert_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("prestashop_id") == 999:
+                raise PrestashopError(
+                    "Prestashop returned HTTP 404 for products.",
+                    status_code=404,
+                )
+            return 77
+
+        client.upsert_product.side_effect = upsert_side_effect
+        client.find_product_id_by_reference.return_value = None
+
+        result = export_product(product.pk, client=client)
+
+        product.refresh_from_db()
+        assert result == {"product_id": product.pk, "prestashop_id": 77}
+        assert product.prestashop_id == 77
+        assert product.sync_required is False
+        assert call_count == 2
+
+    def test_export_does_not_recover_on_non_404_error(self, _default_category):
+        product = _make_product()
+        product.prestashop_id = 999
+        product.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+        client.upsert_product.side_effect = PrestashopError(
+            "Prestashop returned HTTP 500 for products.",
+            status_code=500,
+        )
+
+        with pytest.raises(PrestashopError):
+            export_product(product.pk, client=client)
+
+        product.refresh_from_db()
+        assert product.prestashop_id == 999
+        assert product.sync_required is True
+
 
 @pytest.mark.django_db
 class TestProductExportTask:
@@ -442,9 +489,7 @@ class TestPrestashopClientProductExport:
 
         client = PrestashopClient(session=session)
 
-        product_id = client.upsert_product(
-            product, category_default_id=251, category_ids=[251]
-        )
+        product_id = client.upsert_product(product, category_default_id=251, category_ids=[251])
 
         assert product_id == 88
         post_call = session.request.call_args_list[1]

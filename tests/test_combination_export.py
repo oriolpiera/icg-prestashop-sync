@@ -170,8 +170,7 @@ class TestEnsureAttributeGroup:
     def test_color_group_reuses_existing_db_group(self):
         product = _make_product()
         AttributeGroup.objects.create(
-            icg_type="color", name=f"{product.reference}_color",
-            prestashop_id=30, product=product
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=30, product=product
         )
         client = Mock()
 
@@ -229,8 +228,7 @@ class TestCombinationExport:
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(
-            icg_type="color", name=f"{product.reference}_color",
-            prestashop_id=11, product=product
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
         )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
@@ -266,8 +264,7 @@ class TestCombinationExport:
 
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(
-            icg_type="color", name=f"{product.reference}_color",
-            prestashop_id=11, product=product
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
         )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
@@ -367,8 +364,7 @@ class TestCombinationExport:
         _make_product_prestashop_id(product, 22)
         size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         color_ag = AttributeGroup.objects.create(
-            icg_type="color", name=f"{product.reference}_color",
-            prestashop_id=11, product=product
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
         )
         AttributeValue.objects.create(
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
@@ -393,6 +389,80 @@ class TestCombinationExport:
         assert payload["status_code"] == 500
         assert combination.sync_required is True
 
+    def test_export_recovers_when_combination_deleted_from_prestashop(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="M", icg_color="Red")
+        combination.prestashop_id = 88
+        combination.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+        call_count = 0
+
+        def upsert_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("prestashop_id") == 88:
+                raise PrestashopError(
+                    "Prestashop returned HTTP 404 for combinations.",
+                    status_code=404,
+                )
+            return 55
+
+        client.upsert_combination.side_effect = upsert_side_effect
+
+        result = export_combination(combination.pk, client=client)
+
+        combination.refresh_from_db()
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        assert combination.prestashop_id == 55
+        assert combination.sync_required is False
+        assert call_count == 2
+
+    def test_export_does_not_recover_combination_on_non_404_error(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="M", icg_color="Red")
+        combination.prestashop_id = 88
+        combination.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+        client.upsert_combination.side_effect = PrestashopError(
+            "Prestashop returned HTTP 500 for combinations.",
+            status_code=500,
+        )
+
+        with pytest.raises(PrestashopError):
+            export_combination(combination.pk, client=client)
+
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 88
+        assert combination.sync_required is True
+
 
 # ─── Combination export task ────────────────────────────────────────
 
@@ -407,8 +477,7 @@ class TestCombinationExportTask:
             attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
         )
         color_ag = AttributeGroup.objects.create(
-            icg_type="color", name=f"{product.reference}_color",
-            prestashop_id=11, product=product
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
         )
         AttributeValue.objects.create(
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
