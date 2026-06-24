@@ -344,8 +344,10 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
         combination = price.combination
         product = combination.product
 
-        product_result = export_product(
-            product.pk, client=client, tax_rules_group_id=tax_rules_group_id
+        product_result = (
+            export_product(product.pk, client=client, tax_rules_group_id=tax_rules_group_id)
+            if product.sync_required or product.prestashop_id is None
+            else {"product_id": product.pk, "prestashop_id": product.prestashop_id}
         )
         comb_result = export_combination(combination.pk, client=client)
 
