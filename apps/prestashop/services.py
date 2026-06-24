@@ -1,5 +1,7 @@
+import hashlib
 import json
 import logging
+import time as time_module
 from datetime import UTC
 
 from django.utils import timezone
@@ -17,8 +19,11 @@ from apps.catalog.models import (
     TaxRuleMapping,
 )
 from apps.prestashop.client import PrestashopClient, PrestashopError
+from apps.sync.locking import LOCK_TIMEOUT_MINUTES, LockAcquisitionError, sync_lock
 
 logger = logging.getLogger(__name__)
+
+_LOCK_RETRY_DELAY = 1  # seconds between lock retries
 
 
 def format_sync_error(exc: Exception) -> str:
@@ -401,6 +406,11 @@ def ensure_attribute_group(
     return ps_id
 
 
+def _attr_val_lock_key(group_ps_id: int, value_name: str) -> str:
+    raw = f"attr_val:{group_ps_id}:{value_name}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
 def ensure_attribute_value(
     group_ps_id: int,
     value_name: str,
@@ -412,6 +422,7 @@ def ensure_attribute_value(
 
     client = client or PrestashopClient()
     ag = AttributeGroup.objects.get(prestashop_id=group_ps_id)
+
     existing = AttributeValue.objects.filter(attribute_group=ag, icg_value=value_name).first()
     if existing is not None:
         if (
@@ -424,24 +435,54 @@ def ensure_attribute_value(
             existing.save(update_fields=["texture_synced", "updated_at"])
         return existing.prestashop_id
 
-    ps_id = client.find_attribute_value_id(value_name, group_ps_id)
-    if ps_id is None:
-        ps_id = client.create_attribute_value(value_name, group_ps_id)
+    lock_key = _attr_val_lock_key(group_ps_id, value_name)
+    deadline = time_module.monotonic() + LOCK_TIMEOUT_MINUTES * 60
 
-    sync_images = getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
-    if texture_image_path and sync_images:
-        client.upload_attribute_value_image(ps_id, texture_image_path)
+    while True:
+        try:
+            with sync_lock(lock_key):
+                existing = AttributeValue.objects.filter(
+                    attribute_group=ag, icg_value=value_name
+                ).first()
+                if existing is not None:
+                    if (
+                        texture_image_path
+                        and not existing.texture_synced
+                        and getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+                    ):
+                        client.upload_attribute_value_image(
+                            existing.prestashop_id, texture_image_path
+                        )
+                        existing.texture_synced = True
+                        existing.save(update_fields=["texture_synced", "updated_at"])
+                    return existing.prestashop_id
 
-    AttributeValue.objects.update_or_create(
-        attribute_group=ag,
-        icg_value=value_name,
-        defaults={
-            "name": value_name,
-            "prestashop_id": ps_id,
-            "texture_synced": bool(texture_image_path and sync_images),
-        },
-    )
-    return ps_id
+                ps_id = client.find_attribute_value_id(value_name, group_ps_id)
+                if ps_id is None:
+                    ps_id = client.create_attribute_value(value_name, group_ps_id)
+
+                sync_images = getattr(settings, "PRESTASHOP_SYNC_TEXTURE_IMAGES", False)
+                if texture_image_path and sync_images:
+                    client.upload_attribute_value_image(ps_id, texture_image_path)
+
+                AttributeValue.objects.update_or_create(
+                    attribute_group=ag,
+                    icg_value=value_name,
+                    defaults={
+                        "name": value_name,
+                        "prestashop_id": ps_id,
+                        "texture_synced": bool(texture_image_path and sync_images),
+                    },
+                )
+                return ps_id
+        except LockAcquisitionError:
+            if time_module.monotonic() >= deadline:
+                raise LockAcquisitionError(
+                    f"Cannot acquire lock for attribute value {value_name} "
+                    f"(group PS ID {group_ps_id}) after "
+                    f"{LOCK_TIMEOUT_MINUTES} minute(s)."
+                ) from None
+            time_module.sleep(_LOCK_RETRY_DELAY)
 
 
 def export_combination(
