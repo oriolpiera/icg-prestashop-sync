@@ -275,7 +275,9 @@ class TestCombinationExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        combination = _make_combination(product=product, icg_size="M", icg_color="Red")
+        combination = _make_combination(
+            product=product, icg_size="M", icg_color="Red", ean13="9788478290222"
+        )
 
         client = Mock()
         client.upsert_combination.return_value = 55
@@ -289,7 +291,42 @@ class TestCombinationExport:
         assert combination.last_sync_error == ""
         client.upsert_combination.assert_called_once_with(
             22,
-            "1234567890123",
+            "9788478290222",
+            True,
+            [100, 200],
+            prestashop_id=None,
+            price="0",
+        )
+
+    def test_export_sends_empty_ean13_for_non_digit_ean(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="M", icg_color="Red", ean13="***")
+
+        client = Mock()
+        client.upsert_combination.return_value = 55
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 55
+        assert combination.sync_required is False
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "",
             True,
             [100, 200],
             prestashop_id=None,
@@ -311,7 +348,7 @@ class TestCombinationExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        combination = _make_combination(product=product)
+        combination = _make_combination(product=product, ean13="9788478290222")
         combination.prestashop_id = 88
         combination.save(update_fields=["prestashop_id"])
 
@@ -322,7 +359,7 @@ class TestCombinationExport:
 
         client.upsert_combination.assert_called_once_with(
             22,
-            "1234567890123",
+            "9788478290222",
             True,
             [100, 200],
             prestashop_id=88,
