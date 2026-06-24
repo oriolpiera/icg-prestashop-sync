@@ -271,6 +271,49 @@ class TestPriceExport:
         assert "Unsupported VAT rate" in payload["message"]
         assert price.sync_required is True
 
+    def test_export_price_skips_product_export_when_already_synced(self, _default_category):
+        _make_tax_mapping(vat_rate=21, ps_group_id=1)
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        product.sync_required = False
+        product.save(update_fields=["sync_required"])
+
+        comb1 = _make_combination(product=product, icg_size="S", icg_color="Red")
+        comb2 = _make_combination(product=product, icg_size="M", icg_color="Blue")
+        price1 = _make_price(comb1, amount_ex_vat=90.00, vat_rate=21)
+        price2 = _make_price(comb2, amount_ex_vat=100.00, vat_rate=21)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="S", name="S", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=101
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Blue", name="Blue", prestashop_id=201
+        )
+
+        client = Mock()
+        client.upsert_product.return_value = 22
+        client.upsert_combination.side_effect = [55, 56]
+
+        export_price(price1.pk, client=client)
+        export_price(price2.pk, client=client)
+
+        client.upsert_product.assert_not_called()
+        assert client.upsert_combination.call_count == 2
+        price1.refresh_from_db()
+        price2.refresh_from_db()
+        assert price1.sync_required is False
+        assert price2.sync_required is False
+
     def test_export_price_skips_inactive_combination(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
