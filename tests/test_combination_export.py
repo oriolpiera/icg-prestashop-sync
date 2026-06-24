@@ -231,9 +231,9 @@ class TestEnsureAttributeValue:
         av = AttributeValue.objects.get(attribute_group=ag, icg_value="M")
         assert av.prestashop_id == 55
 
-    def test_race_protected_by_row_lock(self):
-        """Two concurrent calls with the same params should only create one PS entry.
-        This simulates the scenario where select_for_update serializes access."""
+    def test_idempotent_creation(self):
+        """Two sequential calls with the same params should only create one PS entry.
+        Tests idempotency after the first worker has released the lock."""
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         client_a = Mock()
         client_a.find_attribute_value_id.return_value = None
