@@ -20,7 +20,7 @@ def _make_aware(dt: datetime) -> datetime:
 
 
 def _escape(value: str) -> str:
-    return value.replace("{", "").replace("}", "").replace("'", "")
+    return value.replace("{", "").replace("}", "").replace("'", "").strip()
 
 
 def _normalize_ean13(value) -> str:

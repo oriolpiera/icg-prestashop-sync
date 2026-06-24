@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from apps.catalog.models import Combination, Manufacturer, Price, Product, Stock
-from apps.icg.importer import import_prices, import_products, import_stock
+from apps.icg.importer import _escape, import_prices, import_products, import_stock
 from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
 from apps.sync.models import SyncCursorSource, SyncJob, SyncJobType
 
@@ -535,3 +535,26 @@ class TestStockImport:
 
         assert result["skipped"] == 4
         assert Price.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestEscape:
+    def test_removes_braces_and_quotes(self):
+        assert _escape("{foo}") == "foo"
+        assert _escape("bar'baz'") == "barbaz"
+        assert _escape("{hello'}") == "hello"
+
+    def test_strips_whitespace(self):
+        assert _escape("  14X21  ") == "14X21"
+        assert _escape("ESPIRAL ") == "ESPIRAL"
+        assert _escape("\tMEDIDA\n") == "MEDIDA"
+        assert _escape("  ") == ""
+
+    def test_strips_after_removing_braces(self):
+        assert _escape("  {foo}  ") == "foo"
+        assert _escape("'{bar}' ") == "bar"
+
+    def test_clean_value_unchanged(self):
+        assert _escape("14X21") == "14X21"
+        assert _escape("ESPIRAL") == "ESPIRAL"
+        assert _escape("") == ""
