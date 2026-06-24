@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from django.contrib import admin
+from django.contrib.auth.models import User
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django.utils import timezone
@@ -26,7 +27,7 @@ from apps.operations.admin import (
     retry_jobs,
 )
 from apps.operations.sites import admin_site
-from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
+from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus, SyncJobType
 from apps.sync.tasks import retry_entity
 
 
@@ -340,3 +341,63 @@ class TestSyncErrorDisplay:
         product.save(update_fields=["last_sync_error"])
 
         assert _sync_error_display(product) == "null"
+
+
+@pytest.mark.django_db
+class TestDashboardIndex:
+    def test_dashboard_context_has_entity_stats(self):
+        man = Manufacturer.objects.create(icg_code="M1", name="Maker", prestashop_id=1)
+        cat = Category.objects.create(name="Root")
+        prod = Product.objects.create(
+            icg_id=1, reference="REF01", name="P", manufacturer=man, category_default=cat
+        )
+        comb = Combination.objects.create(product=prod, icg_size="M", icg_color="R", active=True)
+        Price.objects.create(combination=comb, amount_ex_vat="10.00")
+        Stock.objects.create(combination=comb, warehouse_code="WH1", quantity=5)
+        SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF01",
+            status=SyncJobStatus.FAILED,
+        )
+        SyncCursor.objects.create(source="products", last_source_key="100")
+
+        staff = User.objects.create_user("staff", password="x", is_staff=True)
+        factory = RequestFactory()
+        request = factory.get("/admin/")
+        request.user = staff
+
+        context = admin_site.index(request)
+        extra = context.context_data
+
+        stats = extra["entity_stats"]
+        labels = {s["label"]: s for s in stats}
+        assert labels["Products"]["total"] == 1
+        assert labels["Products"]["never_synced"] == 1
+        assert labels["Combinations"]["total"] == 1
+        assert labels["Prices"]["total"] == 1
+        assert labels["Stock"]["total"] == 1
+        assert extra["totals"]["total"] == 6
+        assert extra["cursors"].count() == 1
+
+    def test_dashboard_context_totals_aggregate_correctly(self):
+        man = Manufacturer.objects.create(icg_code="M2", name="Mkr")
+        prod = Product.objects.create(icg_id=2, reference="REF02", name="Q", manufacturer=man)
+        comb = Combination.objects.create(product=prod, icg_size="L", icg_color="B")
+        Stock.objects.create(combination=comb, warehouse_code="WH1", quantity=0)
+
+        staff = User.objects.create_user("staff2", password="x", is_staff=True)
+        factory = RequestFactory()
+        request = factory.get("/admin/")
+        request.user = staff
+
+        context = admin_site.index(request)
+        extra = context.context_data
+
+        stats = extra["entity_stats"]
+        labels = {s["label"]: s for s in stats}
+        assert labels["Products"]["total"] == 1
+        assert labels["Combinations"]["total"] == 1
+        assert labels["Stock"]["total"] == 1
+        assert labels["Categories"]["total"] == 0
+        assert extra["totals"]["total"] == 4

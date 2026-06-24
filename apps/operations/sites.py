@@ -12,7 +12,7 @@ from apps.catalog.models import (
     Product,
     Stock,
 )
-from apps.sync.models import SyncCursor, SyncError, SyncJob
+from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
 
 
 class AdminSite(DjangoAdminSite):
@@ -75,7 +75,7 @@ class AdminSite(DjangoAdminSite):
         )
         extra_context["job_status_counts"] = {s["status"]: s["count"] for s in job_status_counts}
         extra_context["stuck_jobs"] = SyncJob.objects.filter(
-            status="running",
+            status=SyncJobStatus.RUNNING,
             started_at__lte=timezone.now() - timedelta(minutes=30),
         ).count()
         extra_context["unresolved_errors"] = SyncError.objects.filter(resolved=False).count()
