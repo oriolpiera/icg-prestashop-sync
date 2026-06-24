@@ -564,9 +564,11 @@ def export_combination(
         price_obj = getattr(combination, "price", None)
         combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
 
+        ean13 = combination.ean13 if (combination.ean13 and combination.ean13.isdigit()) else ""
+
         prestashop_combination_id = client.upsert_combination(
             product_ps_id,
-            combination.ean13,
+            ean13,
             combination.active,
             attribute_value_ps_ids,
             prestashop_id=prestashop_combination_id,
