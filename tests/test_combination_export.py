@@ -275,7 +275,9 @@ class TestCombinationExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        combination = _make_combination(product=product, icg_size="M", icg_color="Red")
+        combination = _make_combination(
+            product=product, icg_size="M", icg_color="Red", ean13="9788478290222"
+        )
 
         client = Mock()
         client.upsert_combination.return_value = 55
@@ -289,7 +291,7 @@ class TestCombinationExport:
         assert combination.last_sync_error == ""
         client.upsert_combination.assert_called_once_with(
             22,
-            "1234567890123",
+            "9788478290222",
             True,
             [100, 200],
             prestashop_id=None,
@@ -346,7 +348,7 @@ class TestCombinationExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        combination = _make_combination(product=product)
+        combination = _make_combination(product=product, ean13="9788478290222")
         combination.prestashop_id = 88
         combination.save(update_fields=["prestashop_id"])
 
@@ -357,7 +359,7 @@ class TestCombinationExport:
 
         client.upsert_combination.assert_called_once_with(
             22,
-            "1234567890123",
+            "9788478290222",
             True,
             [100, 200],
             prestashop_id=88,

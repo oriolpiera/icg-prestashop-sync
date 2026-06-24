@@ -4,6 +4,7 @@ import logging
 import time as time_module
 from datetime import UTC
 
+import barcodenumber
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -167,8 +168,7 @@ def export_category(
     except PrestashopError as exc:
         if exc.status_code == 404 and category.prestashop_id is not None:
             logger.warning(
-                "Category %s (prestashop_id=%d) not found in PrestaShop, "
-                "resetting and recreating.",
+                "Category %s (prestashop_id=%d) not found in PrestaShop, resetting and recreating.",
                 category.name,
                 category.prestashop_id,
             )
@@ -295,8 +295,7 @@ def export_product(
     except PrestashopError as exc:
         if exc.status_code == 404 and product.prestashop_id is not None:
             logger.warning(
-                "Product %s (prestashop_id=%d) not found in PrestaShop, "
-                "resetting and recreating.",
+                "Product %s (prestashop_id=%d) not found in PrestaShop, resetting and recreating.",
                 product.reference,
                 product.prestashop_id,
             )
@@ -564,7 +563,8 @@ def export_combination(
         price_obj = getattr(combination, "price", None)
         combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
 
-        ean13 = combination.ean13 if (combination.ean13 and combination.ean13.isdigit()) else ""
+        ean13_clean = combination.ean13 and barcodenumber.check_code("ean13", combination.ean13)
+        ean13 = combination.ean13 if ean13_clean else ""
 
         prestashop_combination_id = client.upsert_combination(
             product_ps_id,
