@@ -537,6 +537,7 @@ class TestStockImport:
         assert Price.objects.count() == 0
 
 
+@pytest.mark.django_db
 class TestEscape:
     def test_removes_braces_and_quotes(self):
         assert _escape("{foo}") == "foo"
