@@ -454,25 +454,30 @@ class PrestashopClient:
         return root
 
     def find_attribute_group_id_by_name(self, name: str) -> int | None:
-        self._validate_exact_filter_value(name, field_name="attribute group name")
-        response = self._request(
-            "GET",
-            "product_options",
-            params={"filter[name]": f"[{name}]", "limit": "1"},
-        )
-        root = self._parse_xml(response.text)
-        group = root.find("./product_options/product_option")
-        if group is None:
-            return None
-
-        group_id = group.attrib.get("id")
-        if not group_id:
-            group_id = group.findtext("id")
-        if not group_id:
-            raise PrestashopError(
-                "Prestashop attribute group search response did not include an id."
+        if not self._has_reserved_filter_chars(name):
+            response = self._request(
+                "GET",
+                "product_options",
+                params={"filter[name]": f"[{name}]", "limit": "1"},
             )
-        return int(group_id)
+            root = self._parse_xml(response.text)
+            group = root.find("./product_options/product_option")
+            if group is not None:
+                group_id = group.attrib.get("id")
+                if not group_id:
+                    group_id = group.findtext("id")
+                if not group_id:
+                    raise PrestashopError(
+                        "Prestashop attribute group search response did not include an id."
+                    )
+                return int(group_id)
+
+        for ag in self.list_attribute_groups():
+            if ag["name"] == name:
+                gid = ag["ps_id"]
+                if isinstance(gid, int):
+                    return gid
+        return None
 
     def get_attribute_group_xml(self, group_id: int) -> ElementTree.Element:
         response = self._request("GET", "product_options", resource_id=group_id)
@@ -532,31 +537,53 @@ class PrestashopClient:
             result.append({"ps_id": int(vid), "name": name_in_default_lang})
         return result
 
-    def find_attribute_value_id(self, name: str, group_ps_id: int) -> int | None:
-        self._validate_exact_filter_value(name, field_name="attribute value name")
-        response = self._request(
-            "GET",
-            "product_option_values",
-            params={
-                "filter[id_attribute_group]": str(group_ps_id),
-                "filter[name]": f"[{name}]",
-                "limit": "1",
-            },
-        )
+    def list_attribute_groups(self) -> list[dict[str, str | int]]:
+        """Return all attribute groups with default-language name and PS ID."""
+        response = self._request("GET", "product_options", params={"display": "full"})
         root = self._parse_xml(response.text)
-        value = root.find("./product_option_values/product_option_value")
-        if value is not None:
-            value_id = value.attrib.get("id")
-            if not value_id:
-                value_id = value.findtext("id")
-            if not value_id:
-                raise PrestashopError(
-                    "Prestashop attribute value search response did not include an id."
-                )
-            return int(value_id)
+        default_lang = str(self.credentials().default_language_id)
+        result: list[dict[str, str | int]] = []
+        for item in root.findall("./product_options/product_option"):
+            gid = item.attrib.get("id") or item.findtext("id")
+            if not gid:
+                continue
+            name_in_default_lang = ""
+            for lang in item.findall("./name/language"):
+                if lang.attrib.get("id") == default_lang:
+                    name_in_default_lang = lang.text or ""
+                    break
+            result.append({"ps_id": int(gid), "name": name_in_default_lang})
+        return result
+
+    def _has_reserved_filter_chars(self, value: str) -> bool:
+        return bool({char for char in value if char in self._FILTER_RESERVED_CHARS})
+
+    def find_attribute_value_id(self, name: str, group_ps_id: int) -> int | None:
+        if not self._has_reserved_filter_chars(name):
+            response = self._request(
+                "GET",
+                "product_option_values",
+                params={
+                    "filter[id_attribute_group]": str(group_ps_id),
+                    "filter[name]": f"[{name}]",
+                    "limit": "1",
+                },
+            )
+            root = self._parse_xml(response.text)
+            value = root.find("./product_option_values/product_option_value")
+            if value is not None:
+                value_id = value.attrib.get("id")
+                if not value_id:
+                    value_id = value.findtext("id")
+                if not value_id:
+                    raise PrestashopError(
+                        "Prestashop attribute value search response did not include an id."
+                    )
+                return int(value_id)
 
         # Fallback: list all values in the group and match by default language name.
-        # The filter[name] API call may fail to match due to encoding or API quirks.
+        # The filter[name] API call may fail to match due to encoding, API quirks,
+        # or reserved filter characters in the value name (e.g. commas, brackets).
         for av in self.list_attribute_values(group_ps_id):
             if av["name"] == name:
                 vid = av["ps_id"]
