@@ -471,6 +471,7 @@ class PrestashopClient:
                         "Prestashop attribute group search response did not include an id."
                     )
                 return int(group_id)
+            return None
 
         for ag in self.list_attribute_groups():
             if ag["name"] == name:

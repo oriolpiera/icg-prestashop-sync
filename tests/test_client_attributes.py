@@ -212,3 +212,20 @@ class TestFindAttributeGroupIdByName:
         assert session.request.call_count == 1
         call_args = session.request.call_args
         assert call_args[1]["params"] == {"filter[name]": "[Size]", "limit": "1"}
+
+    def test_clean_name_not_found_returns_none_without_fallback(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        xml = "<prestashop>" "<product_options>" "</product_options>" "</prestashop>"
+        session = Mock()
+        session.request.return_value = _response(xml)
+        client = PrestashopClient(session=session)
+
+        ps_id = client.find_attribute_group_id_by_name("Size")
+        assert ps_id is None
+
+        assert session.request.call_count == 1
+        call_args = session.request.call_args
+        assert call_args[1]["params"] == {"filter[name]": "[Size]", "limit": "1"}
