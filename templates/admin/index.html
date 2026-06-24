@@ -1,0 +1,122 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+#dashboard-summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.ds-card {
+  flex: 1; min-width: 130px; padding: 16px; text-align: center;
+  border: 1px solid var(--border-color); border-radius: 4px;
+  background: var(--darkened-bg);
+}
+.ds-card .count { font-size: 26px; font-weight: 700; display: block; }
+.ds-card .label { font-size: 11px; text-transform: uppercase; color: var(--body-quiet-color); }
+.ds-card.card-ok .count { color: var(--message-success-text); }
+.ds-card.card-warn .count { color: var(--message-warning-text); }
+.ds-card.card-error .count { color: var(--message-error-text); }
+.stats-table { width: 100%; }
+.stats-table td, .stats-table th { padding: 8px 10px; }
+.stats-table .ok { color: var(--message-success-text); }
+.stats-table .warn { color: var(--message-warning-text); }
+.stats-table .err { color: var(--message-error-text); font-weight: 600; }
+.stats-table .grand { font-weight: 700; border-top: 2px solid var(--border-color); }
+.dashboard-grid { display: flex; gap: 20px; margin-bottom: 20px; }
+.dashboard-grid > .module { flex: 1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+
+<div id="dashboard-summary">
+  <div class="ds-card card-ok">
+    <span class="count">{{ totals.synced_ok }}</span>
+    <span class="label">{% translate 'Synced OK' %}</span>
+  </div>
+  <div class="ds-card card-warn">
+    <span class="count">{{ totals.pending }}</span>
+    <span class="label">{% translate 'Pending sync' %}</span>
+  </div>
+  <div class="ds-card card-error">
+    <span class="count">{{ totals.error }}</span>
+    <span class="label">{% translate 'With errors' %}</span>
+  </div>
+  <div class="ds-card card-warn">
+    <span class="count">{{ totals.never_synced }}</span>
+    <span class="label">{% translate 'Never synced' %}</span>
+  </div>
+</div>
+
+<div class="module">
+  <h2>{% translate 'Entity sync status' %}</h2>
+  <table class="stats-table">
+    <thead>
+      <tr>
+        <th>{% translate 'Entity' %}</th>
+        <th>{% translate 'Total' %}</th>
+        <th>{% translate 'Synced OK' %}</th>
+        <th>{% translate 'Pending' %}</th>
+        <th>{% translate 'Error' %}</th>
+        <th>{% translate 'Never synced' %}</th>
+        <th>{% translate 'Inactive' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in entity_stats %}
+      <tr>
+        <th>{{ s.label }}</th>
+        <td>{{ s.total }}</td>
+        <td class="ok">{{ s.synced_ok }}</td>
+        <td class="warn">{{ s.pending }}</td>
+        <td class="err">{{ s.error }}</td>
+        <td>{{ s.never_synced }}</td>
+        <td>{% if s.inactive is not None %}{{ s.inactive }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="grand">
+        <th>{% translate 'Total' %}</th>
+        <td>{{ totals.total }}</td>
+        <td class="ok">{{ totals.synced_ok }}</td>
+        <td class="warn">{{ totals.pending }}</td>
+        <td class="err">{{ totals.error }}</td>
+        <td>{{ totals.never_synced }}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="dashboard-grid">
+  <div class="module">
+    <h2>{% translate 'Sync jobs' %}</h2>
+    <table class="stats-table">
+      <tr><th>{% translate 'Running' %}</th><td>{{ job_status_counts.running|default:"0" }}</td></tr>
+      <tr><th>{% translate 'Pending' %}</th><td>{{ job_status_counts.pending|default:"0" }}</td></tr>
+      <tr><th>{% translate 'Succeeded' %}</th><td class="ok">{{ job_status_counts.succeeded|default:"0" }}</td></tr>
+      <tr><th>{% translate 'Failed' %}</th><td class="err">{{ job_status_counts.failed|default:"0" }}</td></tr>
+      <tr><th>{% translate 'Stuck (&gt;30 min)' %}</th><td class="{% if stuck_jobs %}err{% endif %}">{{ stuck_jobs }}</td></tr>
+      <tr><th>{% translate 'Unresolved errors' %}</th><td class="{% if unresolved_errors %}err{% endif %}">{{ unresolved_errors }}</td></tr>
+    </table>
+  </div>
+  <div class="module">
+    <h2>{% translate 'Sync cursors' %}</h2>
+    <table class="stats-table">
+      <thead><tr><th>{% translate 'Source' %}</th><th>{% translate 'Last modified' %}</th></tr></thead>
+      <tbody>
+        {% for c in cursors %}
+        <tr>
+          <th>{{ c.source }}</th>
+          <td>{{ c.last_modified_at|default:"&mdash;" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="2">{% translate 'No cursors yet' %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}
