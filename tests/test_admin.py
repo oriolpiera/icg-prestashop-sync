@@ -25,6 +25,7 @@ from apps.operations.admin import (
     retry_entity_sync,
     retry_jobs,
 )
+from apps.operations.sites import admin_site
 from apps.sync.models import SyncJob, SyncJobStatus, SyncJobType
 from apps.sync.tasks import retry_entity
 
@@ -183,7 +184,7 @@ class TestAdminActions:
         product.save(update_fields=["sync_required"])
 
         request = _request_with_messages()
-        model_admin = admin.site._registry[Product]
+        model_admin = admin_site._registry[Product]
 
         with patch("apps.sync.tasks.retry_entity") as mock_retry:
             mock_retry.delay.return_value = None
@@ -196,7 +197,7 @@ class TestAdminActions:
         comb = _make_combination(product)
 
         request = _request_with_messages()
-        model_admin = admin.site._registry[Combination]
+        model_admin = admin_site._registry[Combination]
 
         with patch("apps.sync.tasks.retry_entity") as mock_retry:
             mock_retry.delay.return_value = None
@@ -214,7 +215,7 @@ class TestAdminActions:
         job = _make_job(status=SyncJobStatus.FAILED)
 
         request = _request_with_messages()
-        model_admin = admin.site._registry[SyncJob]
+        model_admin = admin_site._registry[SyncJob]
 
         retry_jobs(model_admin, request, SyncJob.objects.filter(pk=job.pk))
 
@@ -226,7 +227,7 @@ class TestAdminActions:
         job = _make_job(status=SyncJobStatus.SUCCEEDED, last_error="")
 
         request = _request_with_messages()
-        model_admin = admin.site._registry[SyncJob]
+        model_admin = admin_site._registry[SyncJob]
 
         retry_jobs(model_admin, request, SyncJob.objects.filter(pk=job.pk))
 
@@ -287,7 +288,7 @@ class TestSyncFilters:
 
         request = RequestFactory().get("/admin/")
 
-        stuck_admin = admin.site._registry[SyncJob]
+        stuck_admin = admin_site._registry[SyncJob]
         f = StuckJobFilter(request, {"is_stuck": ["yes"]}, SyncJob, stuck_admin)
         result = f.queryset(request, SyncJob.objects.all())
 

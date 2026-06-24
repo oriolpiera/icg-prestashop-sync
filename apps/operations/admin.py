@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 
 from django.contrib import admin, messages
-from django.contrib.admin import SimpleListFilter
+from django.contrib.admin import SimpleListFilter, register
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -16,6 +16,7 @@ from apps.catalog.models import (
     Stock,
     TaxRuleMapping,
 )
+from apps.operations.sites import admin_site
 from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
 
 
@@ -160,7 +161,7 @@ def _sync_error_display(obj):
 _sync_error_display.short_description = "last error"  # type: ignore[attr-defined]
 
 
-@admin.register(Manufacturer)
+@register(Manufacturer, site=admin_site)
 class ManufacturerAdmin(admin.ModelAdmin):
     list_display = (
         "name",
@@ -176,7 +177,7 @@ class ManufacturerAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
-@admin.register(Category)
+@register(Category, site=admin_site)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = (
         "name",
@@ -218,7 +219,7 @@ class CombinationInline(admin.TabularInline):
     )
 
 
-@admin.register(Product)
+@register(Product, site=admin_site)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
         "reference",
@@ -241,7 +242,7 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [CombinationInline]
 
 
-@admin.register(Combination)
+@register(Combination, site=admin_site)
 class CombinationAdmin(admin.ModelAdmin):
     list_display = (
         "product",
@@ -259,7 +260,7 @@ class CombinationAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
-@admin.register(Price)
+@register(Price, site=admin_site)
 class PriceAdmin(admin.ModelAdmin):
     list_display = (
         "combination",
@@ -275,13 +276,13 @@ class PriceAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
-@admin.register(TaxRuleMapping)
+@register(TaxRuleMapping, site=admin_site)
 class TaxRuleMappingAdmin(admin.ModelAdmin):
     list_display = ("vat_rate", "prestashop_tax_rules_group_id", "label", "updated_at")
     search_fields = ("vat_rate", "label")
 
 
-@admin.register(Stock)
+@register(Stock, site=admin_site)
 class StockAdmin(admin.ModelAdmin):
     list_display = (
         "combination",
@@ -296,14 +297,14 @@ class StockAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
-@admin.register(AttributeGroup)
+@register(AttributeGroup, site=admin_site)
 class AttributeGroupAdmin(admin.ModelAdmin):
     list_display = ("name", "icg_type", "product", "prestashop_id", "updated_at")
     search_fields = ("name", "icg_type", "product__reference")
     list_filter = ("icg_type",)
 
 
-@admin.register(AttributeValue)
+@register(AttributeValue, site=admin_site)
 class AttributeValueAdmin(admin.ModelAdmin):
     list_display = (
         "attribute_group",
@@ -318,13 +319,13 @@ class AttributeValueAdmin(admin.ModelAdmin):
     readonly_fields = ("texture_synced",)
 
 
-@admin.register(SyncCursor)
+@register(SyncCursor, site=admin_site)
 class SyncCursorAdmin(admin.ModelAdmin):
     list_display = ("source", "last_modified_at", "last_source_key", "updated_at")
     readonly_fields = ("created_at", "updated_at")
 
 
-@admin.register(SyncJob)
+@register(SyncJob, site=admin_site)
 class SyncJobAdmin(admin.ModelAdmin):
     list_display = (
         "job_type",
@@ -349,7 +350,7 @@ class SyncJobAdmin(admin.ModelAdmin):
     last_error_short.short_description = "last error"
 
 
-@admin.register(SyncError)
+@register(SyncError, site=admin_site)
 class SyncErrorAdmin(admin.ModelAdmin):
     list_display = (
         "entity_type",
