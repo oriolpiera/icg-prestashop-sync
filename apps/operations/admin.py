@@ -459,9 +459,20 @@ class SyncErrorAdmin(admin.ModelAdmin):
         "resolved",
         "created_at",
     )
+    fields = (
+        "job",
+        "entity_type",
+        "entity_key",
+        "error_type",
+        "message",
+        "details",
+        "resolved",
+        "created_at",
+        "updated_at",
+    )
     list_filter = ("error_type", "resolved", "entity_type")
     search_fields = ("entity_type", "entity_key", "message")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("job", "created_at", "updated_at")
     actions = ("mark_resolved",)
 
     def message_short(self, obj):
