@@ -38,6 +38,42 @@ class FailedSyncFilter(SimpleListFilter):
         return queryset
 
 
+class PrestashopIdFilter(SimpleListFilter):
+    title = "PS ID status"
+    parameter_name = "has_prestashop_id"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Synced (has PS ID)"),
+            ("no", "Not synced (no PS ID)"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(prestashop_id__isnull=False)
+        if self.value() == "no":
+            return queryset.filter(prestashop_id__isnull=True)
+        return queryset
+
+
+class SpecificPriceFilter(SimpleListFilter):
+    title = "specific price"
+    parameter_name = "has_specific_price"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Has specific price"),
+            ("no", "No specific price"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(prestashop_specific_price_id__isnull=False)
+        if self.value() == "no":
+            return queryset.filter(prestashop_specific_price_id__isnull=True)
+        return queryset
+
+
 class StuckJobFilter(SimpleListFilter):
     title = "stuck jobs"
     parameter_name = "is_stuck"
@@ -235,7 +271,15 @@ class ProductAdmin(admin.ModelAdmin):
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("visible_web", "discontinued", "sync_required", FailedSyncFilter)
+    list_filter = (
+        "visible_web",
+        "discontinued",
+        "sync_required",
+        "last_synced_at",
+        PrestashopIdFilter,
+        SpecificPriceFilter,
+        FailedSyncFilter,
+    )
     search_fields = ("reference", "name", "icg_id")
     filter_horizontal = ("categories",)
     actions = (mark_for_resync, retry_entity_sync, retry_discount_sync)
@@ -255,7 +299,13 @@ class CombinationAdmin(admin.ModelAdmin):
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("active", "sync_required", FailedSyncFilter)
+    list_filter = (
+        "active",
+        "sync_required",
+        "last_synced_at",
+        PrestashopIdFilter,
+        FailedSyncFilter,
+    )
     search_fields = ("product__reference", "icg_size", "icg_color", "ean13")
     actions = (mark_for_resync, retry_entity_sync)
 
@@ -271,7 +321,7 @@ class PriceAdmin(admin.ModelAdmin):
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("currency", "sync_required", FailedSyncFilter)
+    list_filter = ("currency", "sync_required", "last_synced_at", FailedSyncFilter)
     search_fields = ("combination__product__reference",)
     actions = (mark_for_resync, retry_entity_sync)
 
@@ -292,7 +342,7 @@ class StockAdmin(admin.ModelAdmin):
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("warehouse_code", "sync_required", FailedSyncFilter)
+    list_filter = ("warehouse_code", "sync_required", "last_synced_at", FailedSyncFilter)
     search_fields = ("combination__product__reference", "warehouse_code")
     actions = (mark_for_resync, retry_entity_sync)
 
