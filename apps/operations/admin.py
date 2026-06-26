@@ -310,6 +310,20 @@ class CombinationAdmin(admin.ModelAdmin):
     actions = (mark_for_resync, retry_entity_sync)
 
 
+def _combination_ps_id(obj):
+    return obj.combination.prestashop_id or "-"
+
+
+_combination_ps_id.short_description = "Combination PS ID"  # type: ignore[attr-defined]
+
+
+def _combination_active(obj):
+    return obj.combination.active
+
+
+_combination_active.short_description = "Combination active"  # type: ignore[attr-defined]
+
+
 @register(Price, site=admin_site)
 class PriceAdmin(admin.ModelAdmin):
     list_display = (
@@ -323,6 +337,24 @@ class PriceAdmin(admin.ModelAdmin):
     )
     list_filter = ("currency", "sync_required", "last_synced_at", FailedSyncFilter)
     search_fields = ("combination__product__reference",)
+    fields = (
+        "combination",
+        "amount_ex_vat",
+        "vat_rate",
+        "currency",
+        _combination_ps_id,
+        _combination_active,
+        "sync_required",
+        "last_synced_at",
+        "updated_at",
+    )
+    readonly_fields = (
+        "combination",
+        _combination_ps_id,
+        _combination_active,
+        "last_synced_at",
+        "updated_at",
+    )
     actions = (mark_for_resync, retry_entity_sync)
 
 
@@ -344,6 +376,23 @@ class StockAdmin(admin.ModelAdmin):
     )
     list_filter = ("warehouse_code", "sync_required", "last_synced_at", FailedSyncFilter)
     search_fields = ("combination__product__reference", "warehouse_code")
+    fields = (
+        "combination",
+        "warehouse_code",
+        "quantity",
+        _combination_ps_id,
+        _combination_active,
+        "sync_required",
+        "last_synced_at",
+        "updated_at",
+    )
+    readonly_fields = (
+        "combination",
+        _combination_ps_id,
+        _combination_active,
+        "last_synced_at",
+        "updated_at",
+    )
     actions = (mark_for_resync, retry_entity_sync)
 
 
