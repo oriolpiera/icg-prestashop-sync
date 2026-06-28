@@ -291,6 +291,22 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [CombinationInline]
 
 
+def _product_visible_web(obj):
+    return obj.product.visible_web
+
+
+_product_visible_web.boolean = True  # type: ignore[attr-defined]
+_product_visible_web.short_description = "Product visible"  # type: ignore[attr-defined]
+
+
+def _product_discontinued(obj):
+    return obj.product.discontinued
+
+
+_product_discontinued.boolean = True  # type: ignore[attr-defined]
+_product_discontinued.short_description = "Product discontinued"  # type: ignore[attr-defined]
+
+
 @register(Combination, site=admin_site)
 class CombinationAdmin(admin.ModelAdmin):
     list_display = (
@@ -300,12 +316,16 @@ class CombinationAdmin(admin.ModelAdmin):
         "icg_color",
         "ean13",
         "active",
+        _product_visible_web,
+        _product_discontinued,
         "sync_required",
         "last_synced_at",
         _sync_error_display,
     )
     list_filter = (
         "active",
+        "product__visible_web",
+        "product__discontinued",
         "sync_required",
         "last_synced_at",
         PrestashopIdFilter,
