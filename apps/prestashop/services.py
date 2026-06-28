@@ -27,6 +27,22 @@ logger = logging.getLogger(__name__)
 _LOCK_RETRY_DELAY = 1  # seconds between lock retries
 
 
+def _is_product_unsyncable(product: Product) -> bool:
+    """Return True if the product should not be synced to Prestashop."""
+    return product.discontinued or not product.visible_web
+
+
+def _clear_sync_fields(entity, extra_fields: list[str] | None = None) -> None:
+    """Set sync_required=False and clear error on an entity."""
+    fields = ["sync_required", "last_sync_error", "last_synced_at", "updated_at"]
+    if extra_fields:
+        fields.extend(extra_fields)
+    entity.sync_required = False
+    entity.last_sync_error = ""
+    entity.last_synced_at = timezone.now().astimezone(UTC)
+    entity.save(update_fields=fields)
+
+
 def format_sync_error(exc: Exception) -> str:
     payload = {"message": str(exc)}
     if isinstance(exc, PrestashopError):
@@ -320,21 +336,13 @@ def export_price(price_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
-        if not price.combination.active:
-            price.sync_required = False
-            price.last_sync_error = ""
-            price.last_synced_at = timezone.now().astimezone(UTC)
-            price.save(
-                update_fields=[
-                    "sync_required",
-                    "last_sync_error",
-                    "last_synced_at",
-                    "updated_at",
-                ]
-            )
+        product = price.combination.product
+
+        if _is_product_unsyncable(product) or not price.combination.active:
+            _clear_sync_fields(price)
             return {
                 "price_id": price.pk,
-                "product_prestashop_id": price.combination.product.prestashop_id or 0,
+                "product_prestashop_id": product.prestashop_id or 0,
                 "combination_prestashop_id": price.combination.prestashop_id or 0,
             }
 
@@ -495,6 +503,17 @@ def export_combination(
     client = client or PrestashopClient()
 
     try:
+        product = combination.product
+
+        if _is_product_unsyncable(product):
+            if combination.prestashop_id:
+                client.deactivate_combination(combination.prestashop_id)
+            _clear_sync_fields(combination)
+            return {
+                "combination_id": combination.pk,
+                "prestashop_combination_id": combination.prestashop_id or 0,
+            }
+
         if not combination.active:
             if combination.prestashop_id:
                 client.deactivate_combination(combination.prestashop_id)
@@ -619,18 +638,10 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
     client = client or PrestashopClient()
 
     try:
-        if not stock.combination.active:
-            stock.sync_required = False
-            stock.last_sync_error = ""
-            stock.last_synced_at = timezone.now().astimezone(UTC)
-            stock.save(
-                update_fields=[
-                    "sync_required",
-                    "last_sync_error",
-                    "last_synced_at",
-                    "updated_at",
-                ]
-            )
+        product = stock.combination.product
+
+        if _is_product_unsyncable(product) or not stock.combination.active:
+            _clear_sync_fields(stock)
             return {
                 "stock_id": stock.pk,
                 "prestashop_combination_id": stock.combination.prestashop_id or 0,
@@ -675,6 +686,25 @@ def export_discount(
     client = client or PrestashopClient()
 
     try:
+        if _is_product_unsyncable(product):
+            product.discount_sync_required = False
+            product.last_sync_error = ""
+            product.last_synced_at = timezone.now().astimezone(UTC)
+            product.save(
+                update_fields=[
+                    "discount_sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "product_id": product.pk,
+                "prestashop_product_id": product.prestashop_id or 0,
+                "prestashop_specific_price_id": product.prestashop_specific_price_id,
+                "discount_percent": str(product.discount_percent),
+            }
+
         if not product.prestashop_id:
             raise PrestashopError(
                 f"Product {product.reference} must be exported before discount sync."
