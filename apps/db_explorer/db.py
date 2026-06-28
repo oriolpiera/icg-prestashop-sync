@@ -132,7 +132,7 @@ def get_columns(table_name: str, schema: str = "dbo") -> list[ColumnInfo]:
     with reader._connect() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
-        cursor.execute(QUERY_COLUMNS, {"schema": schema, "table": table_name})
+        cursor.execute(QUERY_COLUMNS, (schema, table_name, schema, table_name))
         return [
             ColumnInfo(
                 name=row.COLUMN_NAME,
@@ -154,7 +154,7 @@ def get_indexes(table_name: str) -> list[IndexInfo]:
     with reader._connect() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
-        cursor.execute(QUERY_INDEXES_2008, {"table": table_name})
+        cursor.execute(QUERY_INDEXES_2008, (table_name,))
         return [
             IndexInfo(
                 name=row.index_name,
@@ -172,7 +172,7 @@ def get_foreign_keys_for_table(table_name: str) -> list[ForeignKeyInfo]:
     with reader._connect() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
-        cursor.execute(QUERY_TABLE_FOREIGN_KEYS, {"table": table_name})
+        cursor.execute(QUERY_TABLE_FOREIGN_KEYS, (table_name,))
         return [
             ForeignKeyInfo(
                 name=row.fk_name,
@@ -236,7 +236,7 @@ def get_table_data(
         _set_query_timeout(cursor)
 
         # Get columns first
-        cursor.execute(QUERY_COLUMNS, {"schema": "dbo", "table": table_name})
+        cursor.execute(QUERY_COLUMNS, ("dbo", table_name, "dbo", table_name))
         col_info = cursor.fetchall()
         columns = [c.COLUMN_NAME for c in col_info]
 
@@ -251,7 +251,7 @@ def get_table_data(
             cursor.execute(count_sql, (filter_value,))
         else:
             cursor.execute(query_table_row_count(table_name))
-        total_rows = cursor.fetchone().cnt
+        total_rows = cursor.fetchone().row_count
 
         # Fetch page of data
         quoted = f"[dbo].[{_safe_ident(table_name)}]"

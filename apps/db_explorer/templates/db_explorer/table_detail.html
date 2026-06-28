@@ -32,7 +32,7 @@
             {% if col.numeric_precision %}({{ col.numeric_precision }}{% if col.numeric_scale %},{{ col.numeric_scale }}{% endif %}){% endif %}
           </td>
           <td class="{% if col.is_nullable %}nullable{% endif %}">{{ col.is_nullable|yesno:"YES,no" }}</td>
-          <td>{{ col.default|default:"&mdash;" }}</td>
+          <td>{{ col.default|default:"—" }}</td>
           <td>{% if col.is_primary_key %}&#x2713;{% endif %}</td>
         </tr>
         {% endfor %}
@@ -143,7 +143,7 @@
         {% for row in data.rows %}
         <tr>
           {% for cell in row %}
-          <td>{{ cell|default:"&nbsp;" }}</td>
+          <td>{{ cell|default:"\u00a0" }}</td>
           {% endfor %}
         </tr>
         {% endfor %}

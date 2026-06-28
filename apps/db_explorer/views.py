@@ -25,7 +25,7 @@ PAGE_SIZE = 100
 def table_list(request: HttpRequest) -> HttpResponse:
     """Show all tables/views in the ICG database."""
     tables = db.get_tables()
-    return render(request, "db_explorer/table_list.html", {"tables": tables})
+    return render(request, "db_explorer/table_list.html", {"tables": tables, "all_tables": tables})
 
 
 @staff_member_required
