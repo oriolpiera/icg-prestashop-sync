@@ -687,11 +687,16 @@ def export_discount(
 
     try:
         if _is_product_unsyncable(product):
+            existing_ps_id = product.prestashop_specific_price_id
+            if existing_ps_id is not None:
+                client.delete_specific_price(existing_ps_id)
+                product.prestashop_specific_price_id = None
             product.discount_sync_required = False
             product.last_sync_error = ""
             product.last_synced_at = timezone.now().astimezone(UTC)
             product.save(
                 update_fields=[
+                    "prestashop_specific_price_id",
                     "discount_sync_required",
                     "last_sync_error",
                     "last_synced_at",
