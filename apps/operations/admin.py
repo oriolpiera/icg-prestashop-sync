@@ -349,6 +349,22 @@ def _combination_active(obj):
 _combination_active.short_description = "Combination active"  # type: ignore[attr-defined]
 
 
+def _price_product_visible_web(obj):
+    return obj.combination.product.visible_web
+
+
+_price_product_visible_web.boolean = True  # type: ignore[attr-defined]
+_price_product_visible_web.short_description = "Product visible"  # type: ignore[attr-defined]
+
+
+def _price_product_discontinued(obj):
+    return obj.combination.product.discontinued
+
+
+_price_product_discontinued.boolean = True  # type: ignore[attr-defined]
+_price_product_discontinued.short_description = "Product discontinued"  # type: ignore[attr-defined]
+
+
 @register(Price, site=admin_site)
 class PriceAdmin(admin.ModelAdmin):
     list_display = (
@@ -356,11 +372,22 @@ class PriceAdmin(admin.ModelAdmin):
         "amount_ex_vat",
         "vat_rate",
         "currency",
+        _combination_active,
+        _price_product_visible_web,
+        _price_product_discontinued,
         "sync_required",
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("currency", "sync_required", "last_synced_at", FailedSyncFilter)
+    list_filter = (
+        "currency",
+        "combination__active",
+        "combination__product__visible_web",
+        "combination__product__discontinued",
+        "sync_required",
+        "last_synced_at",
+        FailedSyncFilter,
+    )
     search_fields = ("combination__product__reference",)
     fields = (
         "combination",
@@ -389,17 +416,44 @@ class TaxRuleMappingAdmin(admin.ModelAdmin):
     search_fields = ("vat_rate", "label")
 
 
+def _stock_product_visible_web(obj):
+    return obj.combination.product.visible_web
+
+
+_stock_product_visible_web.boolean = True  # type: ignore[attr-defined]
+_stock_product_visible_web.short_description = "Product visible"  # type: ignore[attr-defined]
+
+
+def _stock_product_discontinued(obj):
+    return obj.combination.product.discontinued
+
+
+_stock_product_discontinued.boolean = True  # type: ignore[attr-defined]
+_stock_product_discontinued.short_description = "Product discontinued"  # type: ignore[attr-defined]
+
+
 @register(Stock, site=admin_site)
 class StockAdmin(admin.ModelAdmin):
     list_display = (
         "combination",
         "warehouse_code",
         "quantity",
+        _combination_active,
+        _stock_product_visible_web,
+        _stock_product_discontinued,
         "sync_required",
         "last_synced_at",
         _sync_error_display,
     )
-    list_filter = ("warehouse_code", "sync_required", "last_synced_at", FailedSyncFilter)
+    list_filter = (
+        "warehouse_code",
+        "combination__active",
+        "combination__product__visible_web",
+        "combination__product__discontinued",
+        "sync_required",
+        "last_synced_at",
+        FailedSyncFilter,
+    )
     search_fields = ("combination__product__reference", "warehouse_code")
     fields = (
         "combination",
