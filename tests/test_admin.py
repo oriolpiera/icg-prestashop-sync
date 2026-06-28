@@ -213,7 +213,11 @@ class TestAdminActions:
         )
 
     def test_retry_jobs_resets_failed_to_pending(self):
-        job = _make_job(status=SyncJobStatus.FAILED)
+        job = _make_job(
+            status=SyncJobStatus.FAILED,
+            attempts=2,
+            available_at=timezone.now() - timedelta(hours=1),
+        )
 
         request = _request_with_messages()
         model_admin = admin_site._registry[SyncJob]
@@ -223,6 +227,8 @@ class TestAdminActions:
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
         assert job.last_error == ""
+        assert job.attempts == 0
+        assert job.available_at <= timezone.now()
 
     def test_retry_jobs_warns_when_no_failed_selected(self):
         job = _make_job(status=SyncJobStatus.SUCCEEDED, last_error="")

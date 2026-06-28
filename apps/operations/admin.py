@@ -170,7 +170,12 @@ def retry_discount_sync(modeladmin, request, queryset):
 @admin.action(description="Retry selected failed jobs")
 def retry_jobs(modeladmin, request, queryset):
     failed = queryset.filter(status=SyncJobStatus.FAILED)
-    count = failed.update(status=SyncJobStatus.PENDING, last_error="")
+    count = failed.update(
+        status=SyncJobStatus.PENDING,
+        last_error="",
+        attempts=0,
+        available_at=timezone.now(),
+    )
     if count:
         modeladmin.message_user(request, f"Reset {count} job(s) to pending.", messages.SUCCESS)
     else:
