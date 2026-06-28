@@ -346,6 +346,7 @@ def _combination_active(obj):
     return obj.combination.active
 
 
+_combination_active.boolean = True  # type: ignore[attr-defined]
 _combination_active.short_description = "Combination active"  # type: ignore[attr-defined]
 
 
