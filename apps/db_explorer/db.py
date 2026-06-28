@@ -247,29 +247,36 @@ def get_table_data(
                 raise ValueError(f"Invalid filter column: {filter_column}")
             safe_table = _safe_ident(table_name)
             safe_col = _safe_ident(filter_column)
-            count_sql = f"SELECT COUNT(*) AS cnt FROM [dbo].[{safe_table}] WHERE [{safe_col}] = ?"
+            count_sql = (
+                f"SELECT COUNT(*) AS row_count FROM [dbo].[{safe_table}] WHERE [{safe_col}] = ?"
+            )
             cursor.execute(count_sql, (filter_value,))
         else:
             cursor.execute(query_table_row_count(table_name))
         total_rows = cursor.fetchone().row_count
 
-        # Fetch page of data
+        # Fetch page of data using ROW_NUMBER() (SQL Server 2008 compatible)
+        # OFFSET/FETCH NEXT requires SQL Server 2012+.
         quoted = f"[dbo].[{_safe_ident(table_name)}]"
+        rn_start = offset + 1
+        rn_end = offset + page_size
         if filter_column and filter_value is not None:
             safe_col = _safe_ident(filter_column)
             data_sql = (
-                f"SELECT * FROM {quoted} WHERE [{safe_col}] = ?"
-                " ORDER BY (SELECT NULL)"
-                " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+                f"SELECT * FROM ("
+                f"SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS _rn"
+                f" FROM {quoted} WHERE [{safe_col}] = ?"
+                f") AS paged WHERE _rn BETWEEN ? AND ?"
             )
-            cursor.execute(data_sql, (filter_value, offset, page_size))
+            cursor.execute(data_sql, (filter_value, rn_start, rn_end))
         else:
             data_sql = (
-                f"SELECT * FROM {quoted}"
-                " ORDER BY (SELECT NULL)"
-                " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+                f"SELECT * FROM ("
+                f"SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS _rn"
+                f" FROM {quoted}"
+                f") AS paged WHERE _rn BETWEEN ? AND ?"
             )
-            cursor.execute(data_sql, (offset, page_size))
+            cursor.execute(data_sql, (rn_start, rn_end))
 
         rows = [tuple(row) for row in cursor.fetchall()]
 
