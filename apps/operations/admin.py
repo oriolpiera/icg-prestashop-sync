@@ -367,6 +367,7 @@ _price_product_discontinued.short_description = "Product discontinued"  # type: 
 
 @register(Price, site=admin_site)
 class PriceAdmin(admin.ModelAdmin):
+    list_select_related = ("combination", "combination__product")
     list_display = (
         "combination",
         "amount_ex_vat",
@@ -434,6 +435,7 @@ _stock_product_discontinued.short_description = "Product discontinued"  # type: 
 
 @register(Stock, site=admin_site)
 class StockAdmin(admin.ModelAdmin):
+    list_select_related = ("combination", "combination__product")
     list_display = (
         "combination",
         "warehouse_code",
