@@ -32,12 +32,16 @@ def _is_product_unsyncable(product: Product) -> bool:
     return product.discontinued or not product.visible_web
 
 
-def _clear_sync_fields(entity, extra_fields: list[str] | None = None) -> None:
-    """Set sync_required=False and clear error on an entity."""
-    fields = ["sync_required", "last_sync_error", "last_synced_at", "updated_at"]
+def _clear_sync_fields(
+    entity,
+    extra_fields: list[str] | None = None,
+    sync_field: str = "sync_required",
+) -> None:
+    """Set the sync flag to False and clear error on an entity."""
+    fields = [sync_field, "last_sync_error", "last_synced_at", "updated_at"]
     if extra_fields:
         fields.extend(extra_fields)
-    entity.sync_required = False
+    setattr(entity, sync_field, False)
     entity.last_sync_error = ""
     entity.last_synced_at = timezone.now().astimezone(UTC)
     entity.save(update_fields=fields)
@@ -691,18 +695,8 @@ def export_discount(
             if existing_ps_id is not None:
                 client.delete_specific_price(existing_ps_id)
                 product.prestashop_specific_price_id = None
-            product.discount_sync_required = False
-            product.last_sync_error = ""
-            product.last_synced_at = timezone.now().astimezone(UTC)
-            product.save(
-                update_fields=[
-                    "prestashop_specific_price_id",
-                    "discount_sync_required",
-                    "last_sync_error",
-                    "last_synced_at",
-                    "updated_at",
-                ]
-            )
+                product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
+            _clear_sync_fields(product, sync_field="discount_sync_required")
             return {
                 "product_id": product.pk,
                 "prestashop_product_id": product.prestashop_id or 0,
