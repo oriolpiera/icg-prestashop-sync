@@ -1,0 +1,182 @@
+{% extends "db_explorer/base.html" %}
+{% load i18n humanize %}
+
+{% block title %}Database Explorer — {{ table_name }}{% endblock %}
+
+{% block db_content %}
+<div class="db-section">
+  <h2>{{ table_name }} <span style="font-weight:normal;font-size:12px;color:var(--body-quiet-color);">({{ data.total_rows|intcomma }} rows)</span></h2>
+
+  {# ---- Schema ---- #}
+  <details open>
+    <summary style="cursor:pointer;font-weight:600;margin-bottom:8px;">{% translate 'Schema' %} ({{ columns|length }} {% translate 'columns' %})</summary>
+    <table class="db-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate 'Column' %}</th>
+          <th>{% translate 'Type' %}</th>
+          <th>{% translate 'Nullable' %}</th>
+          <th>{% translate 'Default' %}</th>
+          <th>{% translate 'PK' %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for col in columns %}
+        <tr>
+          <td>{{ col.ordinal_position }}</td>
+          <td{% if col.is_primary_key %} class="pk"{% endif %}>{{ col.name }}</td>
+          <td>
+            {{ col.data_type }}
+            {% if col.max_length %}({{ col.max_length }}){% endif %}
+            {% if col.numeric_precision %}({{ col.numeric_precision }}{% if col.numeric_scale %},{{ col.numeric_scale }}{% endif %}){% endif %}
+          </td>
+          <td class="{% if col.is_nullable %}nullable{% endif %}">{{ col.is_nullable|yesno:"YES,no" }}</td>
+          <td>{{ col.default|default:"—" }}</td>
+          <td>{% if col.is_primary_key %}&#x2713;{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+
+{# ---- Indexes ---- #}
+{% if schema_info.indexes %}
+<div class="db-section">
+  <details open>
+    <summary style="cursor:pointer;font-weight:600;margin-bottom:8px;">{% translate 'Indexes' %} ({{ schema_info.indexes|length }})</summary>
+    <table class="db-table">
+      <thead>
+        <tr>
+          <th>{% translate 'Index' %}</th>
+          <th>{% translate 'Columns' %}</th>
+          <th>{% translate 'Unique' %}</th>
+          <th>{% translate 'Type' %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for idx in schema_info.indexes %}
+        <tr>
+          <td>
+            {% if idx.is_primary_key %}&#x1F511; {% endif %}{{ idx.name }}
+          </td>
+          <td>{{ idx.columns }}</td>
+          <td>{% if idx.is_unique %}&#x2713;{% endif %}</td>
+          <td>{{ idx.type_desc }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+{% endif %}
+
+{# ---- Foreign Keys ---- #}
+{% if schema_info.foreign_keys %}
+<div class="db-section">
+  <details open>
+    <summary style="cursor:pointer;font-weight:600;margin-bottom:8px;">{% translate 'Foreign keys' %} ({{ schema_info.foreign_keys|length }})</summary>
+    <table class="db-table">
+      <thead>
+        <tr>
+          <th>{% translate 'FK name' %}</th>
+          <th>{% translate 'Column' %}</th>
+          <th>{% translate 'References' %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for fk in schema_info.foreign_keys %}
+        <tr>
+          <td>{{ fk.name }}</td>
+          <td>{{ fk.from_column }}</td>
+          <td>
+            <a href="{% url 'db_explorer:table_detail' fk.to_table %}">{{ fk.to_table }}</a>.{{ fk.to_column }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+{% endif %}
+
+{# ---- Data ---- #}
+<div class="db-section">
+  <h2>{% translate 'Data' %}</h2>
+
+  {# Filter form #}
+  <form class="db-filter" method="get" action="{% url 'db_explorer:table_detail' table_name %}">
+    <div>
+      <label for="filter_column">{% translate 'Column' %}</label><br>
+      <select name="filter_column" id="filter_column">
+        <option value="">{% translate '-- none --' %}</option>
+        {% for col in columns %}
+        <option value="{{ col.name }}" {% if col.name == filter_column %}selected{% endif %}>{{ col.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="filter_value">{% translate 'Value' %}</label><br>
+      <input type="text" name="filter_value" id="filter_value" value="{{ filter_value }}" placeholder="{% translate 'Filter value...' %}">
+    </div>
+    <div>
+      <br>
+      <button type="submit">{% translate 'Filter' %}</button>
+      {% if filter_column %}
+      <a href="{% url 'db_explorer:table_detail' table_name %}" style="margin-left:8px;">{% translate 'Clear' %}</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if data.rows %}
+  <div style="overflow-x: auto;">
+    <table class="db-table">
+      <thead>
+        <tr>
+          {% for col_name in data.columns %}
+          <th>{{ col_name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in data.rows %}
+        <tr>
+          {% for cell in row %}
+          <td>{{ cell|default:"\u00a0" }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if data.total_pages > 1 %}
+  <div class="db-pagination">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}{% if filter_column %}&filter_column={{ filter_column }}&filter_value={{ filter_value }}{% endif %}">&laquo; {% translate 'Prev' %}</a>
+    {% endif %}
+
+    <span>
+      {% translate 'Page' %} {{ data.page }} / {{ data.total_pages }}
+      ({{ data.total_rows|intcomma }} {% translate 'rows' %})
+    </span>
+
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}{% if filter_column %}&filter_column={{ filter_column }}&filter_value={{ filter_value }}{% endif %}">{% translate 'Next' %} &raquo;</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="db-empty">
+    {% if filter_column %}
+      {% translate 'No rows match the filter.' %}
+    {% else %}
+      {% translate 'Table is empty.' %}
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

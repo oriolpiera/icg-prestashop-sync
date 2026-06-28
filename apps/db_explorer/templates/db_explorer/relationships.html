@@ -1,0 +1,37 @@
+{% extends "db_explorer/base.html" %}
+{% load i18n %}
+
+{% block title %}Database Explorer — {% translate 'Foreign keys' %}{% endblock %}
+
+{% block db_content %}
+<div class="db-section">
+  <h2>{% translate 'Foreign key relationships' %}</h2>
+
+  {% if foreign_keys %}
+  <table class="db-table">
+    <thead>
+      <tr>
+        <th>{% translate 'FK name' %}</th>
+        <th>{% translate 'From table' %}</th>
+        <th>{% translate 'From column' %}</th>
+        <th>{% translate 'To table' %}</th>
+        <th>{% translate 'To column' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fk in foreign_keys %}
+      <tr>
+        <td>{{ fk.name }}</td>
+        <td><a href="{% url 'db_explorer:table_detail' fk.from_table %}">{{ fk.from_table }}</a></td>
+        <td>{{ fk.from_column }}</td>
+        <td><a href="{% url 'db_explorer:table_detail' fk.to_table %}">{{ fk.to_table }}</a></td>
+        <td>{{ fk.to_column }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="db-empty">{% translate 'No foreign keys found.' %}</div>
+  {% endif %}
+</div>
+{% endblock %}
