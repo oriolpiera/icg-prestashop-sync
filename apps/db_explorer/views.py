@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.admin.views.decorators import staff_member_required
-from django.core.paginator import Paginator
+from django.core.paginator import EmptyPage, Paginator
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import render
 
@@ -68,7 +68,12 @@ def table_detail(request: HttpRequest, table_name: str) -> HttpResponse:
 
     # Build paginator
     paginator = Paginator(range(data.total_rows, 0, -1), PAGE_SIZE)
-    page_obj = paginator.page(page)
+    try:
+        page_obj = paginator.page(page)
+    except EmptyPage:
+        page = paginator.num_pages
+        page_obj = paginator.page(page)
+    data.page = page
 
     # All table names for sidebar
     all_tables = db.get_tables()

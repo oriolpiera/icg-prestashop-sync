@@ -278,7 +278,7 @@ def get_table_data(
             )
             cursor.execute(data_sql, (rn_start, rn_end))
 
-        rows = [tuple(row) for row in cursor.fetchall()]
+        rows = [tuple(row[:-1]) for row in cursor.fetchall()]
 
     total_pages = max(1, -(-total_rows // page_size))  # ceil division
 
