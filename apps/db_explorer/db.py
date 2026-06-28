@@ -301,7 +301,7 @@ def get_table_schema_by_name(table_name: str) -> dict | None:
         _set_query_timeout(cursor)
         cursor.execute(
             "SELECT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES "
-            "WHERE TABLE_NAME = ? AND TABLE_TYPE = 'BASE TABLE'",
+            "WHERE TABLE_NAME = ? AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')",
             (table_name,),
         )
         row = cursor.fetchone()
