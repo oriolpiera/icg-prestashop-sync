@@ -1,0 +1,46 @@
+{% extends "db_explorer/base.html" %}
+{% load i18n humanize %}
+
+{% block title %}Database Explorer — {% translate 'Tables' %}{% endblock %}
+
+{% block db_content %}
+<div class="db-section">
+  <h2>{% translate 'Database tables and views' %}</h2>
+  <table class="db-table">
+    <thead>
+      <tr>
+        <th>{% translate 'Schema' %}</th>
+        <th>{% translate 'Name' %}</th>
+        <th>{% translate 'Type' %}</th>
+        <th>{% translate 'Columns' %}</th>
+        <th class="row-count">{% translate 'Rows' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tables %}
+      <tr>
+        <td>{{ t.schema }}</td>
+        <td>
+          <a href="{% url 'db_explorer:table_detail' t.name %}">{{ t.name }}</a>
+        </td>
+        <td>
+          {% if t.table_type == 'BASE TABLE' %}
+            <span class="db-badge table">TABLE</span>
+          {% else %}
+            <span class="db-badge view">VIEW</span>
+          {% endif %}
+        </td>
+        <td>{{ t.column_count }}</td>
+        <td class="row-count">
+          {% if t.row_count is not None %}
+            {{ t.row_count|intcomma }}
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

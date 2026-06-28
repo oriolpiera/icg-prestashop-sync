@@ -1,0 +1,73 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block title %}Database Explorer{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  #content { display: flex; gap: 20px; }
+  #db-sidebar {
+    width: 220px; flex-shrink: 0;
+    border-right: 1px solid var(--border-color);
+    padding-right: 16px;
+  }
+  #db-sidebar h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: var(--body-quiet-color); }
+  #db-sidebar ul { list-style: none; margin: 0; padding: 0; }
+  #db-sidebar li { margin: 0; }
+  #db-sidebar a { display: block; padding: 4px 8px; font-size: 13px; color: var(--body-fg); text-decoration: none; border-radius: 3px; }
+  #db-sidebar a:hover { background: var(--darkened-bg); }
+  #db-sidebar a.active { background: var(--highlight-bg); font-weight: 600; }
+  #db-main { flex: 1; min-width: 0; }
+  .db-nav { margin-bottom: 16px; }
+  .db-nav a { margin-right: 12px; font-size: 13px; }
+  .db-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .db-table th, .db-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-color); text-align: left; }
+  .db-table th { background: var(--darkened-bg); font-weight: 600; position: sticky; top: 0; }
+  .db-table tr:hover { background: var(--darkened-bg); }
+  .db-table .pk { color: var(--message-success-text); font-weight: 600; }
+  .db-table .nullable { color: var(--body-quiet-color); font-style: italic; }
+  .db-table .row-count { text-align: right; font-variant-numeric: tabular-nums; }
+  .db-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .db-badge.table { background: #e8f5e9; color: #2e7d32; }
+  .db-badge.view { background: #e3f2fd; color: #1565c0; }
+  .db-section { margin-bottom: 24px; }
+  .db-section h2 { font-size: 16px; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--border-color); }
+  .db-filter { margin-bottom: 16px; display: flex; gap: 8px; align-items: end; }
+  .db-filter label { font-size: 12px; color: var(--body-quiet-color); }
+  .db-filter select, .db-filter input { padding: 4px 8px; font-size: 13px; }
+  .db-pagination { margin-top: 12px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .db-pagination a { padding: 4px 10px; border: 1px solid var(--border-color); border-radius: 3px; text-decoration: none; color: var(--body-fg); }
+  .db-pagination a:hover { background: var(--darkened-bg); }
+  .db-pagination .current { padding: 4px 10px; background: var(--primary-fg); color: white; border-radius: 3px; }
+  .db-empty { padding: 20px; text-align: center; color: var(--body-quiet-color); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" style="display: flex; gap: 20px;">
+  <div id="db-sidebar">
+    <h3>{% translate 'Tables' %}</h3>
+    <ul>
+      {% for t in all_tables %}
+      <li>
+        <a href="{% url 'db_explorer:table_detail' t.name %}"
+           class="{% if t.name == table_name %}active{% endif %}">
+          {{ t.name }}
+          {% if t.row_count is not None %}
+            <span style="float:right;color:var(--body-quiet-color);font-size:11px;">{{ t.row_count|default:"0" }}</span>
+          {% endif %}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div id="db-main">
+    <div class="db-nav">
+      <a href="{% url 'db_explorer:table_list' %}">{% translate 'All tables' %}</a>
+      <a href="{% url 'db_explorer:relationships' %}">{% translate 'Foreign keys' %}</a>
+    </div>
+    {% block db_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
