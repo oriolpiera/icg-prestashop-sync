@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import cast
 
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,26 @@ class ICGConnectionSettings:
     login_timeout: int
     query_timeout: int
     trust_server_certificate: bool
+
+
+@dataclass(slots=True)
+class ClientesWebRow:
+    cod_cliente_web: int
+    nombre_cliente: str | None
+    nombre_comercial: str | None
+    cif: str | None
+    direccion: str | None
+    cp: str | None
+    poblacion: str | None
+    provincia: str | None
+    pais: str | None
+    telefono1: str | None
+    telefono2: str | None
+    fax: str | None
+    email: str | None
+    estado: int
+    fecha_exportacion: datetime
+    fecha_insercion: datetime
 
 
 class ICGCatalogReader:
@@ -183,3 +204,62 @@ class ICGCatalogReader:
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
             return rows, has_more
+
+
+class ICGClientesWebWriter:
+    def __init__(self, reader: ICGCatalogReader | None = None) -> None:
+        self.reader = reader or ICGCatalogReader()
+
+    def customer_exists(self, cod_cliente_web: int) -> bool:
+        with self.reader._connect() as conn:
+            cursor = conn.cursor()
+            self.reader._set_query_timeout(cursor)
+            cursor.execute(
+                "SELECT TOP 1 1 FROM ClientesWeb WHERE CodClienteWeb = ?",
+                (cod_cliente_web,),
+            )
+            return cursor.fetchone() is not None
+
+    def insert_customer(self, row: ClientesWebRow) -> bool:
+        with self.reader._connect() as conn:
+            cursor = conn.cursor()
+            self.reader._set_query_timeout(cursor)
+            cursor.execute(
+                "SELECT TOP 1 1 FROM ClientesWeb WHERE CodClienteWeb = ?",
+                (row.cod_cliente_web,),
+            )
+            if cursor.fetchone() is not None:
+                return False
+
+            cursor.execute(
+                "INSERT INTO ClientesWeb ("
+                "CodClienteWeb, NombreCliente, NombreComercial, CIF, Direccion, CP, "
+                "Poblacion, Provincia, Pais, Telefono1, Telefono2, FAX, Email, Estado, "
+                "FechaExportacion, FechaInsercion"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row.cod_cliente_web,
+                    row.nombre_cliente,
+                    row.nombre_comercial,
+                    row.cif,
+                    row.direccion,
+                    row.cp,
+                    row.poblacion,
+                    row.provincia,
+                    row.pais,
+                    row.telefono1,
+                    row.telefono2,
+                    row.fax,
+                    row.email,
+                    row.estado,
+                    self._as_sql_datetime(row.fecha_exportacion),
+                    self._as_sql_datetime(row.fecha_insercion),
+                ),
+            )
+            conn.commit()
+            return True
+
+    def _as_sql_datetime(self, value: datetime) -> datetime:
+        if timezone.is_aware(value):
+            return timezone.make_naive(value, timezone.get_current_timezone())
+        return value

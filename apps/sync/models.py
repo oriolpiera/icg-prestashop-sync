@@ -11,12 +11,14 @@ class SyncCursorSource(models.TextChoices):
     PRODUCTS = "products", "Products"
     PRICES = "prices", "Prices"
     STOCK = "stock", "Stock"
+    CUSTOMERS = "customers", "Customers"
 
 
 class SyncJobType(models.TextChoices):
     IMPORT_PRODUCTS = "import_products", "Import products"
     IMPORT_PRICES = "import_prices", "Import prices"
     IMPORT_STOCK = "import_stock", "Import stock"
+    EXPORT_CUSTOMER = "export_customer", "Export customer"
     EXPORT_MANUFACTURER = "export_manufacturer", "Export manufacturer"
     EXPORT_CATEGORY = "export_category", "Export category"
     EXPORT_PRODUCT = "export_product", "Export product"
