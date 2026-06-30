@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Protocol, cast
 from xml.etree import ElementTree
 
 import requests
 from django.conf import settings
+from django.utils import timezone
 from django.utils.text import slugify
 from requests import Response, Session
 from requests.auth import HTTPBasicAuth
@@ -37,6 +39,38 @@ class PrestashopCredentials:
     host: str
     default_language_id: int
     default_category_id: int
+
+
+@dataclass(slots=True)
+class PrestashopCustomerSummary:
+    customer_id: int
+    firstname: str
+    lastname: str
+    email: str
+    date_add: datetime
+
+
+@dataclass(slots=True)
+class PrestashopAddress:
+    address1: str | None
+    postcode: str | None
+    city: str | None
+    state: str | None
+    country: str | None
+    phone: str | None
+    phone_mobile: str | None
+    dni: str | None
+    vat_number: str | None
+
+
+@dataclass(slots=True)
+class PrestashopCustomerSnapshot:
+    customer_id: int
+    firstname: str
+    lastname: str
+    email: str
+    date_add: datetime
+    address: PrestashopAddress | None
 
 
 class PrestashopError(Exception):
@@ -452,6 +486,176 @@ class PrestashopClient:
             if "}" in node.tag:
                 node.tag = node.tag.split("}", 1)[1]
         return root
+
+    def list_customers_created_after(
+        self,
+        cursor_at: datetime | None = None,
+        last_customer_id: int = 0,
+        *,
+        limit: int = 0,
+    ) -> list[PrestashopCustomerSummary]:
+        params = {
+            "display": "full",
+            "sort": "[date_add_ASC,id_ASC]",
+        }
+        if cursor_at is not None:
+            params["date"] = "1"
+            params["filter[date_add]"] = f"[{self._format_prestashop_datetime(cursor_at)},]"
+        if limit > 0:
+            params["limit"] = str(limit)
+
+        response = self._request(
+            "GET",
+            "customers",
+            params=params,
+        )
+        root = self._parse_xml(response.text)
+        customers: list[PrestashopCustomerSummary] = []
+        for node in root.findall("./customers/customer"):
+            customer_id = self._parse_int(node, "id")
+            if customer_id is None:
+                continue
+
+            date_add_text = (node.findtext("date_add") or "").strip()
+            if not date_add_text:
+                continue
+
+            date_add = self._parse_prestashop_datetime(date_add_text)
+            if cursor_at is not None:
+                if date_add < cursor_at:
+                    continue
+                if date_add == cursor_at and customer_id <= last_customer_id:
+                    continue
+
+            customers.append(
+                PrestashopCustomerSummary(
+                    customer_id=customer_id,
+                    firstname=(node.findtext("firstname") or "").strip(),
+                    lastname=(node.findtext("lastname") or "").strip(),
+                    email=(node.findtext("email") or "").strip(),
+                    date_add=date_add,
+                )
+            )
+
+        customers.sort(key=lambda customer: (customer.date_add, customer.customer_id))
+        return customers
+
+    def get_customer_snapshot(self, customer_id: int) -> PrestashopCustomerSnapshot:
+        response = self._request("GET", "customers", resource_id=customer_id)
+        root = self._parse_xml(response.text)
+        node = root.find("./customer")
+        if node is None:
+            raise PrestashopError("Prestashop customer payload did not include a customer node.")
+
+        parsed_customer_id = self._parse_int(node, "id")
+        if parsed_customer_id is None:
+            raise PrestashopError("Prestashop customer payload did not include an id.")
+
+        date_add_text = (node.findtext("date_add") or "").strip()
+        if not date_add_text:
+            raise PrestashopError(
+                f"Prestashop customer {customer_id} payload did not include date_add."
+            )
+
+        return PrestashopCustomerSnapshot(
+            customer_id=parsed_customer_id,
+            firstname=(node.findtext("firstname") or "").strip(),
+            lastname=(node.findtext("lastname") or "").strip(),
+            email=(node.findtext("email") or "").strip(),
+            date_add=self._parse_prestashop_datetime(date_add_text),
+            address=self.get_customer_address(customer_id),
+        )
+
+    def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
+        response = self._request(
+            "GET",
+            "addresses",
+            params={
+                "display": "full",
+                "filter[id_customer]": str(customer_id),
+            },
+        )
+        root = self._parse_xml(response.text)
+
+        addresses: list[tuple[int, ElementTree.Element]] = []
+        for node in root.findall("./addresses/address"):
+            if (node.findtext("deleted") or "0").strip() == "1":
+                continue
+            address_id = self._parse_int(node, "id")
+            if address_id is None:
+                continue
+            addresses.append((address_id, node))
+
+        if not addresses:
+            return None
+
+        _, node = max(addresses, key=lambda address: address[0])
+        state_id = self._parse_int(node, "id_state")
+        country_id = self._parse_int(node, "id_country")
+
+        return PrestashopAddress(
+            address1=self._text_or_none(node.findtext("address1")),
+            postcode=self._text_or_none(node.findtext("postcode")),
+            city=self._text_or_none(node.findtext("city")),
+            state=self.get_state_name(state_id) if state_id else None,
+            country=self.get_country_name(country_id) if country_id else None,
+            phone=self._text_or_none(node.findtext("phone")),
+            phone_mobile=self._text_or_none(node.findtext("phone_mobile")),
+            dni=self._text_or_none(node.findtext("dni")),
+            vat_number=self._text_or_none(node.findtext("vat_number")),
+        )
+
+    def get_country_name(self, country_id: int) -> str | None:
+        response = self._request("GET", "countries", resource_id=country_id)
+        root = self._parse_xml(response.text)
+        node = root.find("./country")
+        if node is None:
+            return None
+        return self._extract_default_language_text(node.find("name"))
+
+    def get_state_name(self, state_id: int) -> str | None:
+        response = self._request("GET", "states", resource_id=state_id)
+        root = self._parse_xml(response.text)
+        node = root.find("./state")
+        if node is None:
+            return None
+        return self._text_or_none(node.findtext("name"))
+
+    def _extract_default_language_text(self, node: ElementTree.Element | None) -> str | None:
+        if node is None:
+            return None
+        default_language_id = str(self.credentials().default_language_id)
+        for language in node.findall("./language"):
+            if language.attrib.get("id") == default_language_id:
+                return self._text_or_none(language.text)
+        return self._text_or_none(node.text)
+
+    def _parse_prestashop_datetime(self, value: str) -> datetime:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return timezone.make_aware(parsed, timezone.get_current_timezone())
+
+    def _format_prestashop_datetime(self, value: datetime) -> str:
+        if timezone.is_aware(value):
+            value = timezone.make_naive(value, timezone.get_current_timezone())
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _text_or_none(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    def _parse_int(self, node: ElementTree.Element, tag: str) -> int | None:
+        value = node.attrib.get(tag) or node.findtext(tag)
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            return int(cleaned)
+        except ValueError:
+            return None
 
     def find_attribute_group_id_by_name(self, name: str) -> int | None:
         if not self._has_reserved_filter_chars(name):

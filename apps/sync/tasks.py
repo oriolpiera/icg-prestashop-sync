@@ -11,6 +11,8 @@ from apps.catalog.models import Category, Combination, Manufacturer, Price, Prod
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
+from apps.icg.services import ICGClientesWebWriter
+from apps.prestashop.client import PrestashopClient
 from apps.prestashop.services import (
     export_category,
     export_combination,
@@ -21,10 +23,13 @@ from apps.prestashop.services import (
     export_stock,
     format_sync_error,
 )
+from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
+from apps.sync.customer_export import export_customer_to_icg, export_customer_to_icg_from_job
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
     MAX_SYNC_RETRIES,
+    SyncCursorSource,
     SyncError,
     SyncErrorType,
     SyncJob,
@@ -402,6 +407,89 @@ def export_discounts(limit: int = 1000) -> dict:
     )
 
 
+@shared_task
+def export_new_customers_to_icg(limit: int = 100) -> dict:
+    logger.info("Celery task: export_new_customers_to_icg")
+    cursor = get_or_create_cursor(SyncCursorSource.CUSTOMERS)
+    last_customer_id = int(cursor.last_source_key or "0")
+    client = PrestashopClient()
+    writer = ICGClientesWebWriter()
+    processed = 0
+    inserted = 0
+    failed = 0
+
+    try:
+        customers = client.list_customers_created_after(
+            cursor.last_modified_at,
+            last_customer_id,
+            limit=limit,
+        )
+    except Exception:
+        logger.exception("Failed to fetch new Prestashop customers")
+        return {"status": "error", "detail": "See worker logs for details."}
+
+    try:
+        with sync_lock("export_new_customers_to_icg"):
+            for customer in customers:
+                job = SyncJob.objects.create(
+                    job_type=SyncJobType.EXPORT_CUSTOMER,
+                    entity_type="prestashop_customer",
+                    entity_key=str(customer.customer_id),
+                    status=SyncJobStatus.RUNNING,
+                    attempts=1,
+                    started_at=timezone.now(),
+                    payload={
+                        "entity_id": customer.customer_id,
+                        "customer_id": customer.customer_id,
+                        "email": customer.email,
+                        "firstname": customer.firstname,
+                        "lastname": customer.lastname,
+                        "date_add": customer.date_add.isoformat(),
+                    },
+                )
+
+                try:
+                    result = export_customer_to_icg(
+                        customer.customer_id,
+                        client=client,
+                        writer=writer,
+                    )
+                except Exception as exc:
+                    failed += 1
+                    _record_sync_error(job, exc)
+                else:
+                    processed += 1
+                    if result.get("inserted"):
+                        inserted += 1
+                    job.status = SyncJobStatus.SUCCEEDED
+                    job.payload = {**job.payload, **result}
+                    job.finished_at = timezone.now().astimezone(UTC)
+                    job.save(
+                        update_fields=[
+                            "status",
+                            "payload",
+                            "finished_at",
+                            "updated_at",
+                        ]
+                    )
+
+                advance_cursor(
+                    SyncCursorSource.CUSTOMERS,
+                    customer.date_add,
+                    str(customer.customer_id),
+                )
+    except LockAcquisitionError:
+        logger.warning("Skipping export_new_customers_to_icg: lock already held")
+        return {"status": "skipped", "reason": "lock_held"}
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "inserted": inserted,
+        "failed": failed,
+    }
+
+
 _EXPORT_DISPATCH = {
     "manufacturer": (SyncJobType.EXPORT_MANUFACTURER, export_manufacturer),
     "category": (SyncJobType.EXPORT_CATEGORY, export_category),
@@ -410,6 +498,7 @@ _EXPORT_DISPATCH = {
     "price": (SyncJobType.EXPORT_PRICE, export_price),
     "stock": (SyncJobType.EXPORT_STOCK, export_stock),
     "discount": (SyncJobType.EXPORT_DISCOUNT, export_discount),
+    "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg_from_job),
 }
 
 
@@ -449,6 +538,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
 
 
 _RETRYABLE_EXPORT_MAP = {
+    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_job,
     SyncJobType.EXPORT_MANUFACTURER: export_manufacturer,
     SyncJobType.EXPORT_CATEGORY: export_category,
     SyncJobType.EXPORT_PRODUCT: export_product,
