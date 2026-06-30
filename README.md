@@ -110,8 +110,17 @@ Requirements:
 ## Documentation
 
 - `docs/architecture.md`: initial architecture, app boundaries and operational model
+- `docs/deploy-topology.md`: public deploy contract and public/private repo split for VPS infrastructure
 - `AGENTS.md`: repository conventions for contributors and AI agents
 - `openspec/README.md`: git-tracked planning artifacts and when to use Engram, OpenSpec, or hybrid mode
+
+## Deployment boundaries
+
+This repository is public and contains the application code, local development tooling, and sanitized deployment documentation.
+
+Real VPS deployment artifacts must live in the separate private repository `icg-prestashop-sync-infra`. That includes Traefik runtime configuration, VPS compose stacks, real host paths, backup jobs, and secrets.
+
+The root `docker-compose.yml` is for local development only. It is not the source of truth for the VPS topology.
 
 ## Local quality workflow
 

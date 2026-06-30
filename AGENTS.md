@@ -122,6 +122,7 @@ pre-commit install
 - Do not move source-of-truth editing into Django admin; catalog corrections belong in ICG.
 - If a change affects sync semantics, preserve cursor-based syncing and idempotent retries.
 - Update documentation when repo conventions or workflows change.
+- Keep real VPS deployment implementation out of this public repository; only sanitized deploy contracts and references belong here.
 - Use `openspec/` for git-tracked proposals, specs, design notes, and task lists that should be reviewable by maintainers.
 - Use Engram for working memory; use hybrid mode when both persistent memory and shareable git artifacts matter.
 
@@ -137,6 +138,7 @@ pre-commit install
 
 - `README.md` - bootstrap and local run flow
 - `docs/architecture.md` - architecture boundaries and operational model
+- `docs/deploy-topology.md` - public deploy contract and public/private repo split
 - `openspec/README.md` - planning artifact layout and Engram/OpenSpec workflow rules
 - `docker-compose.yml` - local PostgreSQL and Redis services
 - `bin/dev-tmux` - preferred tmux-based development session
