@@ -159,7 +159,6 @@ The exact naming can still move a little, but the separation of responsibilities
 ## Out of scope for phase 1
 
 These topics are intentionally deferred:
-- Prestashop -> ICG order export
 - custom frontend outside Django admin
 - bidirectional catalog editing
 - advanced business workflows inside Django

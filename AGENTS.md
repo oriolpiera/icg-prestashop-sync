@@ -10,10 +10,10 @@ Current phase focus:
 - products
 - prices
 - stock
+- Prestashop -> ICG order export
 - Django admin operations for support staff
 
 Out of scope for now:
-- Prestashop -> ICG order flows
 - custom frontend outside Django admin
 - bidirectional catalog editing
 
