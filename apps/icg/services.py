@@ -249,7 +249,9 @@ class ICGClientesWebWriter:
             conn.commit()
             return True
 
-    def _as_sql_datetime(self, value: datetime) -> datetime:
+    def _as_sql_datetime(self, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
         if timezone.is_aware(value):
             return timezone.make_naive(value, timezone.get_current_timezone())
         return value
