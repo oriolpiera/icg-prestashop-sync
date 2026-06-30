@@ -13,7 +13,6 @@ from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
 from apps.icg.services import ICGClientesWebWriter
 from apps.prestashop.client import PrestashopClient
-from apps.prestashop.customers import export_customer_to_icg
 from apps.prestashop.services import (
     export_category,
     export_combination,
@@ -25,6 +24,7 @@ from apps.prestashop.services import (
     format_sync_error,
 )
 from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
+from apps.sync.customer_export import export_customer_to_icg, export_customer_to_icg_from_job
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
@@ -419,13 +419,14 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
     failed = 0
 
     try:
-        customers = client.list_customers_created_after(cursor.last_modified_at, last_customer_id)
+        customers = client.list_customers_created_after(
+            cursor.last_modified_at,
+            last_customer_id,
+            limit=limit,
+        )
     except Exception:
         logger.exception("Failed to fetch new Prestashop customers")
         return {"status": "error", "detail": "See worker logs for details."}
-
-    if limit:
-        customers = customers[:limit]
 
     try:
         with sync_lock("export_new_customers_to_icg"):
@@ -497,7 +498,7 @@ _EXPORT_DISPATCH = {
     "price": (SyncJobType.EXPORT_PRICE, export_price),
     "stock": (SyncJobType.EXPORT_STOCK, export_stock),
     "discount": (SyncJobType.EXPORT_DISCOUNT, export_discount),
-    "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg),
+    "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg_from_job),
 }
 
 
@@ -537,7 +538,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
 
 
 _RETRYABLE_EXPORT_MAP = {
-    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg,
+    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_job,
     SyncJobType.EXPORT_MANUFACTURER: export_manufacturer,
     SyncJobType.EXPORT_CATEGORY: export_category,
     SyncJobType.EXPORT_PRODUCT: export_product,

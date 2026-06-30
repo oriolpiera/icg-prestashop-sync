@@ -210,16 +210,6 @@ class ICGClientesWebWriter:
     def __init__(self, reader: ICGCatalogReader | None = None) -> None:
         self.reader = reader or ICGCatalogReader()
 
-    def customer_exists(self, cod_cliente_web: int) -> bool:
-        with self.reader._connect() as conn:
-            cursor = conn.cursor()
-            self.reader._set_query_timeout(cursor)
-            cursor.execute(
-                "SELECT TOP 1 1 FROM ClientesWeb WHERE CodClienteWeb = ?",
-                (cod_cliente_web,),
-            )
-            return cursor.fetchone() is not None
-
     def insert_customer(self, row: ClientesWebRow) -> bool:
         with self.reader._connect() as conn:
             cursor = conn.cursor()

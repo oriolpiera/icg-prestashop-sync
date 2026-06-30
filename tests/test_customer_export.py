@@ -10,8 +10,8 @@ from apps.prestashop.client import (
     PrestashopCustomerSnapshot,
     PrestashopCustomerSummary,
 )
-from apps.prestashop.customers import export_customer_to_icg, map_snapshot_to_clientes_web
 from apps.sync.cursor_service import get_or_create_cursor
+from apps.sync.customer_export import export_customer_to_icg, map_snapshot_to_clientes_web
 from apps.sync.models import (
     SyncCursor,
     SyncCursorSource,
@@ -226,6 +226,11 @@ class TestCustomerExportTask:
             SyncJobType.EXPORT_CUSTOMER,
         ]
         assert all(job.status == SyncJobStatus.SUCCEEDED for job in jobs)
+        client_factory.return_value.list_customers_created_after.assert_called_once_with(
+            None,
+            0,
+            limit=100,
+        )
 
     def test_task_records_failure_and_still_advances_cursor(self):
         customers = [

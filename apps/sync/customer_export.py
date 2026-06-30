@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 
 from django.utils import timezone
 
 from apps.icg.services import ClientesWebRow, ICGClientesWebWriter
 from apps.prestashop.client import PrestashopClient, PrestashopCustomerSnapshot
-
-
-@dataclass(slots=True)
-class CustomerExportResult:
-    customer_id: int
-    inserted: bool
 
 
 def export_customer_to_icg(
@@ -32,6 +25,10 @@ def export_customer_to_icg(
         "customer_id": snapshot.customer_id,
         "inserted": inserted,
     }
+
+
+def export_customer_to_icg_from_job(entity_id: int | str) -> dict[str, int | bool]:
+    return export_customer_to_icg(int(entity_id))
 
 
 def map_snapshot_to_clientes_web(

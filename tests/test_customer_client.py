@@ -40,7 +40,12 @@ class TestPrestashopCustomerClient:
         customers = client.list_customers_created_after(cursor_at, last_customer_id=10)
 
         assert [customer.customer_id for customer in customers] == [11, 9]
-        assert session.request.call_args.kwargs["params"] == {"display": "full"}
+        assert session.request.call_args.kwargs["params"] == {
+            "display": "full",
+            "sort": "[date_add_ASC,id_ASC]",
+            "date": "1",
+            "filter[date_add]": "[2026-06-30 09:00:00,]",
+        }
 
     def test_get_customer_snapshot_returns_none_address_when_missing(self, settings):
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"

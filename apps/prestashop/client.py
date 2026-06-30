@@ -491,11 +491,23 @@ class PrestashopClient:
         self,
         cursor_at: datetime | None = None,
         last_customer_id: int = 0,
+        *,
+        limit: int = 0,
     ) -> list[PrestashopCustomerSummary]:
+        params = {
+            "display": "full",
+            "sort": "[date_add_ASC,id_ASC]",
+        }
+        if cursor_at is not None:
+            params["date"] = "1"
+            params["filter[date_add]"] = f"[{self._format_prestashop_datetime(cursor_at)},]"
+        if limit > 0:
+            params["limit"] = str(limit)
+
         response = self._request(
             "GET",
             "customers",
-            params={"display": "full"},
+            params=params,
         )
         root = self._parse_xml(response.text)
         customers: list[PrestashopCustomerSummary] = []
@@ -621,6 +633,11 @@ class PrestashopClient:
     def _parse_prestashop_datetime(self, value: str) -> datetime:
         parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
         return timezone.make_aware(parsed, timezone.get_current_timezone())
+
+    def _format_prestashop_datetime(self, value: datetime) -> str:
+        if timezone.is_aware(value):
+            value = timezone.make_naive(value, timezone.get_current_timezone())
+        return value.strftime("%Y-%m-%d %H:%M:%S")
 
     def _text_or_none(self, value: str | None) -> str | None:
         if value is None:
