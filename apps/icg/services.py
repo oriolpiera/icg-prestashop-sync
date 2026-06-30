@@ -53,7 +53,7 @@ class ClientesWebRow:
     email: str | None
     estado: int
     fecha_exportacion: datetime
-    fecha_insercion: datetime
+    fecha_insercion: datetime | None
 
 
 class ICGCatalogReader:

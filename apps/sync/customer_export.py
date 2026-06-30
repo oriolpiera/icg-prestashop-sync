@@ -44,21 +44,41 @@ def map_snapshot_to_clientes_web(
     if address is not None:
         cif = address.dni or address.vat_number
 
+    primary_phone = None
+    secondary_phone = None
+    if address is not None:
+        primary_phone = address.phone or address.phone_mobile
+        if address.phone and address.phone_mobile and address.phone != address.phone_mobile:
+            secondary_phone = address.phone_mobile
+
+    # Match the agreed contract for ClientesWeb: NombreComercial is empty,
+    # FechaExportacion is the current export timestamp in Django's configured
+    # timezone, and the partner owns FechaInsercion, so we leave it as NULL.
+
     return ClientesWebRow(
         cod_cliente_web=snapshot.customer_id,
-        nombre_cliente=full_name or None,
-        nombre_comercial=full_name or None,
-        cif=cif,
-        direccion=address.address1 if address else None,
-        cp=address.postcode if address else None,
-        poblacion=address.city if address else None,
-        provincia=address.state if address else None,
-        pais=address.country if address else None,
-        telefono1=address.phone if address else None,
-        telefono2=address.phone_mobile if address else None,
+        nombre_cliente=_trim(full_name, 255),
+        nombre_comercial="",
+        cif=_trim(cif, 12),
+        direccion=_trim(address.address1 if address else None, 255),
+        cp=_trim(address.postcode if address else None, 8),
+        poblacion=_trim(address.city if address else None, 100),
+        provincia=_trim(address.state if address else None, 100),
+        pais=_trim(address.country if address else None, 100),
+        telefono1=_trim(primary_phone, 15),
+        telefono2=_trim(secondary_phone, 15),
         fax=None,
-        email=snapshot.email or None,
+        email=_trim(snapshot.email or None, 255),
         estado=1,
         fecha_exportacion=exported_at,
-        fecha_insercion=snapshot.date_add,
+        fecha_insercion=None,
     )
+
+
+def _trim(value: str | None, max_length: int) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return cleaned[:max_length]

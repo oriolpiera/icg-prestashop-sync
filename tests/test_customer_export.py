@@ -81,11 +81,13 @@ def test_map_snapshot_to_clientes_web_uses_nulls_without_address():
 
     assert row.cod_cliente_web == 42
     assert row.nombre_cliente == "Oriol Piera"
-    assert row.nombre_comercial == "Oriol Piera"
+    assert row.nombre_comercial == ""
     assert row.cif is None
     assert row.direccion is None
     assert row.telefono1 is None
     assert row.estado == 1
+    assert row.fecha_exportacion == _aware(2026, 6, 30, 12, 0, 0)
+    assert row.fecha_insercion is None
 
 
 def test_map_snapshot_to_clientes_web_uses_address_fields():
@@ -112,6 +114,65 @@ def test_map_snapshot_to_clientes_web_uses_address_fields():
     assert row.poblacion == "Barcelona"
     assert row.provincia == "Barcelona"
     assert row.pais == "Spain"
+    assert row.telefono1 == "931000000"
+    assert row.telefono2 == "600000000"
+
+
+def test_map_snapshot_to_clientes_web_prefers_mobile_as_primary_when_phone_missing():
+    row = map_snapshot_to_clientes_web(
+        _snapshot(
+            address=PrestashopAddress(
+                address1="Carrer Major 1",
+                postcode="08001",
+                city="Barcelona",
+                state="Barcelona",
+                country="Spain",
+                phone=None,
+                phone_mobile="600000000",
+                dni="12345678A",
+                vat_number=None,
+            )
+        ),
+        exported_at=_aware(2026, 6, 30, 12, 0, 0),
+    )
+
+    assert row.telefono1 == "600000000"
+    assert row.telefono2 is None
+
+
+def test_map_snapshot_to_clientes_web_trims_values_to_schema_lengths():
+    row = map_snapshot_to_clientes_web(
+        PrestashopCustomerSnapshot(
+            customer_id=42,
+            firstname="A" * 200,
+            lastname="B" * 200,
+            email=("x" * 300) + "@example.com",
+            date_add=_aware(2026, 6, 30, 10, 0, 0),
+            address=PrestashopAddress(
+                address1="D" * 300,
+                postcode="123456789",
+                city="P" * 120,
+                state="S" * 120,
+                country="C" * 120,
+                phone="1" * 20,
+                phone_mobile="2" * 20,
+                dni="Z" * 20,
+                vat_number=None,
+            ),
+        ),
+        exported_at=_aware(2026, 6, 30, 12, 0, 0),
+    )
+
+    assert len(row.nombre_cliente) == 255
+    assert len(row.cif) == 12
+    assert len(row.direccion) == 255
+    assert len(row.cp) == 8
+    assert len(row.poblacion) == 100
+    assert len(row.provincia) == 100
+    assert len(row.pais) == 100
+    assert len(row.telefono1) == 15
+    assert len(row.telefono2) == 15
+    assert len(row.email) == 255
 
 
 def test_writer_insert_customer_inserts_when_missing():
