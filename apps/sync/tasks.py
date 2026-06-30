@@ -11,7 +11,7 @@ from apps.catalog.models import Category, Combination, Manufacturer, Price, Prod
 from apps.icg.importer import import_prices as run_import_prices
 from apps.icg.importer import import_products as run_import_products
 from apps.icg.importer import import_stock as run_import_stock
-from apps.icg.services import ICGClientesWebWriter
+from apps.icg.services import ICGClientesWebWriter, ICGFacturasWebWriter
 from apps.prestashop.client import PrestashopClient
 from apps.prestashop.services import (
     export_category,
@@ -36,6 +36,7 @@ from apps.sync.models import (
     SyncJobStatus,
     SyncJobType,
 )
+from apps.sync.order_export import export_order_to_icg, export_order_to_icg_from_job
 
 logger = logging.getLogger(__name__)
 
@@ -490,6 +491,87 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
     }
 
 
+@shared_task
+def export_new_orders_to_icg(limit: int = 100) -> dict:
+    logger.info("Celery task: export_new_orders_to_icg")
+    cursor = get_or_create_cursor(SyncCursorSource.ORDERS)
+    last_order_id = int(cursor.last_source_key or "0")
+    client = PrestashopClient()
+    writer = ICGFacturasWebWriter()
+    processed = 0
+    inserted_rows = 0
+    failed = 0
+
+    try:
+        orders = client.list_orders_created_after(
+            cursor.last_modified_at,
+            last_order_id,
+            limit=limit,
+        )
+    except Exception:
+        logger.exception("Failed to fetch new Prestashop orders")
+        return {"status": "error", "detail": "See worker logs for details."}
+
+    try:
+        with sync_lock("export_new_orders_to_icg"):
+            for order in orders:
+                job = SyncJob.objects.create(
+                    job_type=SyncJobType.EXPORT_ORDER,
+                    entity_type="prestashop_order",
+                    entity_key=str(order.order_id),
+                    status=SyncJobStatus.RUNNING,
+                    attempts=1,
+                    started_at=timezone.now(),
+                    payload={
+                        "entity_id": order.order_id,
+                        "order_id": order.order_id,
+                        "customer_id": order.customer_id,
+                        "payment": order.payment,
+                        "date_add": order.date_add.isoformat(),
+                    },
+                )
+
+                try:
+                    result = export_order_to_icg(
+                        order.order_id,
+                        client=client,
+                        writer=writer,
+                    )
+                except Exception as exc:
+                    failed += 1
+                    _record_sync_error(job, exc)
+                else:
+                    processed += 1
+                    inserted_rows += int(result.get("inserted_rows", 0))
+                    job.status = SyncJobStatus.SUCCEEDED
+                    job.payload = {**job.payload, **result}
+                    job.finished_at = timezone.now().astimezone(UTC)
+                    job.save(
+                        update_fields=[
+                            "status",
+                            "payload",
+                            "finished_at",
+                            "updated_at",
+                        ]
+                    )
+
+                advance_cursor(
+                    SyncCursorSource.ORDERS,
+                    order.date_add,
+                    str(order.order_id),
+                )
+    except LockAcquisitionError:
+        logger.warning("Skipping export_new_orders_to_icg: lock already held")
+        return {"status": "skipped", "reason": "lock_held"}
+
+    return {
+        "status": "success",
+        "processed": processed,
+        "inserted_rows": inserted_rows,
+        "failed": failed,
+    }
+
+
 _EXPORT_DISPATCH = {
     "manufacturer": (SyncJobType.EXPORT_MANUFACTURER, export_manufacturer),
     "category": (SyncJobType.EXPORT_CATEGORY, export_category),
@@ -499,6 +581,7 @@ _EXPORT_DISPATCH = {
     "stock": (SyncJobType.EXPORT_STOCK, export_stock),
     "discount": (SyncJobType.EXPORT_DISCOUNT, export_discount),
     "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg_from_job),
+    "prestashop_order": (SyncJobType.EXPORT_ORDER, export_order_to_icg_from_job),
 }
 
 
@@ -539,6 +622,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
 
 _RETRYABLE_EXPORT_MAP = {
     SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_job,
+    SyncJobType.EXPORT_ORDER: export_order_to_icg_from_job,
     SyncJobType.EXPORT_MANUFACTURER: export_manufacturer,
     SyncJobType.EXPORT_CATEGORY: export_category,
     SyncJobType.EXPORT_PRODUCT: export_product,

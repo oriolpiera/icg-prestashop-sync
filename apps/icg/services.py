@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import cast
 
 from django.conf import settings
@@ -54,6 +55,33 @@ class ClientesWebRow:
     estado: int
     fecha_exportacion: datetime
     fecha_insercion: datetime | None
+
+
+@dataclass(slots=True)
+class FacturasWebRow:
+    tipo_documento: int
+    num_documento: int
+    num_lin: int
+    cod_cliente: int | None
+    cod_cliente_web: int | None
+    cod_articulo: int
+    talla: str
+    color: str
+    descripcion: str | None
+    unidades_total: int
+    precio_iva: Decimal
+    dto: Decimal | None
+    total: Decimal
+    fecha_documento: datetime
+    estado: int
+    forma_de_pago: int
+    total_iva: Decimal
+    tipo_iva: int
+    fecha_exportacion: datetime
+    fecha_insercion: datetime | None
+    num_documento_mng: int | None
+    total_lin: int
+    cod_barras: str | None
 
 
 class ICGCatalogReader:
@@ -248,6 +276,77 @@ class ICGClientesWebWriter:
             )
             conn.commit()
             return True
+
+    def _as_sql_datetime(self, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if timezone.is_aware(value):
+            return timezone.make_naive(value, timezone.get_current_timezone())
+        return value
+
+
+class ICGFacturasWebWriter:
+    def __init__(self, reader: ICGCatalogReader | None = None) -> None:
+        self.reader = reader or ICGCatalogReader()
+
+    def insert_order_rows(self, rows: list[FacturasWebRow]) -> int:
+        if not rows:
+            return 0
+
+        inserted = 0
+        with self.reader._connect() as conn:
+            cursor = conn.cursor()
+            self.reader._set_query_timeout(cursor)
+
+            for row in rows:
+                cursor.execute(
+                    "SELECT TOP 1 1 FROM FacturasWeb "
+                    "WHERE TipoDocumento = ? AND NumDocumento = ? AND NumLin = ?",
+                    (row.tipo_documento, row.num_documento, row.num_lin),
+                )
+                if cursor.fetchone() is not None:
+                    continue
+
+                cursor.execute(
+                    "INSERT INTO FacturasWeb ("
+                    "TipoDocumento, NumDocumento, NumLin, CodCliente, CodClienteWeb, "
+                    "CodArticulo, Talla, Color, Descripcion, UnidadesTotal, PrecioIVA, "
+                    "Dto, Total, FechaDocumento, Estado, FormaDePago, TotalIVA, TipoIVA, "
+                    "FechaExportacion, FechaInsercion, NumDocumentoMNG, TotalLin, CODBARRAS"
+                    ") VALUES ("
+                    "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+                    ")",
+                    (
+                        row.tipo_documento,
+                        row.num_documento,
+                        row.num_lin,
+                        row.cod_cliente,
+                        row.cod_cliente_web,
+                        row.cod_articulo,
+                        row.talla,
+                        row.color,
+                        row.descripcion,
+                        row.unidades_total,
+                        row.precio_iva,
+                        row.dto,
+                        row.total,
+                        self._as_sql_datetime(row.fecha_documento),
+                        row.estado,
+                        row.forma_de_pago,
+                        row.total_iva,
+                        row.tipo_iva,
+                        self._as_sql_datetime(row.fecha_exportacion),
+                        self._as_sql_datetime(row.fecha_insercion),
+                        row.num_documento_mng,
+                        row.total_lin,
+                        row.cod_barras,
+                    ),
+                )
+                inserted += 1
+
+            if inserted:
+                conn.commit()
+        return inserted
 
     def _as_sql_datetime(self, value: datetime | None) -> datetime | None:
         if value is None:

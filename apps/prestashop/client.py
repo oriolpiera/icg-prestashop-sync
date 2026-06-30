@@ -73,6 +73,46 @@ class PrestashopCustomerSnapshot:
     address: PrestashopAddress | None
 
 
+@dataclass(slots=True)
+class PrestashopOrderSummary:
+    order_id: int
+    customer_id: int
+    payment: str
+    date_add: datetime
+
+
+@dataclass(slots=True)
+class PrestashopOrderLine:
+    product_id: int
+    combination_id: int
+    description: str
+    quantity: int
+    unit_price_tax_incl: Decimal
+    total_price_tax_incl: Decimal
+    vat_rate: Decimal
+
+
+@dataclass(slots=True)
+class PrestashopOrderDiscountLine:
+    description: str
+    amount_tax_incl: Decimal
+    amount_tax_excl: Decimal
+    vat_rate: Decimal
+
+
+@dataclass(slots=True)
+class PrestashopOrderSnapshot:
+    order_id: int
+    customer_id: int
+    payment: str
+    date_add: datetime
+    total_paid_tax_incl: Decimal
+    total_shipping_tax_incl: Decimal
+    total_shipping_tax_excl: Decimal
+    lines: list[PrestashopOrderLine]
+    discounts: list[PrestashopOrderDiscountLine]
+
+
 class PrestashopError(Exception):
     def __init__(self, message: str, *, status_code: int | None = None, body: str = "") -> None:
         super().__init__(message)
@@ -566,6 +606,140 @@ class PrestashopClient:
             address=self.get_customer_address(customer_id),
         )
 
+    def list_orders_created_after(
+        self,
+        cursor_at: datetime | None = None,
+        last_order_id: int = 0,
+        *,
+        limit: int = 0,
+    ) -> list[PrestashopOrderSummary]:
+        params = {
+            "display": "full",
+            "sort": "[date_add_ASC,id_ASC]",
+        }
+        if cursor_at is not None:
+            params["date"] = "1"
+            params["filter[date_add]"] = f"[{self._format_prestashop_datetime(cursor_at)},]"
+        if limit > 0:
+            params["limit"] = str(limit)
+
+        response = self._request("GET", "orders", params=params)
+        root = self._parse_xml(response.text)
+        orders: list[PrestashopOrderSummary] = []
+        for node in root.findall("./orders/order"):
+            order_id = self._parse_int(node, "id")
+            customer_id = self._parse_int(node, "id_customer")
+            if order_id is None or customer_id is None:
+                continue
+
+            date_add_text = (node.findtext("date_add") or "").strip()
+            if not date_add_text:
+                continue
+
+            date_add = self._parse_prestashop_datetime(date_add_text)
+            if cursor_at is not None:
+                if date_add < cursor_at:
+                    continue
+                if date_add == cursor_at and order_id <= last_order_id:
+                    continue
+
+            orders.append(
+                PrestashopOrderSummary(
+                    order_id=order_id,
+                    customer_id=customer_id,
+                    payment=(node.findtext("payment") or "").strip(),
+                    date_add=date_add,
+                )
+            )
+
+        orders.sort(key=lambda order: (order.date_add, order.order_id))
+        return orders
+
+    def get_order_snapshot(self, order_id: int) -> PrestashopOrderSnapshot:
+        response = self._request("GET", "orders", resource_id=order_id)
+        root = self._parse_xml(response.text)
+        node = root.find("./order")
+        if node is None:
+            raise PrestashopError("Prestashop order payload did not include an order node.")
+
+        parsed_order_id = self._parse_int(node, "id")
+        customer_id = self._parse_int(node, "id_customer")
+        if parsed_order_id is None:
+            raise PrestashopError("Prestashop order payload did not include an id.")
+        if customer_id is None:
+            raise PrestashopError(
+                f"Prestashop order {order_id} payload did not include id_customer."
+            )
+
+        date_add_text = (node.findtext("date_add") or "").strip()
+        if not date_add_text:
+            raise PrestashopError(f"Prestashop order {order_id} payload did not include date_add.")
+
+        return PrestashopOrderSnapshot(
+            order_id=parsed_order_id,
+            customer_id=customer_id,
+            payment=(node.findtext("payment") or "").strip(),
+            date_add=self._parse_prestashop_datetime(date_add_text),
+            total_paid_tax_incl=self._parse_decimal(node.findtext("total_paid_tax_incl")),
+            total_shipping_tax_incl=self._parse_decimal(node.findtext("total_shipping_tax_incl")),
+            total_shipping_tax_excl=self._parse_decimal(node.findtext("total_shipping_tax_excl")),
+            lines=self._parse_order_lines(node, order_id),
+            discounts=self.get_order_discount_lines(parsed_order_id),
+        )
+
+    def get_order_discount_lines(self, order_id: int) -> list[PrestashopOrderDiscountLine]:
+        response = self._request(
+            "GET",
+            "order_cart_rules",
+            params={"display": "full", "filter[id_order]": str(order_id)},
+        )
+        root = self._parse_xml(response.text)
+        discounts: list[PrestashopOrderDiscountLine] = []
+        for node in root.findall("./order_cart_rules/order_cart_rule"):
+            amount_tax_incl = self._parse_decimal(
+                node.findtext("value_tax_incl") or node.findtext("value")
+            )
+            if amount_tax_incl <= 0:
+                continue
+            amount_tax_excl = self._parse_decimal(
+                node.findtext("value_tax_excl") or node.findtext("value")
+            )
+            discounts.append(
+                PrestashopOrderDiscountLine(
+                    description=(node.findtext("name") or "Discount").strip() or "Discount",
+                    amount_tax_incl=amount_tax_incl,
+                    amount_tax_excl=amount_tax_excl,
+                    vat_rate=self._derive_vat_rate(
+                        amount_tax_incl,
+                        amount_tax_excl,
+                    ),
+                )
+            )
+        return discounts
+
+    def _parse_order_lines(
+        self, node: ElementTree.Element, order_id: int
+    ) -> list[PrestashopOrderLine]:
+        lines: list[PrestashopOrderLine] = []
+        for row in node.findall("./associations/order_rows/order_row"):
+            product_id = self._parse_int(row, "product_id")
+            if product_id is None:
+                raise PrestashopError(
+                    f"Prestashop order {order_id} line payload did not include product_id."
+                )
+            lines.append(
+                PrestashopOrderLine(
+                    product_id=product_id,
+                    combination_id=self._parse_int(row, "product_attribute_id") or 0,
+                    description=(row.findtext("product_name") or "").strip(),
+                    quantity=self._parse_int(row, "product_quantity") or 0,
+                    unit_price_tax_incl=self._parse_decimal(row.findtext("unit_price_tax_incl")),
+                    total_price_tax_incl=self._parse_decimal(row.findtext("total_price_tax_incl")),
+                    vat_rate=self._parse_decimal(row.findtext("tax_rate")),
+                )
+            )
+        return lines
+
     def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
         response = self._request(
             "GET",
@@ -644,6 +818,21 @@ class PrestashopClient:
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    def _parse_decimal(self, value: str | None) -> Decimal:
+        if value is None:
+            return Decimal("0")
+        cleaned = value.strip()
+        if not cleaned:
+            return Decimal("0")
+        return Decimal(cleaned)
+
+    def _derive_vat_rate(self, amount_tax_incl: Decimal, amount_tax_excl: Decimal) -> Decimal:
+        if amount_tax_incl <= 0 or amount_tax_excl <= 0:
+            return Decimal("0")
+        return ((amount_tax_incl - amount_tax_excl) / amount_tax_excl * Decimal("100")).quantize(
+            Decimal("0.01")
+        )
 
     def _parse_int(self, node: ElementTree.Element, tag: str) -> int | None:
         value = node.attrib.get(tag) or node.findtext(tag)
