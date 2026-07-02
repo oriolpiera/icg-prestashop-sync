@@ -82,6 +82,30 @@ class PrestashopOrderSummary:
 
 
 @dataclass(slots=True)
+class PrestashopProductSummary:
+    product_id: int
+    reference: str
+    name: str
+    manufacturer_id: int | None
+
+
+@dataclass(slots=True)
+class PrestashopCombinationSummary:
+    combination_id: int
+    product_id: int
+    attribute_value_ids: list[int]
+    ean13: str
+
+
+@dataclass(slots=True)
+class PrestashopSpecificPriceSummary:
+    specific_price_id: int
+    product_id: int
+    reduction: Decimal
+    reduction_type: str
+
+
+@dataclass(slots=True)
 class PrestashopOrderLine:
     product_id: int
     combination_id: int
@@ -319,6 +343,30 @@ class PrestashopClient:
     def get_product_xml(self, product_id: int) -> ElementTree.Element:
         response = self._request("GET", "products", resource_id=product_id)
         return self._parse_xml(response.text)
+
+    def list_products(self, *, limit: int = 0) -> list[PrestashopProductSummary]:
+        params = {"display": "full", "sort": "[id_ASC]"}
+        if limit > 0:
+            params["limit"] = str(limit)
+
+        response = self._request("GET", "products", params=params)
+        root = self._parse_xml(response.text)
+
+        products: list[PrestashopProductSummary] = []
+        for node in root.findall("./products/product"):
+            product_id = self._parse_int(node, "id")
+            if product_id is None:
+                continue
+
+            products.append(
+                PrestashopProductSummary(
+                    product_id=product_id,
+                    reference=(node.findtext("reference") or "").strip(),
+                    name=self._extract_default_language_text(node.find("name")) or "",
+                    manufacturer_id=self._parse_int(node, "id_manufacturer"),
+                )
+            )
+        return products
 
     def get_blank_product_xml(self) -> ElementTree.Element:
         response = self._request("GET", "products", params={"schema": "blank"})
@@ -1091,6 +1139,44 @@ class PrestashopClient:
         response = self._request("GET", "combinations", resource_id=combination_id)
         return self._parse_xml(response.text)
 
+    def list_combinations_for_product(
+        self, product_ps_id: int
+    ) -> list[PrestashopCombinationSummary]:
+        response = self._request(
+            "GET",
+            "combinations",
+            params={
+                "display": "full",
+                "filter[id_product]": str(product_ps_id),
+                "sort": "[id_ASC]",
+            },
+        )
+        root = self._parse_xml(response.text)
+
+        combinations: list[PrestashopCombinationSummary] = []
+        for node in root.findall("./combinations/combination"):
+            combination_id = self._parse_int(node, "id")
+            parsed_product_id = self._parse_int(node, "id_product")
+            if combination_id is None or parsed_product_id is None:
+                continue
+
+            attribute_value_ids: list[int] = []
+            for pov in node.findall("./associations/product_option_values/product_option_value"):
+                pov_id = self._parse_int(pov, "id")
+                if pov_id is not None:
+                    attribute_value_ids.append(pov_id)
+
+            combinations.append(
+                PrestashopCombinationSummary(
+                    combination_id=combination_id,
+                    product_id=parsed_product_id,
+                    attribute_value_ids=attribute_value_ids,
+                    ean13=(node.findtext("ean13") or "").strip(),
+                )
+            )
+
+        return combinations
+
     def upsert_combination(
         self,
         product_ps_id: int,
@@ -1213,6 +1299,39 @@ class PrestashopClient:
                 "Prestashop specific_price search response did not include an id."
             )
         return int(sp_id)
+
+    def list_specific_prices_by_product(
+        self, product_ps_id: int
+    ) -> list[PrestashopSpecificPriceSummary]:
+        response = self._request(
+            "GET",
+            "specific_prices",
+            params={
+                "display": "full",
+                "filter[id_product]": str(product_ps_id),
+                "filter[id_product_attribute]": "0",
+                "sort": "[id_ASC]",
+            },
+        )
+        root = self._parse_xml(response.text)
+
+        specific_prices: list[PrestashopSpecificPriceSummary] = []
+        for node in root.findall("./specific_prices/specific_price"):
+            specific_price_id = self._parse_int(node, "id")
+            parsed_product_id = self._parse_int(node, "id_product")
+            if specific_price_id is None or parsed_product_id is None:
+                continue
+
+            specific_prices.append(
+                PrestashopSpecificPriceSummary(
+                    specific_price_id=specific_price_id,
+                    product_id=parsed_product_id,
+                    reduction=self._parse_decimal(node.findtext("reduction")),
+                    reduction_type=(node.findtext("reduction_type") or "").strip(),
+                )
+            )
+
+        return specific_prices
 
     def get_specific_price_xml(self, specific_price_id: int) -> ElementTree.Element:
         response = self._request("GET", "specific_prices", resource_id=specific_price_id)
