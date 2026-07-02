@@ -5,7 +5,16 @@ from unittest.mock import patch
 import pytest
 
 from apps.catalog.models import Combination, Manufacturer, Price, Product, Stock
-from apps.icg.importer import _escape, import_prices, import_products, import_stock
+from apps.icg.importer import (
+    _escape,
+    import_prices,
+    import_products,
+    import_stock,
+    refresh_combination_from_icg,
+    refresh_price_from_icg,
+    refresh_product_from_icg,
+    refresh_stock_from_icg,
+)
 from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
 from apps.sync.models import SyncCursorSource, SyncJob, SyncJobType
 
@@ -535,6 +544,103 @@ class TestStockImport:
 
         assert result["skipped"] == 4
         assert Price.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestTargetedRefresh:
+    def test_refresh_product_from_icg_updates_product_and_combinations(self):
+        man = _make_manufacturer()
+        product = _make_product(man, name="Old Name")
+        Combination.objects.create(product=product, icg_size="M", icg_color="RED", ean13="old-ean")
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_product_rows.return_value = PRODUCT_ROWS[:2]
+            result = refresh_product_from_icg(product.pk)
+
+        assert result["status"] == "updated"
+        product.refresh_from_db()
+        assert product.name == "Product One"
+        assert Combination.objects.filter(product=product).count() == 2
+
+    def test_refresh_combination_from_icg_reuses_product_persistence(self):
+        man = _make_manufacturer()
+        product = _make_product(man)
+        combination = Combination.objects.create(
+            product=product,
+            icg_size="M",
+            icg_color="RED",
+            ean13="old-ean",
+        )
+
+        updated_row = _FakeRow(
+            1001,
+            "REF001",
+            "M",
+            "RED",
+            "9999999999999",
+            "",
+            "Product One",
+            1,
+            21,
+            93,
+            "TALENS",
+            datetime(2026, 1, 15, 10, 0, 0),
+            "T",
+            14000,
+            "ARTECREATION",
+            "F",
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_combination_rows.return_value = [updated_row]
+            result = refresh_combination_from_icg(combination.pk)
+
+        assert result["status"] == "updated"
+        combination.refresh_from_db()
+        assert combination.ean13 == "9999999999999"
+
+    def test_refresh_price_from_icg_updates_price(self):
+        man = _make_manufacturer()
+        product = _make_product(man)
+        combination = Combination.objects.create(product=product, icg_size="M", icg_color="RED")
+        price = Price.objects.create(combination=combination, amount_ex_vat=99.99, vat_rate=21)
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_price_rows.return_value = PRICE_ROWS[:1]
+            result = refresh_price_from_icg(price.pk)
+
+        assert result["status"] == "updated"
+        price.refresh_from_db()
+        assert price.amount_ex_vat == 90.00
+
+    def test_refresh_stock_from_icg_updates_stock(self):
+        man = _make_manufacturer()
+        product = _make_product(man)
+        combination = Combination.objects.create(product=product, icg_size="M", icg_color="RED")
+        stock = Stock.objects.create(combination=combination, warehouse_code="01", quantity=5)
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_stock_rows.return_value = STOCK_ROWS[:1]
+            result = refresh_stock_from_icg(stock.pk)
+
+        assert result["status"] == "updated"
+        stock.refresh_from_db()
+        assert stock.quantity == 20
+
+    def test_refresh_returns_skipped_when_icg_row_not_found(self):
+        man = _make_manufacturer()
+        product = _make_product(man)
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_product_rows.return_value = []
+            result = refresh_product_from_icg(product.pk)
+
+        assert result == {"status": "skipped", "reason": "not_found", "processed": 0, "skipped": 0}
 
 
 @pytest.mark.django_db

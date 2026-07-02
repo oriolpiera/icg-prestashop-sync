@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib import admin, messages
@@ -18,6 +19,8 @@ from apps.catalog.models import (
 )
 from apps.operations.sites import admin_site
 from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
+
+logger = logging.getLogger(__name__)
 
 
 class FailedSyncFilter(SimpleListFilter):
@@ -143,6 +146,55 @@ def retry_entity_sync(modeladmin, request, queryset):
         request,
         f"Dispatched {count} {entity_type}(s) for retry.",
         messages.SUCCESS,
+    )
+
+
+@admin.action(description="Update selected records from ICG")
+def update_from_icg(modeladmin, request, queryset):
+    from apps.icg.importer import (
+        refresh_combination_from_icg,
+        refresh_price_from_icg,
+        refresh_product_from_icg,
+        refresh_stock_from_icg,
+    )
+
+    refresh_map = {
+        Product: refresh_product_from_icg,
+        Combination: refresh_combination_from_icg,
+        Price: refresh_price_from_icg,
+        Stock: refresh_stock_from_icg,
+    }
+
+    refresh_fn = refresh_map.get(queryset.model)
+    if refresh_fn is None:
+        modeladmin.message_user(
+            request, "Update from ICG is not supported for this model.", messages.WARNING
+        )
+        return
+
+    updated = 0
+    skipped = 0
+    failed = 0
+    for obj in queryset:
+        try:
+            result = refresh_fn(obj.pk)
+        except Exception:
+            logger.exception("Failed to refresh %s pk=%s from ICG", queryset.model.__name__, obj.pk)
+            failed += 1
+            continue
+
+        if result.get("status") == "updated":
+            updated += 1
+        elif result.get("status") == "skipped":
+            skipped += 1
+        else:
+            failed += 1
+
+    level = messages.WARNING if failed else messages.SUCCESS
+    modeladmin.message_user(
+        request,
+        f"Updated {updated} record(s) from ICG. Skipped {skipped}. Failed {failed}.",
+        level,
     )
 
 
@@ -287,7 +339,7 @@ class ProductAdmin(admin.ModelAdmin):
     )
     search_fields = ("reference", "name", "icg_id")
     filter_horizontal = ("categories",)
-    actions = (mark_for_resync, retry_entity_sync, retry_discount_sync)
+    actions = (mark_for_resync, retry_entity_sync, retry_discount_sync, update_from_icg)
     inlines = [CombinationInline]
 
 
@@ -332,7 +384,7 @@ class CombinationAdmin(admin.ModelAdmin):
         FailedSyncFilter,
     )
     search_fields = ("product__reference", "icg_size", "icg_color", "ean13")
-    actions = (mark_for_resync, retry_entity_sync)
+    actions = (mark_for_resync, retry_entity_sync, update_from_icg)
 
 
 def _combination_ps_id(obj):
@@ -409,7 +461,7 @@ class PriceAdmin(admin.ModelAdmin):
         "last_synced_at",
         "updated_at",
     )
-    actions = (mark_for_resync, retry_entity_sync)
+    actions = (mark_for_resync, retry_entity_sync, update_from_icg)
 
 
 @register(TaxRuleMapping, site=admin_site)
@@ -475,7 +527,7 @@ class StockAdmin(admin.ModelAdmin):
         "last_synced_at",
         "updated_at",
     )
-    actions = (mark_for_resync, retry_entity_sync)
+    actions = (mark_for_resync, retry_entity_sync, update_from_icg)
 
 
 @register(AttributeGroup, site=admin_site)

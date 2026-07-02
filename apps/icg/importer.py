@@ -36,6 +36,23 @@ def _normalize_ean13(value) -> str:
     return normalized[:32]
 
 
+def _refresh_rows(rows: list, persist_row_fn) -> dict:
+    if not rows:
+        return {"status": "skipped", "reason": "not_found", "processed": 0, "skipped": 0}
+
+    processed = 0
+    skipped = 0
+    for row in rows:
+        result, _, _ = persist_row_fn(row)
+        if result is None:
+            skipped += 1
+        else:
+            processed += 1
+
+    status = "updated" if processed else "skipped"
+    return {"status": status, "processed": processed, "skipped": skipped}
+
+
 def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
     icg_id = int(row[0])
     reference = str(row[1]).strip()
@@ -393,3 +410,39 @@ def import_stock() -> dict:
         return reader.fetch_stock_after(cursor_at, last_source_key=last_source_key, limit=limit)
 
     return _import_source(SyncCursorSource.STOCK, fetch_fn, _persist_stock_row)
+
+
+def refresh_product_from_icg(product_id: int) -> dict:
+    product = Product.objects.get(pk=product_id)
+    rows = ICGCatalogReader().fetch_product_rows(product.icg_id)
+    return _refresh_rows(rows, _persist_product_row)
+
+
+def refresh_combination_from_icg(combination_id: int) -> dict:
+    combination = Combination.objects.select_related("product").get(pk=combination_id)
+    rows = ICGCatalogReader().fetch_combination_rows(
+        combination.product.icg_id,
+        combination.icg_size,
+        combination.icg_color,
+    )
+    return _refresh_rows(rows, _persist_product_row)
+
+
+def refresh_price_from_icg(price_id: int) -> dict:
+    price = Price.objects.select_related("combination__product").get(pk=price_id)
+    rows = ICGCatalogReader().fetch_price_rows(
+        price.combination.product.icg_id,
+        price.combination.icg_size,
+        price.combination.icg_color,
+    )
+    return _refresh_rows(rows, _persist_price_row)
+
+
+def refresh_stock_from_icg(stock_id: int) -> dict:
+    stock = Stock.objects.select_related("combination__product").get(pk=stock_id)
+    rows = ICGCatalogReader().fetch_stock_rows(
+        stock.combination.product.icg_id,
+        stock.combination.icg_size,
+        stock.combination.icg_color,
+    )
+    return _refresh_rows(rows, _persist_stock_row)
