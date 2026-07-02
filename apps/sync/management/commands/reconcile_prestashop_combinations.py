@@ -1,3 +1,5 @@
+import json
+
 from django.core.management.base import BaseCommand
 
 from apps.catalog.models import Combination, Product
@@ -32,11 +34,16 @@ class Command(BaseCommand):
             default=0,
             help="Optional maximum number of Prestashop products to inspect (0 = all).",
         )
+        parser.add_argument(
+            "--output-conflicts",
+            help="Optional path to write combination conflicts as JSON.",
+        )
 
     def handle(self, *args, **options):
         client = PrestashopClient()
         apply = options["apply"]
         limit_products = options["limit_products"]
+        output_conflicts = options.get("output_conflicts")
 
         groups = client.list_attribute_groups()
         group_index = {
@@ -70,6 +77,7 @@ class Command(BaseCommand):
         updated = 0
         skipped_existing = 0
         skipped_conflict = 0
+        conflicts: list[dict[str, str | int]] = []
 
         for ps_product in prestashop_products:
             product_match = product_match_by_ps_id[ps_product.product_id]
@@ -135,6 +143,17 @@ class Command(BaseCommand):
                     and combination.prestashop_id != ps_combination.combination_id
                 ):
                     skipped_conflict += 1
+                    conflicts.append(
+                        {
+                            "reference": django_product.reference,
+                            "icg_size": resolved_size,
+                            "icg_color": resolved_color,
+                            "django_combination_id": combination.pk,
+                            "django_prestashop_id": combination.prestashop_id,
+                            "matched_prestashop_id": ps_combination.combination_id,
+                            "prestashop_product_id": ps_product.product_id,
+                        }
+                    )
                     self.stdout.write(
                         self.style.WARNING(
                             "Conflict for combination "
@@ -158,6 +177,11 @@ class Command(BaseCommand):
                         ]
                     )
                 updated += 1
+
+        if output_conflicts:
+            with open(output_conflicts, "w", encoding="utf-8") as output_file:
+                json.dump(conflicts, output_file, indent=2, sort_keys=True)
+            self.stdout.write(self.style.SUCCESS(f"Wrote conflict report to {output_conflicts}"))
 
         mode = "APPLIED" if apply else "DRY RUN"
         self.stdout.write(
