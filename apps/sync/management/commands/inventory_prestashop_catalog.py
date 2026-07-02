@@ -1,10 +1,10 @@
 import json
-from collections import defaultdict
 
 from django.core.management.base import BaseCommand
 
 from apps.catalog.models import Combination, Product
 from apps.prestashop.client import PrestashopClient
+from apps.sync.reconciliation import classify_product_matches
 
 
 def _group_role(group_name: str) -> str:
@@ -78,9 +78,8 @@ class Command(BaseCommand):
                     "group_name": group_data["name"],
                 }
 
-        django_products = defaultdict(list)
-        for product in Product.objects.select_related("manufacturer").all():
-            django_products[product.reference].append(product)
+        django_products = list(Product.objects.select_related("manufacturer").all())
+        django_products_by_id = {product.pk: product for product in django_products}
 
         report = {
             "summary": {
@@ -116,16 +115,19 @@ class Command(BaseCommand):
         }
 
         prestashop_products = client.list_products(limit=limit_products)
+        product_matches = classify_product_matches(prestashop_products, django_products)
+        product_match_by_ps_id = {match.prestashop_product_id: match for match in product_matches}
         report["summary"]["prestashop_products"] = len(prestashop_products)
 
         for ps_product in prestashop_products:
-            matched_products = django_products.get(ps_product.reference, [])
-            matched_ids = [product.pk for product in matched_products]
+            product_match_info = product_match_by_ps_id[ps_product.product_id]
+            matched_ids = product_match_info.django_product_ids
+            matched_products = [django_products_by_id[product_id] for product_id in matched_ids]
 
-            if len(matched_products) == 1:
+            if product_match_info.status == "safe":
                 product_match = "safe"
                 report["summary"]["product_matches_safe"] += 1
-            elif len(matched_products) == 0:
+            elif product_match_info.status == "missing":
                 product_match = "missing"
                 report["summary"]["product_matches_missing"] += 1
             else:
@@ -136,6 +138,18 @@ class Command(BaseCommand):
                         "reference": ps_product.reference,
                         "prestashop_product_id": ps_product.product_id,
                         "django_product_ids": matched_ids,
+                        "reason": (
+                            "duplicate_prestashop_reference"
+                            if len(
+                                [
+                                    p
+                                    for p in prestashop_products
+                                    if p.reference == ps_product.reference
+                                ]
+                            )
+                            > 1
+                            else "multiple_django_products"
+                        ),
                     }
                 )
 

@@ -160,3 +160,33 @@ class TestInventoryPrestashopCatalogCommand:
             call_command("inventory_prestashop_catalog", stdout=out)
 
         assert "unresolved=1" in out.getvalue()
+
+    def test_marks_duplicate_prestashop_references_as_ambiguous(self, _clean_db):
+        _make_product(reference="REF001")
+
+        with patch(
+            "apps.sync.management.commands.inventory_prestashop_catalog.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = []
+            client.list_products.return_value = [
+                PrestashopProductSummary(
+                    product_id=22,
+                    reference="REF001",
+                    name="First",
+                    manufacturer_id=None,
+                ),
+                PrestashopProductSummary(
+                    product_id=23,
+                    reference="REF001",
+                    name="Second",
+                    manufacturer_id=None,
+                ),
+            ]
+            client.list_specific_prices_by_product.return_value = []
+            client.list_combinations_for_product.return_value = []
+
+            out = StringIO()
+            call_command("inventory_prestashop_catalog", stdout=out)
+
+        assert "ambiguous=2" in out.getvalue()
