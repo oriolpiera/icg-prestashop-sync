@@ -175,6 +175,17 @@ class ICGCatalogReader:
             has_more = len(rows) == limit if limit else False
             return rows, has_more
 
+    def fetch_product_rows_by_reference(self, reference: str) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_articles WHERE Referencia = ? "
+                "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+                reference,
+            )
+            return db_cursor.fetchall()
+
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
@@ -204,6 +215,18 @@ class ICGCatalogReader:
             has_more = len(rows) == limit if limit else False
             return rows, has_more
 
+    def fetch_price_rows_for_combination(self, icg_id: int, talla: str, color: str) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_preus WHERE Codarticulo = ? AND Talla = ? AND Color = ?",
+                icg_id,
+                talla,
+                color,
+            )
+            return db_cursor.fetchall()
+
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
@@ -232,6 +255,27 @@ class ICGCatalogReader:
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
             return rows, has_more
+
+    def fetch_stock_rows_for_combination(
+        self,
+        icg_id: int,
+        talla: str,
+        color: str,
+        *,
+        warehouse_code: str = "01",
+    ) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_stocks "
+                "WHERE Codalmacen = ? AND Codarticulo = ? AND Talla = ? AND Color = ?",
+                warehouse_code,
+                icg_id,
+                talla,
+                color,
+            )
+            return db_cursor.fetchall()
 
 
 class ICGClientesWebWriter:
