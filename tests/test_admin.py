@@ -25,6 +25,7 @@ from apps.operations.admin import (
     mark_for_resync,
     retry_entity_sync,
     retry_jobs,
+    update_from_icg,
 )
 from apps.operations.sites import admin_site
 from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus, SyncJobType
@@ -242,6 +243,57 @@ class TestAdminActions:
         msgs = list(storage)
         assert len(msgs) == 1
         assert "No failed jobs" in str(msgs[0])
+
+    def test_update_from_icg_dispatches_for_product(self):
+        product = _make_product()
+
+        request = _request_with_messages()
+        model_admin = admin_site._registry[Product]
+
+        with patch("apps.icg.importer.refresh_product_from_icg") as mock_refresh:
+            mock_refresh.return_value = {"status": "updated", "processed": 1, "skipped": 0}
+            update_from_icg(model_admin, request, Product.objects.filter(pk=product.pk))
+
+        mock_refresh.assert_called_once_with(product.pk)
+
+    def test_update_from_icg_dispatches_for_combination(self):
+        product = _make_product()
+        combination = _make_combination(product)
+
+        request = _request_with_messages()
+        model_admin = admin_site._registry[Combination]
+
+        with patch("apps.icg.importer.refresh_combination_from_icg") as mock_refresh:
+            mock_refresh.return_value = {"status": "updated", "processed": 1, "skipped": 0}
+            update_from_icg(model_admin, request, Combination.objects.filter(pk=combination.pk))
+
+        mock_refresh.assert_called_once_with(combination.pk)
+
+    def test_update_from_icg_reports_updated_skipped_and_failed_counts(self):
+        product_one = _make_product(icg_id=7001, reference="REF7001")
+        product_two = _make_product(icg_id=7002, reference="REF7002")
+        product_three = _make_product(icg_id=7003, reference="REF7003")
+
+        request = _request_with_messages()
+        model_admin = admin_site._registry[Product]
+
+        with patch("apps.icg.importer.refresh_product_from_icg") as mock_refresh:
+            mock_refresh.side_effect = [
+                {"status": "updated", "processed": 2, "skipped": 0},
+                {"status": "skipped", "processed": 0, "skipped": 1},
+                RuntimeError("ICG timeout"),
+            ]
+            update_from_icg(
+                model_admin,
+                request,
+                Product.objects.filter(
+                    pk__in=[product_one.pk, product_two.pk, product_three.pk]
+                ).order_by("pk"),
+            )
+
+        msgs = list(request._messages)
+        assert len(msgs) == 1
+        assert str(msgs[0]) == "Updated 1 record(s) from ICG. Skipped 1. Failed 1."
 
 
 # --- Custom filters ---

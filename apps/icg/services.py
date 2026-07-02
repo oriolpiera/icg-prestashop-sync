@@ -146,6 +146,13 @@ class ICGCatalogReader:
         except AttributeError:
             logger.debug("ODBC cursor does not support timeout attribute; continuing without it")
 
+    def _fetch_rows(self, query: str, params: tuple = ()) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(query, params)
+            return db_cursor.fetchall()
+
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
@@ -174,6 +181,35 @@ class ICGCatalogReader:
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
             return rows, has_more
+
+    def fetch_product_rows(self, icg_id: int) -> list:
+        return self._fetch_rows(
+            "SELECT * FROM view_imp_articles "
+            "WHERE CAST(CODARTICULO AS INT) = CAST(? AS INT) "
+            "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+            (icg_id,),
+        )
+
+    def fetch_combination_rows(self, icg_id: int, icg_size: str, icg_color: str) -> list:
+        return self._fetch_rows(
+            "SELECT * FROM view_imp_articles "
+            "WHERE CAST(CODARTICULO AS INT) = CAST(? AS INT) "
+            "AND RTRIM(LTRIM(Talla)) = ? "
+            "AND RTRIM(LTRIM(Color)) = ? "
+            "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+            (icg_id, icg_size, icg_color),
+        )
+
+    def fetch_product_rows_by_reference(self, reference: str) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_articles WHERE Referencia = ? "
+                "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
+                reference,
+            )
+            return db_cursor.fetchall()
 
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
@@ -204,6 +240,28 @@ class ICGCatalogReader:
             has_more = len(rows) == limit if limit else False
             return rows, has_more
 
+    def fetch_price_rows(self, icg_id: int, icg_size: str, icg_color: str) -> list:
+        return self._fetch_rows(
+            "SELECT * FROM view_imp_preus "
+            "WHERE CAST(Codarticulo AS INT) = CAST(? AS INT) "
+            "AND RTRIM(LTRIM(Talla)) = ? "
+            "AND RTRIM(LTRIM(Color)) = ? "
+            "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
+            (icg_id, icg_size, icg_color),
+        )
+
+    def fetch_price_rows_for_combination(self, icg_id: int, talla: str, color: str) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_preus WHERE Codarticulo = ? AND Talla = ? AND Color = ?",
+                icg_id,
+                talla,
+                color,
+            )
+            return db_cursor.fetchall()
+
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
@@ -232,6 +290,37 @@ class ICGCatalogReader:
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
             has_more = len(rows) == limit if limit else False
             return rows, has_more
+
+    def fetch_stock_rows(self, icg_id: int, icg_size: str, icg_color: str) -> list:
+        return self._fetch_rows(
+            "SELECT * FROM view_imp_stocks "
+            "WHERE CAST(Codarticulo AS INT) = CAST(? AS INT) "
+            "AND RTRIM(LTRIM(Talla)) = ? "
+            "AND RTRIM(LTRIM(Color)) = ? "
+            "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
+            (icg_id, icg_size, icg_color),
+        )
+
+    def fetch_stock_rows_for_combination(
+        self,
+        icg_id: int,
+        talla: str,
+        color: str,
+        *,
+        warehouse_code: str = "01",
+    ) -> list:
+        with self._connect() as conn:
+            db_cursor = conn.cursor()
+            self._set_query_timeout(db_cursor)
+            db_cursor.execute(
+                "SELECT * FROM view_imp_stocks "
+                "WHERE Codalmacen = ? AND Codarticulo = ? AND Talla = ? AND Color = ?",
+                warehouse_code,
+                icg_id,
+                talla,
+                color,
+            )
+            return db_cursor.fetchall()
 
 
 class ICGClientesWebWriter:
