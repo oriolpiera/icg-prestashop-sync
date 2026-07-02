@@ -19,6 +19,7 @@ from apps.catalog.models import (
     Stock,
     TaxRuleMapping,
 )
+from apps.catalog.variants import effective_prestashop_variant_axes, is_placeholder_variant_axis
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.sync.locking import LOCK_TIMEOUT_MINUTES, LockAcquisitionError, sync_lock
 
@@ -544,18 +545,45 @@ def export_combination(
             )
 
         product_ps_id = combination.product.prestashop_id
+        normalized_size, normalized_color = effective_prestashop_variant_axes(
+            combination.icg_size,
+            combination.icg_color,
+        )
+        size_placeholder = is_placeholder_variant_axis(combination.icg_size)
+        color_placeholder = is_placeholder_variant_axis(combination.icg_color)
+
+        # Keep legacy Prestashop placeholder attributes intact on already-mapped
+        # combinations. We treat placeholders as empty for new matching/creation,
+        # but we do not rewrite historical PS structures unless there is a real
+        # non-placeholder variant value to sync.
+        if combination.prestashop_id and size_placeholder and color_placeholder:
+            combination.sync_required = False
+            combination.last_sync_error = ""
+            combination.last_synced_at = timezone.now().astimezone(UTC)
+            combination.save(
+                update_fields=[
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "combination_id": combination.pk,
+                "prestashop_combination_id": combination.prestashop_id,
+            }
 
         size_ps_ids = []
         color_ps_ids = []
 
-        if combination.icg_size:
+        if normalized_size:
             size_group_ps_id = ensure_attribute_group("size", client=client)
             size_value_ps_id = ensure_attribute_value(
-                size_group_ps_id, combination.icg_size, client=client
+                size_group_ps_id, normalized_size, client=client
             )
             size_ps_ids = [size_value_ps_id]
 
-        if combination.icg_color:
+        if normalized_color:
             color_group_ps_id = ensure_attribute_group(
                 "color", client=client, product=combination.product
             )
@@ -563,14 +591,14 @@ def export_combination(
             texture_image_path = None
             color_value = AttributeValue.objects.filter(
                 attribute_group__prestashop_id=color_group_ps_id,
-                icg_value=combination.icg_color,
+                icg_value=normalized_color,
             ).first()
             if color_value and color_value.texture_image:
                 texture_image_path = color_value.texture_image.path
 
             color_value_ps_id = ensure_attribute_value(
                 color_group_ps_id,
-                combination.icg_color,
+                normalized_color,
                 client=client,
                 texture_image_path=texture_image_path,
             )

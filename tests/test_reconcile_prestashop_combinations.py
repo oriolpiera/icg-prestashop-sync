@@ -154,6 +154,32 @@ class TestReconcilePrestashopCombinationsCommand:
         assert combination.prestashop_id == 55
         assert "safe=1" in out.getvalue()
 
+    def test_apply_matches_single_color_dimension_to_placeholder_size(self):
+        product = _make_product(reference="0090837")
+        combination = _make_combination(product, size="***", color="B00")
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_combinations.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "COPIC_colores"},
+            ]
+            client.list_attribute_values.return_value = [{"ps_id": 201, "name": "B00"}]
+            client.list_products.return_value = [
+                PrestashopProductSummary(22, "0090837", "Product 0090837", None)
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 22, [201], "")
+            ]
+
+            out = StringIO()
+            call_command("reconcile_prestashop_combinations", "--apply", stdout=out)
+
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 55
+        assert "safe=1" in out.getvalue()
+
     def test_apply_matches_single_size_dimension_to_blank_color(self):
         product = _make_product(reference="1460005")
         combination = _make_combination(product, size="A4", color="")

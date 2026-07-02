@@ -2,6 +2,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from apps.catalog.models import Combination, Product
+from apps.catalog.variants import (
+    effective_prestashop_variant_axes,
+    variant_axis_candidates,
+)
 from apps.prestashop.client import PrestashopCombinationSummary, PrestashopProductSummary
 
 
@@ -31,23 +35,34 @@ def find_candidate_django_combinations(
 ) -> list[Combination]:
     candidates: dict[int, Combination] = {}
 
+    resolved_size, resolved_color = effective_prestashop_variant_axes(
+        resolved_size,
+        resolved_color,
+    )
+
     lookup_pairs: list[tuple[str, str]] = []
     if resolved_size and resolved_color:
-        lookup_pairs.append((resolved_size, resolved_color))
+        for size_candidate in variant_axis_candidates(resolved_size):
+            for color_candidate in variant_axis_candidates(resolved_color):
+                lookup_pairs.append((size_candidate, color_candidate))
     elif resolved_size:
-        lookup_pairs.extend(
-            [
-                (resolved_size, ""),
-                ("", resolved_size),
-            ]
-        )
+        for size_candidate in variant_axis_candidates(resolved_size):
+            for blank_candidate in variant_axis_candidates(""):
+                lookup_pairs.extend(
+                    [
+                        (size_candidate, blank_candidate),
+                        (blank_candidate, size_candidate),
+                    ]
+                )
     elif resolved_color:
-        lookup_pairs.extend(
-            [
-                ("", resolved_color),
-                (resolved_color, ""),
-            ]
-        )
+        for color_candidate in variant_axis_candidates(resolved_color):
+            for blank_candidate in variant_axis_candidates(""):
+                lookup_pairs.extend(
+                    [
+                        (blank_candidate, color_candidate),
+                        (color_candidate, blank_candidate),
+                    ]
+                )
 
     for icg_size, icg_color in lookup_pairs:
         for combination in Combination.objects.filter(
@@ -138,9 +153,14 @@ def resolve_prestashop_combination(
         )
 
         if role == "size" and not resolved_size:
-            resolved_size = str(value_data["name"])
+            resolved_size = str(value_data["name"]).strip()
         elif role == "color" and not resolved_color:
-            resolved_color = str(value_data["name"])
+            resolved_color = str(value_data["name"]).strip()
+
+    resolved_size, resolved_color = effective_prestashop_variant_axes(
+        resolved_size,
+        resolved_color,
+    )
 
     return ResolvedPrestashopCombination(
         prestashop_combination_id=ps_combination.combination_id,

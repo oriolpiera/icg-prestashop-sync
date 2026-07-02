@@ -333,6 +333,80 @@ class TestCombinationExport:
             price="0",
         )
 
+    def test_export_ignores_placeholder_size_attribute(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="***", icg_color="Red")
+
+        client = Mock()
+        client.upsert_combination.return_value = 55
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "",
+            True,
+            [200],
+            prestashop_id=None,
+            price="0",
+        )
+
+    def test_export_preserves_existing_placeholder_structure_when_mapped(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product, icg_size="***", icg_color="***")
+        combination.prestashop_id = 55
+        combination.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        client.upsert_combination.assert_not_called()
+        combination.refresh_from_db()
+        assert combination.sync_required is False
+
+    def test_export_cleans_single_placeholder_axis_even_when_mapped(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(product=product, icg_size="***", icg_color="Red")
+        combination.prestashop_id = 55
+        combination.save(update_fields=["prestashop_id"])
+
+        client = Mock()
+        client.upsert_combination.return_value = 55
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 55}
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "",
+            True,
+            [200],
+            prestashop_id=55,
+            price="0",
+        )
+
     def test_export_updates_existing_mapped_combination(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
