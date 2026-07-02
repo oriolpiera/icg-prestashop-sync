@@ -25,9 +25,15 @@ class ResolvedPrestashopCombination:
 
 def group_role(group_name: str) -> str:
     lower = group_name.strip().lower()
-    if lower in {"size", "talla"} or lower.endswith(("_size", "_talla")):
+    if lower in {"size", "sizes", "talla", "tallas"}:
         return "size"
-    if "color" in lower:
+    if lower in {"color", "colors", "colores"}:
+        return "color"
+
+    suffix = lower.rsplit("_", 1)[-1]
+    if suffix in {"size", "sizes", "talla", "tallas"}:
+        return "size"
+    if suffix in {"color", "colors", "colores"}:
         return "color"
     return "unknown"
 

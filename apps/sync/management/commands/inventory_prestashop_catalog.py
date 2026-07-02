@@ -4,16 +4,11 @@ from django.core.management.base import BaseCommand
 
 from apps.catalog.models import Combination, Product
 from apps.prestashop.client import PrestashopClient
-from apps.sync.reconciliation import classify_product_matches
+from apps.sync.reconciliation import classify_product_matches, group_role
 
 
 def _group_role(group_name: str) -> str:
-    lower = group_name.strip().lower()
-    if lower in {"size", "talla"} or lower.endswith(("_size", "_talla")):
-        return "size"
-    if "color" in lower:
-        return "color"
-    return "unknown"
+    return group_role(group_name)
 
 
 def _group_scope(group_name: str, product_count: int, manufacturer_count: int) -> str:

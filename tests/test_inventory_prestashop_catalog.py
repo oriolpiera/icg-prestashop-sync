@@ -42,7 +42,10 @@ class TestInventoryPrestashopCatalogHelpers:
     def test_group_role_detects_size_and_color_patterns(self):
         assert _group_role("Size") == "size"
         assert _group_role("123_talla") == "size"
+        assert _group_role("PIERA_tallas") == "size"
         assert _group_role("REF001_color") == "color"
+        assert _group_role("PIERA_colores") == "color"
+        assert _group_role("CRETACOLOR_tallas") == "size"
         assert _group_role("Unknown") == "unknown"
 
     def test_group_scope_classifies_supported_patterns(self):
