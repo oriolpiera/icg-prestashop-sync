@@ -208,6 +208,7 @@ class ManufacturerAdmin(admin.ModelAdmin):
         "name",
         "icg_code",
         "prestashop_id",
+        "last_icg_modified_date",
         "sync_required",
         "last_synced_at",
         _sync_error_display,
@@ -242,6 +243,7 @@ class CombinationInline(admin.TabularInline):
     extra = 0
     readonly_fields = (
         "prestashop_id",
+        "last_icg_modified_date",
         "ean13",
         "active",
         "sync_required",
@@ -252,6 +254,7 @@ class CombinationInline(admin.TabularInline):
         "icg_size",
         "icg_color",
         "prestashop_id",
+        "last_icg_modified_date",
         "ean13",
         "active",
         "sync_required",
@@ -266,6 +269,7 @@ class ProductAdmin(admin.ModelAdmin):
         "reference",
         "name",
         "prestashop_id",
+        "last_icg_modified_date",
         "manufacturer",
         "category_default",
         "visible_web",
@@ -312,6 +316,7 @@ class CombinationAdmin(admin.ModelAdmin):
     list_display = (
         "product",
         "prestashop_id",
+        "last_icg_modified_date",
         "icg_size",
         "icg_color",
         "ean13",
@@ -371,6 +376,7 @@ class PriceAdmin(admin.ModelAdmin):
     list_select_related = ("combination", "combination__product")
     list_display = (
         "combination",
+        "last_icg_modified_date",
         "amount_ex_vat",
         "vat_rate",
         "currency",
@@ -393,6 +399,7 @@ class PriceAdmin(admin.ModelAdmin):
     search_fields = ("combination__product__reference",)
     fields = (
         "combination",
+        "last_icg_modified_date",
         "amount_ex_vat",
         "vat_rate",
         "currency",
@@ -404,6 +411,7 @@ class PriceAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "combination",
+        "last_icg_modified_date",
         _combination_ps_id,
         _combination_active,
         "last_synced_at",
@@ -439,6 +447,7 @@ class StockAdmin(admin.ModelAdmin):
     list_select_related = ("combination", "combination__product")
     list_display = (
         "combination",
+        "last_icg_modified_date",
         "warehouse_code",
         "quantity",
         _combination_active,
@@ -460,6 +469,7 @@ class StockAdmin(admin.ModelAdmin):
     search_fields = ("combination__product__reference", "warehouse_code")
     fields = (
         "combination",
+        "last_icg_modified_date",
         "warehouse_code",
         "quantity",
         _combination_ps_id,
@@ -470,6 +480,7 @@ class StockAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "combination",
+        "last_icg_modified_date",
         _combination_ps_id,
         _combination_active,
         "last_synced_at",

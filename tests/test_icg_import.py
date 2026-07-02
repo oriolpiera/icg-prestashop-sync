@@ -3,6 +3,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from apps.catalog.models import Combination, Manufacturer, Price, Product, Stock
 from apps.icg.importer import _escape, import_prices, import_products, import_stock
@@ -139,6 +140,10 @@ def _make_product(manufacturer, icg_id=1001, reference="REF001", name="Product O
     )
 
 
+def _assert_local_naive_dt(value, expected_naive: datetime):
+    assert timezone.localtime(value).replace(tzinfo=None) == expected_naive
+
+
 @pytest.mark.django_db
 class TestCursorService:
     def test_get_or_create_returns_cursor(self):
@@ -179,6 +184,13 @@ class TestProductImport:
         assert prod1.name == "Product One"
         assert prod1.visible_web is True
         assert prod1.discontinued is False
+        _assert_local_naive_dt(prod1.last_icg_modified_date, datetime(2026, 1, 15, 10, 0, 0))
+
+        manufacturer = Manufacturer.objects.get(icg_code="14000")
+        _assert_local_naive_dt(manufacturer.last_icg_modified_date, datetime(2026, 1, 15, 10, 0, 0))
+
+        combination = Combination.objects.get(product__icg_id=1001, icg_size="M", icg_color="RED")
+        _assert_local_naive_dt(combination.last_icg_modified_date, datetime(2026, 1, 15, 10, 0, 0))
 
         prod2 = Product.objects.get(icg_id=1002)
         assert prod2.reference == "REF002"
@@ -341,6 +353,60 @@ class TestProductImport:
         assert Product.objects.count() == 2
         assert Combination.objects.count() == 3
 
+    def test_import_updates_last_icg_modified_date_without_new_sync_job(self):
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_products_after.return_value = (PRODUCT_ROWS[:1], False)
+            import_products()
+
+        product = Product.objects.get(icg_id=1001)
+        combination = Combination.objects.get(product=product, icg_size="M", icg_color="RED")
+        manufacturer = Manufacturer.objects.get(icg_code="14000")
+        product.sync_required = False
+        combination.sync_required = False
+        manufacturer.sync_required = False
+        product.save(update_fields=["sync_required", "updated_at"])
+        combination.save(update_fields=["sync_required", "updated_at"])
+        manufacturer.save(update_fields=["sync_required", "updated_at"])
+        initial_job_count = SyncJob.objects.count()
+
+        updated_row = _FakeRow(
+            1001,
+            "REF001",
+            "M",
+            "RED",
+            "1234567890123",
+            "",
+            "Product One",
+            1,
+            21,
+            93,
+            "TALENS",
+            datetime(2026, 1, 16, 10, 0, 0),
+            "T",
+            14000,
+            "ARTECREATION",
+            "F",
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_products_after.return_value = ([updated_row], False)
+            import_products()
+
+        product.refresh_from_db()
+        combination.refresh_from_db()
+        manufacturer.refresh_from_db()
+
+        expected = datetime(2026, 1, 16, 10, 0, 0)
+        _assert_local_naive_dt(product.last_icg_modified_date, expected)
+        _assert_local_naive_dt(combination.last_icg_modified_date, expected)
+        _assert_local_naive_dt(manufacturer.last_icg_modified_date, expected)
+        assert product.sync_required is False
+        assert combination.sync_required is False
+        assert manufacturer.sync_required is False
+        assert SyncJob.objects.count() == initial_job_count
+
 
 @pytest.mark.django_db
 class TestPriceImport:
@@ -368,6 +434,7 @@ class TestPriceImport:
         price = Price.objects.get(combination=comb)
         assert price.amount_ex_vat == 90.00
         assert price.vat_rate == 21
+        _assert_local_naive_dt(price.last_icg_modified_date, datetime(2026, 1, 20, 12, 0, 0))
         assert SyncJob.objects.filter(job_type=SyncJobType.IMPORT_PRICES).count() == 1
 
     def test_price_update_changes_existing_record(self):
@@ -491,6 +558,7 @@ class TestStockImport:
         stock = Stock.objects.get(combination=comb)
         assert stock.quantity == 20
         assert stock.warehouse_code == "01"
+        _assert_local_naive_dt(stock.last_icg_modified_date, datetime(2026, 1, 25, 9, 0, 0))
         assert SyncJob.objects.filter(job_type=SyncJobType.IMPORT_STOCK).count() == 1
 
     def test_import_negative_quantity_becomes_zero(self):
