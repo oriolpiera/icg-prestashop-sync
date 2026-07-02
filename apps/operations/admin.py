@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib import admin, messages
@@ -18,6 +19,8 @@ from apps.catalog.models import (
 )
 from apps.operations.sites import admin_site
 from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
+
+logger = logging.getLogger(__name__)
 
 
 class FailedSyncFilter(SimpleListFilter):
@@ -176,6 +179,7 @@ def update_from_icg(modeladmin, request, queryset):
         try:
             result = refresh_fn(obj.pk)
         except Exception:
+            logger.exception("Failed to refresh %s pk=%s from ICG", queryset.model.__name__, obj.pk)
             failed += 1
             continue
 

@@ -79,9 +79,8 @@ class TestRebuildReferenceFromICG:
             "Rebuilt reference 0090837: product_rows=2 price_rows=1 stock_rows=1" in out.getvalue()
         )
         assert (
-            "Missing source rows: \
-                    price_combinations_without_rows=1 stock_combinations_without_rows=1"
-            in out.getvalue()
+            "Missing source rows: price_combinations_without_rows=1 "
+            "stock_combinations_without_rows=1" in out.getvalue()
         )
 
     def test_rebuild_reference_fails_when_reference_has_no_rows(self):
