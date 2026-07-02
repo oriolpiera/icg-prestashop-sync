@@ -57,6 +57,7 @@ class Manufacturer(SyncTrackedModel):
     icg_code = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255)
     prestashop_id = models.PositiveIntegerField(blank=True, null=True, unique=True)
+    last_icg_modified_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -68,6 +69,7 @@ class Manufacturer(SyncTrackedModel):
 class Product(SyncTrackedModel):
     icg_id = models.PositiveIntegerField(unique=True)
     prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
+    last_icg_modified_date = models.DateTimeField(null=True, blank=True)
     reference = models.CharField(max_length=64)
     name = models.CharField(max_length=255)
     manufacturer = models.ForeignKey(
@@ -119,6 +121,7 @@ class Product(SyncTrackedModel):
 class Combination(SyncTrackedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="combinations")
     prestashop_id = models.PositiveIntegerField(unique=True, null=True, blank=True)
+    last_icg_modified_date = models.DateTimeField(null=True, blank=True)
     icg_size = models.CharField(max_length=64, blank=True)
     icg_color = models.CharField(max_length=64, blank=True)
     ean13 = models.CharField(max_length=32, blank=True)
@@ -144,6 +147,7 @@ class Price(SyncTrackedModel):
         on_delete=models.CASCADE,
         related_name="price",
     )
+    last_icg_modified_date = models.DateTimeField(null=True, blank=True)
     amount_ex_vat = models.DecimalField(max_digits=10, decimal_places=2)
     vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=21)
     currency = models.CharField(max_length=3, default="EUR")
@@ -161,6 +165,7 @@ class Stock(SyncTrackedModel):
         on_delete=models.CASCADE,
         related_name="stock",
     )
+    last_icg_modified_date = models.DateTimeField(null=True, blank=True)
     warehouse_code = models.CharField(max_length=32, blank=True)
     quantity = models.IntegerField(default=0)
 

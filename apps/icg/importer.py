@@ -62,12 +62,24 @@ def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
             manufacturer_name = manufacturer_name or manufacturer_code
             manufacturer, manufacturer_created = Manufacturer.objects.get_or_create(
                 icg_code=manufacturer_code,
-                defaults={"name": manufacturer_name},
+                defaults={
+                    "name": manufacturer_name,
+                    "last_icg_modified_date": modified_at,
+                },
             )
+            manufacturer_changed = False
+            manufacturer_update_fields: list[str] = []
             if not manufacturer_created and manufacturer.name != manufacturer_name:
                 manufacturer.name = manufacturer_name
                 manufacturer.sync_required = True
-                manufacturer.save(update_fields=["name", "sync_required", "updated_at"])
+                manufacturer_changed = True
+                manufacturer_update_fields.extend(["name", "sync_required"])
+            if not manufacturer_created and manufacturer.last_icg_modified_date != modified_at:
+                manufacturer.last_icg_modified_date = modified_at
+                manufacturer_changed = True
+                manufacturer_update_fields.append("last_icg_modified_date")
+            if manufacturer_changed:
+                manufacturer.save(update_fields=[*manufacturer_update_fields, "updated_at"])
 
         product, created = Product.objects.get_or_create(
             icg_id=icg_id,
@@ -77,29 +89,41 @@ def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
                 "manufacturer": manufacturer,
                 "visible_web": visible_web,
                 "discontinued": discontinued,
+                "last_icg_modified_date": modified_at,
                 "sync_required": True,
             },
         )
         prod_changed = created
+        product_update_fields: list[str] = []
         if not created:
             if product.reference != reference:
                 product.reference = reference
                 prod_changed = True
+                product_update_fields.append("reference")
             if product.name != name:
                 product.name = name
                 prod_changed = True
+                product_update_fields.append("name")
             if product.manufacturer != manufacturer:
                 product.manufacturer = manufacturer
                 prod_changed = True
+                product_update_fields.append("manufacturer")
             if product.visible_web != visible_web:
                 product.visible_web = visible_web
                 prod_changed = True
+                product_update_fields.append("visible_web")
             if product.discontinued != discontinued:
                 product.discontinued = discontinued
                 prod_changed = True
+                product_update_fields.append("discontinued")
+            if product.last_icg_modified_date != modified_at:
+                product.last_icg_modified_date = modified_at
+                product_update_fields.append("last_icg_modified_date")
             if prod_changed:
                 product.sync_required = True
-                product.save()
+                product_update_fields.append("sync_required")
+            if product_update_fields:
+                product.save(update_fields=[*product_update_fields, "updated_at"])
 
         combination, comb_created = Combination.objects.get_or_create(
             product=product,
@@ -108,20 +132,29 @@ def _persist_product_row(row) -> tuple[str | None, datetime, str | None]:
             defaults={
                 "ean13": ean13,
                 "active": not discontinued,
+                "last_icg_modified_date": modified_at,
                 "sync_required": True,
             },
         )
         comb_changed = comb_created
+        combination_update_fields: list[str] = []
         if not comb_created:
             if combination.ean13 != ean13:
                 combination.ean13 = ean13
                 comb_changed = True
+                combination_update_fields.append("ean13")
             if combination.active == discontinued:
                 combination.active = not discontinued
                 comb_changed = True
+                combination_update_fields.append("active")
+            if combination.last_icg_modified_date != modified_at:
+                combination.last_icg_modified_date = modified_at
+                combination_update_fields.append("last_icg_modified_date")
             if comb_changed:
                 combination.sync_required = True
-                combination.save()
+                combination_update_fields.append("sync_required")
+            if combination_update_fields:
+                combination.save(update_fields=[*combination_update_fields, "updated_at"])
 
         if prod_changed or comb_changed:
             SyncJob.objects.create(
@@ -175,20 +208,29 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
             defaults={
                 "amount_ex_vat": amount_ex_vat,
                 "vat_rate": vat_rate,
+                "last_icg_modified_date": modified_at,
                 "sync_required": True,
             },
         )
         changed = created
+        price_update_fields: list[str] = []
         if not created:
             if price.amount_ex_vat != amount_ex_vat:
                 price.amount_ex_vat = amount_ex_vat
                 changed = True
+                price_update_fields.append("amount_ex_vat")
             if price.vat_rate != vat_rate:
                 price.vat_rate = vat_rate
                 changed = True
+                price_update_fields.append("vat_rate")
+            if price.last_icg_modified_date != modified_at:
+                price.last_icg_modified_date = modified_at
+                price_update_fields.append("last_icg_modified_date")
             if changed:
                 price.sync_required = True
-                price.save()
+                price_update_fields.append("sync_required")
+            if price_update_fields:
+                price.save(update_fields=[*price_update_fields, "updated_at"])
 
         discount_changed = False
         current_discount = Decimal(str(product.discount_percent))
@@ -255,20 +297,29 @@ def _persist_stock_row(row) -> tuple[str | None, datetime, str | None]:
             defaults={
                 "warehouse_code": warehouse_code,
                 "quantity": quantity,
+                "last_icg_modified_date": modified_at,
                 "sync_required": True,
             },
         )
         changed = created
+        stock_update_fields: list[str] = []
         if not created:
             if stock.quantity != quantity:
                 stock.quantity = quantity
                 changed = True
+                stock_update_fields.append("quantity")
             if stock.warehouse_code != warehouse_code:
                 stock.warehouse_code = warehouse_code
                 changed = True
+                stock_update_fields.append("warehouse_code")
+            if stock.last_icg_modified_date != modified_at:
+                stock.last_icg_modified_date = modified_at
+                stock_update_fields.append("last_icg_modified_date")
             if changed:
                 stock.sync_required = True
-                stock.save()
+                stock_update_fields.append("sync_required")
+            if stock_update_fields:
+                stock.save(update_fields=[*stock_update_fields, "updated_at"])
 
         if changed:
             SyncJob.objects.create(
