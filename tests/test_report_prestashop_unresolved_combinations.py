@@ -42,17 +42,15 @@ class TestReportPrestashopUnresolvedCombinations:
             client = mock_client_cls.return_value
             client.list_attribute_groups.return_value = [
                 {"ps_id": 10, "name": "MysteryGroup"},
-                {"ps_id": 11, "name": "TALENS_color"},
             ]
             client.list_attribute_values.side_effect = [
                 [{"ps_id": 101, "name": "ValueX"}],
-                [{"ps_id": 201, "name": "Red"}],
             ]
             client.list_products.return_value = [
                 PrestashopProductSummary(22, "REF001", "Product REF001", None)
             ]
             client.list_combinations_for_product.return_value = [
-                PrestashopCombinationSummary(55, 22, [101, 201], "")
+                PrestashopCombinationSummary(55, 22, [101], "")
             ]
 
             out = StringIO()
@@ -67,6 +65,6 @@ class TestReportPrestashopUnresolvedCombinations:
         assert payload["summary"]["unresolved_combination_count"] == 1
         assert payload["groups"][0]["group_name"] == "MysteryGroup"
         assert payload["unresolved_combinations"][0]["reference"] == "REF001"
-        assert payload["unresolved_combinations"][0]["resolved_color"] == "Red"
         assert payload["unresolved_combinations"][0]["resolved_size"] == ""
+        assert payload["unresolved_combinations"][0]["resolved_color"] == ""
         assert "Wrote unresolved combination report" in out.getvalue()

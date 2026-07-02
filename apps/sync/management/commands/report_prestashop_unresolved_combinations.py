@@ -86,10 +86,8 @@ class Command(BaseCommand):
             ps_combinations = client.list_combinations_for_product(ps_product.product_id)
             for ps_combination in ps_combinations:
                 resolved = resolve_prestashop_combination(ps_combination, value_index)
-                if (
-                    not resolved.unresolved_value_ids
-                    and resolved.resolved_size
-                    and resolved.resolved_color
+                if not resolved.unresolved_value_ids and (
+                    resolved.resolved_size or resolved.resolved_color
                 ):
                     continue
 

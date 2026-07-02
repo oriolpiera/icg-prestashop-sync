@@ -2,10 +2,11 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from apps.catalog.models import Combination, Product
+from apps.catalog.models import Product
 from apps.prestashop.client import PrestashopClient
 from apps.sync.reconciliation import (
     classify_product_matches,
+    find_candidate_django_combinations,
     resolve_prestashop_combination,
 )
 
@@ -97,16 +98,14 @@ class Command(BaseCommand):
                 resolved_color = resolved.resolved_color
                 unresolved_value_ids = resolved.unresolved_value_ids
 
-                if unresolved_value_ids or not resolved_size or not resolved_color:
+                if unresolved_value_ids or (not resolved_size and not resolved_color):
                     unresolved += 1
                     continue
 
-                django_matches = list(
-                    Combination.objects.filter(
-                        product=django_product,
-                        icg_size=resolved_size,
-                        icg_color=resolved_color,
-                    )
+                django_matches = find_candidate_django_combinations(
+                    django_product,
+                    resolved_size=resolved_size,
+                    resolved_color=resolved_color,
                 )
                 if len(django_matches) == 0:
                     missing += 1

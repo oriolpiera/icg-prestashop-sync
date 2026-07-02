@@ -128,6 +128,83 @@ class TestReconcilePrestashopCombinationsCommand:
         assert combination.prestashop_id is None
         assert "unresolved=1" in out.getvalue()
 
+    def test_apply_matches_single_color_dimension_to_blank_size(self):
+        product = _make_product(reference="0300393")
+        combination = _make_combination(product, size="", color="RO225")
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_combinations.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "WINSOR & NEWTON_colores"},
+            ]
+            client.list_attribute_values.return_value = [{"ps_id": 201, "name": "RO225"}]
+            client.list_products.return_value = [
+                PrestashopProductSummary(22, "0300393", "Product 0300393", None)
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 22, [201], "")
+            ]
+
+            out = StringIO()
+            call_command("reconcile_prestashop_combinations", "--apply", stdout=out)
+
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 55
+        assert "safe=1" in out.getvalue()
+
+    def test_apply_matches_single_size_dimension_to_blank_color(self):
+        product = _make_product(reference="1460005")
+        combination = _make_combination(product, size="A4", color="")
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_combinations.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 10, "name": "MOLESKINE_tallas"},
+            ]
+            client.list_attribute_values.return_value = [{"ps_id": 101, "name": "A4"}]
+            client.list_products.return_value = [
+                PrestashopProductSummary(22, "1460005", "Product 1460005", None)
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(56, 22, [101], "")
+            ]
+
+            out = StringIO()
+            call_command("reconcile_prestashop_combinations", "--apply", stdout=out)
+
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 56
+        assert "safe=1" in out.getvalue()
+
+    def test_single_dimension_fallback_stays_ambiguous_when_both_axes_match(self):
+        product = _make_product(reference="1740010")
+        _make_combination(product, size="", color="B")
+        _make_combination(product, size="B", color="")
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_combinations.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "LAMY_colores"},
+            ]
+            client.list_attribute_values.return_value = [{"ps_id": 201, "name": "B"}]
+            client.list_products.return_value = [
+                PrestashopProductSummary(22, "1740010", "Product 1740010", None)
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 22, [201], "")
+            ]
+
+            out = StringIO()
+            call_command("reconcile_prestashop_combinations", stdout=out)
+
+        assert "ambiguous=1" in out.getvalue()
+
     def test_skips_conflicting_existing_mapping(self):
         product = _make_product()
         combination = _make_combination(product, prestashop_id=99)

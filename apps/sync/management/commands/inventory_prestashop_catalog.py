@@ -2,9 +2,13 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from apps.catalog.models import Combination, Product
+from apps.catalog.models import Product
 from apps.prestashop.client import PrestashopClient
-from apps.sync.reconciliation import classify_product_matches, group_role
+from apps.sync.reconciliation import (
+    classify_product_matches,
+    find_candidate_django_combinations,
+    group_role,
+)
 
 
 def _group_role(group_name: str) -> str:
@@ -209,7 +213,7 @@ class Command(BaseCommand):
                     elif role == "color" and not resolved_color:
                         resolved_color = value_data["name"]
 
-                if unresolved_value_ids or not resolved_size or not resolved_color:
+                if unresolved_value_ids or (not resolved_size and not resolved_color):
                     combination_match = "unresolved"
                     report["summary"]["combination_matches_unresolved"] += 1
                     report["unresolved_combinations"].append(
@@ -239,12 +243,10 @@ class Command(BaseCommand):
                         }
                     )
                 else:
-                    django_matches = list(
-                        Combination.objects.filter(
-                            product=matched_products[0],
-                            icg_size=resolved_size,
-                            icg_color=resolved_color,
-                        )
+                    django_matches = find_candidate_django_combinations(
+                        matched_products[0],
+                        resolved_size=resolved_size,
+                        resolved_color=resolved_color,
                     )
                     matched_combination_ids = [combination.pk for combination in django_matches]
                     if len(django_matches) == 1:

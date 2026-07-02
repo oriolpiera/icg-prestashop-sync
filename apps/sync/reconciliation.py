@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from apps.catalog.models import Product
+from apps.catalog.models import Combination, Product
 from apps.prestashop.client import PrestashopCombinationSummary, PrestashopProductSummary
 
 
@@ -21,6 +21,43 @@ class ResolvedPrestashopCombination:
     resolved_color: str
     unresolved_value_ids: list[int]
     resolved_values: list[dict[str, str | int]]
+
+
+def find_candidate_django_combinations(
+    product: Product,
+    *,
+    resolved_size: str,
+    resolved_color: str,
+) -> list[Combination]:
+    candidates: dict[int, Combination] = {}
+
+    lookup_pairs: list[tuple[str, str]] = []
+    if resolved_size and resolved_color:
+        lookup_pairs.append((resolved_size, resolved_color))
+    elif resolved_size:
+        lookup_pairs.extend(
+            [
+                (resolved_size, ""),
+                ("", resolved_size),
+            ]
+        )
+    elif resolved_color:
+        lookup_pairs.extend(
+            [
+                ("", resolved_color),
+                (resolved_color, ""),
+            ]
+        )
+
+    for icg_size, icg_color in lookup_pairs:
+        for combination in Combination.objects.filter(
+            product=product,
+            icg_size=icg_size,
+            icg_color=icg_color,
+        ):
+            candidates[combination.pk] = combination
+
+    return list(candidates.values())
 
 
 def group_role(group_name: str) -> str:
