@@ -467,6 +467,47 @@ class TestPriceImport:
         price = Price.objects.get(combination=comb)
         assert price.amount_ex_vat == 85.00
 
+    def test_price_import_updates_last_icg_modified_date_without_new_sync_job(self):
+        man = _make_manufacturer()
+        prod = _make_product(man)
+        comb = Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_prices_after.return_value = (PRICE_ROWS[:1], False)
+            import_prices()
+
+        price = Price.objects.get(combination=comb)
+        price.sync_required = False
+        price.save(update_fields=["sync_required", "updated_at"])
+        initial_job_count = SyncJob.objects.count()
+
+        updated_row = _FakeRow(
+            1,
+            1001,
+            "M",
+            "RED",
+            121.00,
+            10,
+            108.90,
+            12.10,
+            21,
+            100.00,
+            90.00,
+            10.00,
+            datetime(2026, 1, 21, 12, 0, 0),
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_prices_after.return_value = ([updated_row], False)
+            import_prices()
+
+        price.refresh_from_db()
+        _assert_local_naive_dt(price.last_icg_modified_date, datetime(2026, 1, 21, 12, 0, 0))
+        assert price.sync_required is False
+        assert SyncJob.objects.count() == initial_job_count
+
     def test_price_skipped_when_combination_not_found(self):
         man = _make_manufacturer()
         _make_product(man)
@@ -585,6 +626,43 @@ class TestStockImport:
 
         stock = Stock.objects.get(combination__product__icg_id=1001)
         assert stock.quantity == 0
+
+    def test_stock_import_updates_last_icg_modified_date_without_new_sync_job(self):
+        man = _make_manufacturer()
+        prod = _make_product(man)
+        comb = Combination.objects.create(product=prod, icg_size="M", icg_color="RED")
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_stock_after.return_value = (STOCK_ROWS[:1], False)
+            import_stock()
+
+        stock = Stock.objects.get(combination=comb)
+        stock.sync_required = False
+        stock.save(update_fields=["sync_required", "updated_at"])
+        initial_job_count = SyncJob.objects.count()
+
+        updated_row = _FakeRow(
+            1001,
+            "M",
+            "RED",
+            "01",
+            "Main WH",
+            20,
+            0,
+            20,
+            datetime(2026, 1, 26, 9, 0, 0),
+        )
+
+        with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
+            instance = mock_reader_factory.return_value
+            instance.fetch_stock_after.return_value = ([updated_row], False)
+            import_stock()
+
+        stock.refresh_from_db()
+        _assert_local_naive_dt(stock.last_icg_modified_date, datetime(2026, 1, 26, 9, 0, 0))
+        assert stock.sync_required is False
+        assert SyncJob.objects.count() == initial_job_count
 
     def test_import_skips_non_existing_product(self):
         with patch("apps.icg.importer.ICGCatalogReader") as mock_reader_factory:
