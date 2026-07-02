@@ -4,16 +4,10 @@ from django.core.management.base import BaseCommand
 
 from apps.catalog.models import Combination, Product
 from apps.prestashop.client import PrestashopClient
-from apps.sync.reconciliation import classify_product_matches
-
-
-def _group_role(group_name: str) -> str:
-    lower = group_name.strip().lower()
-    if lower in {"size", "talla"} or lower.endswith(("_size", "_talla")):
-        return "size"
-    if "color" in lower:
-        return "color"
-    return "unknown"
+from apps.sync.reconciliation import (
+    classify_product_matches,
+    resolve_prestashop_combination,
+)
 
 
 class Command(BaseCommand):
@@ -98,21 +92,10 @@ class Command(BaseCommand):
 
             ps_combinations = client.list_combinations_for_product(ps_product.product_id)
             for ps_combination in ps_combinations:
-                resolved_size = ""
-                resolved_color = ""
-                unresolved_value_ids: list[int] = []
-
-                for value_id in ps_combination.attribute_value_ids:
-                    value_data = value_index.get(value_id)
-                    if value_data is None:
-                        unresolved_value_ids.append(value_id)
-                        continue
-
-                    role = _group_role(str(value_data["group_name"]))
-                    if role == "size" and not resolved_size:
-                        resolved_size = str(value_data["name"])
-                    elif role == "color" and not resolved_color:
-                        resolved_color = str(value_data["name"])
+                resolved = resolve_prestashop_combination(ps_combination, value_index)
+                resolved_size = resolved.resolved_size
+                resolved_color = resolved.resolved_color
+                unresolved_value_ids = resolved.unresolved_value_ids
 
                 if unresolved_value_ids or not resolved_size or not resolved_color:
                     unresolved += 1
