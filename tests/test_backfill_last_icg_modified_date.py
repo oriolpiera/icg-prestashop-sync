@@ -175,3 +175,29 @@ class TestBackfillLastICGModifiedDateCommand:
         output = out.getvalue()
         assert "products(updated=0, skipped=1, failed=0)" in output
         assert "combinations(updated=0, skipped=0, failed=1)" in output
+
+    def test_backfill_logs_refresh_failures_with_context(self):
+        manufacturer = Manufacturer.objects.create(icg_code="M-1", name="Maker")
+        product = Product.objects.create(
+            icg_id=1001,
+            reference="REF001",
+            name="Product One",
+            manufacturer=manufacturer,
+        )
+
+        with (
+            patch(
+                "apps.icg.management.commands.backfill_last_icg_modified_date.refresh_product_from_icg",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "apps.icg.management.commands.backfill_last_icg_modified_date.logger"
+            ) as mock_logger,
+        ):
+            call_command("backfill_last_icg_modified_date", stdout=StringIO())
+
+        mock_logger.exception.assert_called_once_with(
+            "Failed to backfill last_icg_modified_date for %s pk=%s",
+            "product",
+            product.pk,
+        )

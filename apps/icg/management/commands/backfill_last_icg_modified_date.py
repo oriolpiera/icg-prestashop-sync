@@ -1,3 +1,5 @@
+import logging
+
 from django.core.management.base import BaseCommand
 from django.db.models import Max
 
@@ -9,13 +11,20 @@ from apps.icg.importer import (
     refresh_stock_from_icg,
 )
 
+logger = logging.getLogger(__name__)
 
-def _run_refresh_batch(queryset, refresh_fn) -> dict:
+
+def _run_refresh_batch(queryset, refresh_fn, entity_name: str) -> dict:
     stats = {"updated": 0, "skipped": 0, "failed": 0}
     for obj_id in queryset.values_list("pk", flat=True).iterator():
         try:
             result = refresh_fn(obj_id)
         except Exception:
+            logger.exception(
+                "Failed to backfill last_icg_modified_date for %s pk=%s",
+                entity_name,
+                obj_id,
+            )
             stats["failed"] += 1
             continue
 
@@ -53,18 +62,22 @@ class Command(BaseCommand):
         product_stats = _run_refresh_batch(
             Product.objects.filter(last_icg_modified_date__isnull=True).order_by("pk"),
             refresh_product_from_icg,
+            "product",
         )
         combination_stats = _run_refresh_batch(
             Combination.objects.filter(last_icg_modified_date__isnull=True).order_by("pk"),
             refresh_combination_from_icg,
+            "combination",
         )
         price_stats = _run_refresh_batch(
             Price.objects.filter(last_icg_modified_date__isnull=True).order_by("pk"),
             refresh_price_from_icg,
+            "price",
         )
         stock_stats = _run_refresh_batch(
             Stock.objects.filter(last_icg_modified_date__isnull=True).order_by("pk"),
             refresh_stock_from_icg,
+            "stock",
         )
         manufacturer_stats = _backfill_manufacturers_from_products()
         summary = " ".join(
