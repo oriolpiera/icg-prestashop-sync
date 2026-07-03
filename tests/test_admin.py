@@ -19,6 +19,7 @@ from apps.catalog.models import (
 )
 from apps.operations.admin import (
     FailedSyncFilter,
+    LastICGModifiedDatePresenceFilter,
     ProductAdmin,
     StuckJobFilter,
     _sync_error_display,
@@ -301,6 +302,51 @@ class TestAdminActions:
 
 @pytest.mark.django_db
 class TestSyncFilters:
+    def test_last_icg_modified_date_presence_filter_yes(self):
+        dated = _make_product(icg_id=4001, reference="DATED", last_icg_modified_date=timezone.now())
+        undated = _make_product(icg_id=4002, reference="UNDATED")
+
+        model_admin = ProductAdmin(Product, admin.site)
+        request = RequestFactory().get("/admin/")
+
+        f = LastICGModifiedDatePresenceFilter(
+            request, {"has_last_icg_modified_date": ["yes"]}, Product, model_admin
+        )
+        result = f.queryset(request, Product.objects.all())
+
+        assert dated in result
+        assert undated not in result
+
+    def test_last_icg_modified_date_presence_filter_no(self):
+        dated = _make_product(icg_id=4101, reference="DATED", last_icg_modified_date=timezone.now())
+        undated = _make_product(icg_id=4102, reference="UNDATED")
+
+        model_admin = ProductAdmin(Product, admin.site)
+        request = RequestFactory().get("/admin/")
+
+        f = LastICGModifiedDatePresenceFilter(
+            request, {"has_last_icg_modified_date": ["no"]}, Product, model_admin
+        )
+        result = f.queryset(request, Product.objects.all())
+
+        assert undated in result
+        assert dated not in result
+
+    def test_catalog_admins_expose_last_icg_modified_date_filters(self):
+        registry = admin_site._registry
+        expected = {
+            Manufacturer,
+            Product,
+            Combination,
+            Price,
+            Stock,
+        }
+
+        for model in expected:
+            list_filter = registry[model].list_filter
+            assert "last_icg_modified_date" in list_filter
+            assert LastICGModifiedDatePresenceFilter in list_filter
+
     def test_failed_sync_filter_yes(self):
         p1 = _make_product(icg_id=2001, reference="FAIL")
         p1.last_sync_error = '{"message": "boom"}'
