@@ -170,3 +170,36 @@ class TestRepairSingleAxisReference:
 
         assert "remaps=0" in out.getvalue()
         assert "target_in_use_conflicts=1" in out.getvalue()
+
+    def test_skips_duplicate_target_ids_requested_by_multiple_rows(self):
+        product = _make_product()
+        Combination.objects.create(
+            product=product, icg_size="***", icg_color="B00", prestashop_id=9001
+        )
+        Combination.objects.create(
+            product=product, icg_size=".", icg_color="B00", prestashop_id=9002
+        )
+
+        with patch(
+            "apps.sync.management.commands.repair_single_axis_reference.PrestashopClient"
+        ) as client_cls:
+            client = client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "COPIC_colores"},
+                {"ps_id": 12, "name": "Size"},
+            ]
+            client.list_attribute_values.side_effect = [
+                [{"ps_id": 201, "name": "B00"}],
+                [{"ps_id": 301, "name": "***"}],
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 2090, [201], ""),
+                PrestashopCombinationSummary(9001, 2090, [301, 201], ""),
+                PrestashopCombinationSummary(9002, 2090, [301, 201], ""),
+            ]
+
+            out = StringIO()
+            call_command("repair_single_axis_reference", "0090837", stdout=out)
+
+        assert "remaps=0" in out.getvalue()
+        assert "duplicate_target_conflicts=2" in out.getvalue()

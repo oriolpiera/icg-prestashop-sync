@@ -108,6 +108,10 @@ class Command(BaseCommand):
             combination.pk: (combination, new_ps_id, old_ps_id)
             for combination, new_ps_id, old_ps_id in remaps
         }
+        target_counts: dict[int, int] = defaultdict(int)
+        for _combination, new_ps_id, _old_ps_id in remaps:
+            target_counts[new_ps_id] += 1
+
         holders_by_ps_id = {
             combination.prestashop_id: combination
             for combination in django_combinations
@@ -116,7 +120,12 @@ class Command(BaseCommand):
 
         applicable_remaps: list[tuple[Combination, int, int | None]] = []
         target_in_use_conflicts = 0
+        duplicate_target_conflicts = 0
         for combination, new_ps_id, old_ps_id in remaps:
+            if target_counts[new_ps_id] > 1:
+                duplicate_target_conflicts += 1
+                continue
+
             holder = holders_by_ps_id.get(new_ps_id)
             if holder is None or holder.pk == combination.pk:
                 applicable_remaps.append((combination, new_ps_id, old_ps_id))
@@ -178,7 +187,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"[{mode}] Repair {reference}: remaps={len(applicable_remaps)} missing_targets={missing} ambiguous_targets={ambiguous} target_in_use_conflicts={target_in_use_conflicts}"  # noqa:E501
+                f"[{mode}] Repair {reference}: remaps={len(applicable_remaps)} missing_targets={missing} ambiguous_targets={ambiguous} duplicate_target_conflicts={duplicate_target_conflicts} target_in_use_conflicts={target_in_use_conflicts}"  # noqa:E501
             )
         )
         self.stdout.write(
