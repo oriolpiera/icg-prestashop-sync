@@ -1242,6 +1242,9 @@ class PrestashopClient:
             data=ElementTree.tostring(root, encoding="unicode"),
         )
 
+    def delete_combination(self, prestashop_id: int) -> None:
+        self._request("DELETE", "combinations", resource_id=prestashop_id)
+
     def _populate_combination_xml(
         self,
         root: ElementTree.Element,
