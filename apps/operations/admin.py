@@ -41,6 +41,24 @@ class FailedSyncFilter(SimpleListFilter):
         return queryset
 
 
+class LastICGModifiedDatePresenceFilter(SimpleListFilter):
+    title = "ICG modified date"
+    parameter_name = "has_last_icg_modified_date"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "With date"),
+            ("no", "Without date"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(last_icg_modified_date__isnull=False)
+        if self.value() == "no":
+            return queryset.filter(last_icg_modified_date__isnull=True)
+        return queryset
+
+
 class PrestashopIdFilter(SimpleListFilter):
     title = "PS ID status"
     parameter_name = "has_prestashop_id"
@@ -266,7 +284,12 @@ class ManufacturerAdmin(admin.ModelAdmin):
         _sync_error_display,
         "updated_at",
     )
-    list_filter = ("sync_required", FailedSyncFilter)
+    list_filter = (
+        "last_icg_modified_date",
+        LastICGModifiedDatePresenceFilter,
+        "sync_required",
+        FailedSyncFilter,
+    )
     search_fields = ("name", "icg_code")
     actions = (mark_for_resync, retry_entity_sync)
 
@@ -333,6 +356,8 @@ class ProductAdmin(admin.ModelAdmin):
         _sync_error_display,
     )
     list_filter = (
+        "last_icg_modified_date",
+        LastICGModifiedDatePresenceFilter,
         "visible_web",
         "discontinued",
         "sync_required",
@@ -380,6 +405,8 @@ class CombinationAdmin(admin.ModelAdmin):
         _sync_error_display,
     )
     list_filter = (
+        "last_icg_modified_date",
+        LastICGModifiedDatePresenceFilter,
         "active",
         "product__visible_web",
         "product__discontinued",
@@ -440,6 +467,8 @@ class PriceAdmin(admin.ModelAdmin):
         _sync_error_display,
     )
     list_filter = (
+        "last_icg_modified_date",
+        LastICGModifiedDatePresenceFilter,
         "currency",
         "combination__active",
         "combination__product__visible_web",
@@ -510,6 +539,8 @@ class StockAdmin(admin.ModelAdmin):
         _sync_error_display,
     )
     list_filter = (
+        "last_icg_modified_date",
+        LastICGModifiedDatePresenceFilter,
         "warehouse_code",
         "combination__active",
         "combination__product__visible_web",
