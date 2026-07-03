@@ -102,3 +102,71 @@ class TestRepairSingleAxisReference:
 
         client.delete_combination.assert_called_once_with(9001)
         assert "obsolete_delete_candidates=1" in out.getvalue()
+
+    def test_can_remap_when_target_is_held_by_another_row_that_also_moves(self):
+        product = _make_product()
+        first = Combination.objects.create(
+            product=product, icg_size="***", icg_color="B00", prestashop_id=9001
+        )
+        second = Combination.objects.create(
+            product=product, icg_size="***", icg_color="B01", prestashop_id=55
+        )
+
+        with patch(
+            "apps.sync.management.commands.repair_single_axis_reference.PrestashopClient"
+        ) as client_cls:
+            client = client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "COPIC_colores"},
+                {"ps_id": 12, "name": "Size"},
+            ]
+            client.list_attribute_values.side_effect = [
+                [{"ps_id": 201, "name": "B00"}, {"ps_id": 202, "name": "B01"}],
+                [{"ps_id": 301, "name": "***"}],
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 2090, [201], ""),
+                PrestashopCombinationSummary(56, 2090, [202], ""),
+                PrestashopCombinationSummary(9001, 2090, [301, 201], ""),
+            ]
+
+            out = StringIO()
+            call_command("repair_single_axis_reference", "0090837", "--apply", stdout=out)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.prestashop_id == 55
+        assert second.prestashop_id == 56
+        assert "target_in_use_conflicts=0" in out.getvalue()
+
+    def test_skips_target_ids_held_by_static_rows(self):
+        product = _make_product()
+        Combination.objects.create(
+            product=product, icg_size="***", icg_color="B00", prestashop_id=9001
+        )
+        Combination.objects.create(
+            product=product, icg_size="REAL", icg_color="OTHER", prestashop_id=55
+        )
+
+        with patch(
+            "apps.sync.management.commands.repair_single_axis_reference.PrestashopClient"
+        ) as client_cls:
+            client = client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "COPIC_colores"},
+                {"ps_id": 12, "name": "Size"},
+            ]
+            client.list_attribute_values.side_effect = [
+                [{"ps_id": 201, "name": "B00"}],
+                [{"ps_id": 301, "name": "***"}],
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 2090, [201], ""),
+                PrestashopCombinationSummary(9001, 2090, [301, 201], ""),
+            ]
+
+            out = StringIO()
+            call_command("repair_single_axis_reference", "0090837", stdout=out)
+
+        assert "remaps=0" in out.getvalue()
+        assert "target_in_use_conflicts=1" in out.getvalue()

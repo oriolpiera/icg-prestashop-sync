@@ -104,15 +104,47 @@ class Command(BaseCommand):
             else:
                 ambiguous += 1
 
+        remap_by_source_pk = {
+            combination.pk: (combination, new_ps_id, old_ps_id)
+            for combination, new_ps_id, old_ps_id in remaps
+        }
+        holders_by_ps_id = {
+            combination.prestashop_id: combination
+            for combination in django_combinations
+            if combination.prestashop_id is not None
+        }
+
+        applicable_remaps: list[tuple[Combination, int, int | None]] = []
+        target_in_use_conflicts = 0
+        for combination, new_ps_id, old_ps_id in remaps:
+            holder = holders_by_ps_id.get(new_ps_id)
+            if holder is None or holder.pk == combination.pk:
+                applicable_remaps.append((combination, new_ps_id, old_ps_id))
+                continue
+
+            if holder.pk in remap_by_source_pk:
+                applicable_remaps.append((combination, new_ps_id, old_ps_id))
+                continue
+
+            target_in_use_conflicts += 1
+
         obsolete_ids_to_delete = {
             old_ps_id
-            for _, new_ps_id, old_ps_id in remaps
+            for _, new_ps_id, old_ps_id in applicable_remaps
             if old_ps_id and old_ps_id != new_ps_id and old_ps_id in placeholder_candidates
         }
 
         if apply:
             with transaction.atomic():
-                for combination, new_ps_id, _old_ps_id in remaps:
+                combos_to_clear = [
+                    combination.pk
+                    for combination, new_ps_id, old_ps_id in applicable_remaps
+                    if old_ps_id is not None and old_ps_id != new_ps_id
+                ]
+                if combos_to_clear:
+                    Combination.objects.filter(pk__in=combos_to_clear).update(prestashop_id=None)
+
+                for combination, new_ps_id, _old_ps_id in applicable_remaps:
                     combination.prestashop_id = new_ps_id
                     combination.sync_required = False
                     combination.last_sync_error = ""
@@ -146,7 +178,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"[{mode}] Repair {reference}: remaps={len(remaps)} missing_targets={missing} ambiguous_targets={ambiguous}"  # noqa:E501
+                f"[{mode}] Repair {reference}: remaps={len(applicable_remaps)} missing_targets={missing} ambiguous_targets={ambiguous} target_in_use_conflicts={target_in_use_conflicts}"  # noqa:E501
             )
         )
         self.stdout.write(
