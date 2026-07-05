@@ -48,6 +48,29 @@ class TestBootstrapPrestashopCustomerCursor:
             with pytest.raises(CommandError, match="No Prestashop customers"):
                 call_command("bootstrap_prestashop_customer_cursor", stdout=StringIO())
 
+    def test_sets_customer_cursor_from_explicit_customer_id(self):
+        out = StringIO()
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_customer_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_customer_snapshot.return_value = type(
+                "CustomerSnapshot",
+                (),
+                {"customer_id": 55, "date_add": _aware(2026, 7, 5, 15)},
+            )()
+
+            call_command(
+                "bootstrap_prestashop_customer_cursor",
+                "--customer-id",
+                "55",
+                stdout=out,
+            )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.CUSTOMERS)
+        assert cursor.last_source_key == "55"
+        assert cursor.last_modified_at == _aware(2026, 7, 5, 15)
+        assert "#55" in out.getvalue()
+
 
 @pytest.mark.django_db
 class TestBootstrapPrestashopOrderCursor:
@@ -80,3 +103,26 @@ class TestBootstrapPrestashopOrderCursor:
 
             with pytest.raises(CommandError, match="No Prestashop orders"):
                 call_command("bootstrap_prestashop_order_cursor", stdout=StringIO())
+
+    def test_sets_order_cursor_from_explicit_order_id(self):
+        out = StringIO()
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_order_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_order_snapshot.return_value = type(
+                "OrderSnapshot",
+                (),
+                {"order_id": 88, "date_add": _aware(2026, 7, 5, 16)},
+            )()
+
+            call_command(
+                "bootstrap_prestashop_order_cursor",
+                "--order-id",
+                "88",
+                stdout=out,
+            )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.ORDERS)
+        assert cursor.last_source_key == "88"
+        assert cursor.last_modified_at == _aware(2026, 7, 5, 16)
+        assert "#88" in out.getvalue()
