@@ -72,3 +72,27 @@ class TestPrestashopCustomerClient:
             "display": "full",
             "filter[id_customer]": "42",
         }
+
+    def test_get_latest_customer_summary_uses_desc_sort(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.return_value = _response(
+            "<prestashop><customers>"
+            "<customer><id>42</id><firstname>Ada</firstname><lastname>Lovelace</lastname>"
+            "<email>ada@example.com</email><date_add>2026-07-05 12:00:00</date_add></customer>"
+            "</customers></prestashop>"
+        )
+        client = PrestashopClient(session=session)
+
+        customer = client.get_latest_customer_summary()
+
+        assert customer is not None
+        assert customer.customer_id == 42
+        assert session.request.call_args.kwargs["params"] == {
+            "display": "full",
+            "sort": "[date_add_DESC,id_DESC]",
+            "limit": "1",
+        }

@@ -90,3 +90,27 @@ class TestPrestashopOrderClient:
             "display": "full",
             "filter[id_order]": "42",
         }
+
+    def test_get_latest_order_summary_uses_desc_sort(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.return_value = _response(
+            "<prestashop><orders>"
+            "<order><id>77</id><id_customer>42</id_customer><payment>Redsys Card</payment>"
+            "<date_add>2026-07-05 13:00:00</date_add></order>"
+            "</orders></prestashop>"
+        )
+        client = PrestashopClient(session=session)
+
+        order = client.get_latest_order_summary()
+
+        assert order is not None
+        assert order.order_id == 77
+        assert session.request.call_args.kwargs["params"] == {
+            "display": "full",
+            "sort": "[date_add_DESC,id_DESC]",
+            "limit": "1",
+        }

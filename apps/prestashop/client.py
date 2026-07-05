@@ -628,6 +628,37 @@ class PrestashopClient:
         customers.sort(key=lambda customer: (customer.date_add, customer.customer_id))
         return customers
 
+    def get_latest_customer_summary(self) -> PrestashopCustomerSummary | None:
+        response = self._request(
+            "GET",
+            "customers",
+            params={
+                "display": "full",
+                "sort": "[date_add_DESC,id_DESC]",
+                "limit": "1",
+            },
+        )
+        root = self._parse_xml(response.text)
+        node = root.find("./customers/customer")
+        if node is None:
+            return None
+
+        customer_id = self._parse_int(node, "id")
+        if customer_id is None:
+            return None
+
+        date_add_text = (node.findtext("date_add") or "").strip()
+        if not date_add_text:
+            return None
+
+        return PrestashopCustomerSummary(
+            customer_id=customer_id,
+            firstname=(node.findtext("firstname") or "").strip(),
+            lastname=(node.findtext("lastname") or "").strip(),
+            email=(node.findtext("email") or "").strip(),
+            date_add=self._parse_prestashop_datetime(date_add_text),
+        )
+
     def get_customer_snapshot(self, customer_id: int) -> PrestashopCustomerSnapshot:
         response = self._request("GET", "customers", resource_id=customer_id)
         root = self._parse_xml(response.text)
@@ -702,6 +733,37 @@ class PrestashopClient:
 
         orders.sort(key=lambda order: (order.date_add, order.order_id))
         return orders
+
+    def get_latest_order_summary(self) -> PrestashopOrderSummary | None:
+        response = self._request(
+            "GET",
+            "orders",
+            params={
+                "display": "full",
+                "sort": "[date_add_DESC,id_DESC]",
+                "limit": "1",
+            },
+        )
+        root = self._parse_xml(response.text)
+        node = root.find("./orders/order")
+        if node is None:
+            return None
+
+        order_id = self._parse_int(node, "id")
+        customer_id = self._parse_int(node, "id_customer")
+        if order_id is None or customer_id is None:
+            return None
+
+        date_add_text = (node.findtext("date_add") or "").strip()
+        if not date_add_text:
+            return None
+
+        return PrestashopOrderSummary(
+            order_id=order_id,
+            customer_id=customer_id,
+            payment=(node.findtext("payment") or "").strip(),
+            date_add=self._parse_prestashop_datetime(date_add_text),
+        )
 
     def get_order_snapshot(self, order_id: int) -> PrestashopOrderSnapshot:
         response = self._request("GET", "orders", resource_id=order_id)
