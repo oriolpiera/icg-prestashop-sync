@@ -23,6 +23,7 @@ from apps.prestashop.services import (
     export_stock,
     format_sync_error,
 )
+from apps.sales.models import PrestashopCustomer, PrestashopOrder
 from apps.sales.services import (
     export_customer_to_icg_from_mirror,
     export_order_to_icg_from_mirror,
@@ -619,8 +620,8 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
 
 
 _RETRYABLE_EXPORT_MAP = {
-    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_mirror,
-    SyncJobType.EXPORT_ORDER: export_order_to_icg_from_mirror,
+    SyncJobType.EXPORT_CUSTOMER: lambda entity_id: retry_customer_export_from_job(int(entity_id)),
+    SyncJobType.EXPORT_ORDER: lambda entity_id: retry_order_export_from_job(int(entity_id)),
     SyncJobType.EXPORT_MANUFACTURER: export_manufacturer,
     SyncJobType.EXPORT_CATEGORY: export_category,
     SyncJobType.EXPORT_PRODUCT: export_product,
@@ -629,6 +630,18 @@ _RETRYABLE_EXPORT_MAP = {
     SyncJobType.EXPORT_STOCK: export_stock,
     SyncJobType.EXPORT_DISCOUNT: export_discount,
 }
+
+
+def retry_customer_export_from_job(entity_id: int) -> dict[str, int | bool]:
+    if not PrestashopCustomer.objects.filter(prestashop_id=entity_id).exists():
+        refresh_customer_from_prestashop(entity_id)
+    return export_customer_to_icg_from_mirror(entity_id)
+
+
+def retry_order_export_from_job(entity_id: int) -> dict[str, int]:
+    if not PrestashopOrder.objects.filter(prestashop_id=entity_id).exists():
+        refresh_order_from_prestashop(entity_id)
+    return export_order_to_icg_from_mirror(entity_id)
 
 
 @shared_task
