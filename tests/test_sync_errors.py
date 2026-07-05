@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.catalog.models import Manufacturer, Product
 from apps.prestashop.client import PrestashopError
+from apps.sales.models import PrestashopCustomer, PrestashopOrder
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
@@ -32,6 +33,8 @@ def _clean_db(request):
         SyncError.objects.all().delete()
         SyncJob.objects.all().delete()
         SyncLock.objects.all().delete()
+        PrestashopOrder.objects.all().delete()
+        PrestashopCustomer.objects.all().delete()
         Manufacturer.objects.all().delete()
         Product.objects.all().delete()
 
@@ -563,3 +566,69 @@ class TestRetryFailedJobs:
 
         assert result["status"] == "skipped"
         assert result["reason"] == "lock_held"
+
+    def test_retries_customer_job_by_refreshing_when_mirror_is_missing(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": 42, "customer_id": 42},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            error_type=SyncErrorType.TRANSIENT,
+            message="prestashop timeout",
+        )
+
+        with (
+            patch("apps.sync.tasks.refresh_customer_from_prestashop") as refresh_mock,
+            patch("apps.sync.tasks.export_customer_to_icg_from_mirror") as export_mock,
+        ):
+            refresh_mock.return_value = Mock()
+            export_mock.return_value = {"customer_id": 42, "inserted": True}
+
+            result = retry_failed_jobs()
+
+        assert result["retried"] == 1
+        refresh_mock.assert_called_once_with(42)
+        export_mock.assert_called_once_with(42)
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.SUCCEEDED
+
+    def test_retries_order_job_by_refreshing_when_mirror_is_missing(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_ORDER,
+            entity_type="prestashop_order",
+            entity_key="77",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": 77, "order_id": 77},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_order",
+            entity_key="77",
+            error_type=SyncErrorType.TRANSIENT,
+            message="prestashop timeout",
+        )
+
+        with (
+            patch("apps.sync.tasks.refresh_order_from_prestashop") as refresh_mock,
+            patch("apps.sync.tasks.export_order_to_icg_from_mirror") as export_mock,
+        ):
+            refresh_mock.return_value = Mock()
+            export_mock.return_value = {"order_id": 77, "inserted_rows": 3}
+
+            result = retry_failed_jobs()
+
+        assert result["retried"] == 1
+        refresh_mock.assert_called_once_with(77)
+        export_mock.assert_called_once_with(77)
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.SUCCEEDED

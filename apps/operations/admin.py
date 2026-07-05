@@ -18,7 +18,15 @@ from apps.catalog.models import (
     TaxRuleMapping,
 )
 from apps.operations.sites import admin_site
-from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
+from apps.sales.models import (
+    ExportStatus,
+    PrestashopCustomer,
+    PrestashopOrder,
+    PrestashopOrderDiscountLine,
+    PrestashopOrderLine,
+)
+from apps.sync.cursor_service import advance_cursor
+from apps.sync.models import SyncCursor, SyncCursorSource, SyncError, SyncJob, SyncJobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +100,19 @@ class SpecificPriceFilter(SimpleListFilter):
             return queryset.filter(prestashop_specific_price_id__isnull=False)
         if self.value() == "no":
             return queryset.filter(prestashop_specific_price_id__isnull=True)
+        return queryset
+
+
+class ExportStatusFilter(SimpleListFilter):
+    title = "export status"
+    parameter_name = "export_status"
+
+    def lookups(self, request, model_admin):
+        return ExportStatus.choices
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(export_status=self.value())
         return queryset
 
 
@@ -254,6 +275,102 @@ def retry_jobs(modeladmin, request, queryset):
             "No failed jobs were found in the selection. Only FAILED jobs can be retried.",
             messages.WARNING,
         )
+
+
+@admin.action(description="Refresh selected records from Prestashop")
+def refresh_sales_from_prestashop(modeladmin, request, queryset):
+    from apps.sync.tasks import refresh_prestashop_customer, refresh_prestashop_order
+
+    if queryset.model is PrestashopCustomer:
+        task = refresh_prestashop_customer
+        id_attr = "prestashop_id"
+        entity_name = "customer"
+    elif queryset.model is PrestashopOrder:
+        task = refresh_prestashop_order
+        id_attr = "prestashop_id"
+        entity_name = "order"
+    else:
+        modeladmin.message_user(
+            request,
+            "Refresh from Prestashop is not supported for this model.",
+            messages.WARNING,
+        )
+        return
+
+    count = 0
+    for obj in queryset:
+        task.delay(getattr(obj, id_attr))
+        count += 1
+
+    modeladmin.message_user(
+        request,
+        f"Dispatched {count} {entity_name}(s) for refresh from Prestashop.",
+        messages.SUCCESS,
+    )
+
+
+@admin.action(description="Export selected records to ICG now")
+def export_sales_to_icg(modeladmin, request, queryset):
+    from apps.sync.tasks import retry_entity
+
+    if queryset.model is PrestashopCustomer:
+        entity_type = "prestashop_customer"
+        entity_name = "customer"
+    elif queryset.model is PrestashopOrder:
+        entity_type = "prestashop_order"
+        entity_name = "order"
+    else:
+        modeladmin.message_user(
+            request,
+            "Export to ICG is not supported for this model.",
+            messages.WARNING,
+        )
+        return
+
+    count = 0
+    for obj in queryset:
+        retry_entity.delay(entity_type, obj.prestashop_id, str(obj.prestashop_id))
+        count += 1
+
+    modeladmin.message_user(
+        request,
+        f"Dispatched {count} {entity_name}(s) for export to ICG.",
+        messages.SUCCESS,
+    )
+
+
+@admin.action(description="Set sync cursor to selected record")
+def set_sales_sync_cursor(modeladmin, request, queryset):
+    if queryset.model is PrestashopCustomer:
+        source = SyncCursorSource.CUSTOMERS
+        entity_name = "customer"
+    elif queryset.model is PrestashopOrder:
+        source = SyncCursorSource.ORDERS
+        entity_name = "order"
+    else:
+        modeladmin.message_user(
+            request,
+            "Setting the sync cursor is not supported for this model.",
+            messages.WARNING,
+        )
+        return
+
+    selected = list(queryset.order_by("date_add", "prestashop_id"))
+    if not selected:
+        modeladmin.message_user(request, "No records selected.", messages.WARNING)
+        return
+
+    target = selected[-1]
+    advance_cursor(source, target.date_add, str(target.prestashop_id))
+    modeladmin.message_user(
+        request,
+        (
+            f"Set {source.value} cursor to {entity_name} #{target.prestashop_id} "
+            f"({target.date_add.isoformat()}). "
+            "The next automatic export will start after this record."
+        ),
+        messages.SUCCESS,
+    )
 
 
 def _sync_error_display(obj):
@@ -660,3 +777,113 @@ class SyncErrorAdmin(admin.ModelAdmin):
     def mark_resolved(self, request, queryset):
         count = queryset.update(resolved=True)
         self.message_user(request, f"Marked {count} error(s) as resolved.", messages.SUCCESS)
+
+
+class PrestashopOrderLineInline(admin.TabularInline):
+    model = PrestashopOrderLine
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        "position",
+        "prestashop_product_id",
+        "prestashop_combination_id",
+        "description",
+        "quantity",
+        "unit_price_tax_incl",
+        "total_price_tax_incl",
+        "vat_rate",
+    )
+
+
+class PrestashopOrderDiscountLineInline(admin.TabularInline):
+    model = PrestashopOrderDiscountLine
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        "position",
+        "description",
+        "amount_tax_incl",
+        "amount_tax_excl",
+        "vat_rate",
+    )
+
+
+@register(PrestashopCustomer, site=admin_site)
+class PrestashopCustomerAdmin(admin.ModelAdmin):
+    list_display = (
+        "prestashop_id",
+        "firstname",
+        "lastname",
+        "email",
+        "city",
+        "phone_or_mobile",
+        "date_add",
+        "export_status",
+        "exported_to_icg_at",
+        "last_export_error_short",
+    )
+    list_filter = (ExportStatusFilter, "country", "state", "date_add")
+    search_fields = ("prestashop_id", "firstname", "lastname", "email", "city")
+    readonly_fields = (
+        "prestashop_id",
+        "date_add",
+        "last_snapshot_at",
+        "export_status",
+        "exported_to_icg_at",
+        "last_export_error",
+        "last_export_inserted",
+        "created_at",
+        "updated_at",
+    )
+    actions = (refresh_sales_from_prestashop, export_sales_to_icg, set_sales_sync_cursor)
+
+    def phone_or_mobile(self, obj):
+        return obj.phone or obj.phone_mobile or "-"
+
+    phone_or_mobile.short_description = "phone"
+
+    def last_export_error_short(self, obj):
+        return (obj.last_export_error or "-")[:80]
+
+    last_export_error_short.short_description = "last export error"
+
+
+@register(PrestashopOrder, site=admin_site)
+class PrestashopOrderAdmin(admin.ModelAdmin):
+    list_display = (
+        "prestashop_id",
+        "customer",
+        "payment",
+        "total_paid_tax_incl",
+        "total_shipping_tax_incl",
+        "date_add",
+        "inserted_rows",
+        "export_status",
+        "exported_to_icg_at",
+        "last_export_error_short",
+    )
+    list_filter = (ExportStatusFilter, "payment", "date_add")
+    search_fields = ("prestashop_id", "customer__firstname", "customer__lastname", "payment")
+    readonly_fields = (
+        "prestashop_id",
+        "customer",
+        "payment",
+        "date_add",
+        "total_paid_tax_incl",
+        "total_shipping_tax_incl",
+        "total_shipping_tax_excl",
+        "last_snapshot_at",
+        "export_status",
+        "exported_to_icg_at",
+        "inserted_rows",
+        "last_export_error",
+        "created_at",
+        "updated_at",
+    )
+    inlines = [PrestashopOrderLineInline, PrestashopOrderDiscountLineInline]
+    actions = (refresh_sales_from_prestashop, export_sales_to_icg, set_sales_sync_cursor)
+
+    def last_export_error_short(self, obj):
+        return (obj.last_export_error or "-")[:80]
+
+    last_export_error_short.short_description = "last export error"

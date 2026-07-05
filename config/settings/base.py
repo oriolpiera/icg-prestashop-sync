@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.sync",
     "apps.prestashop",
+    "apps.sales",
     "apps.operations",
     "apps.db_explorer",
 ]

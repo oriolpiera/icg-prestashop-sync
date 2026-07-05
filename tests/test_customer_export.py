@@ -10,6 +10,7 @@ from apps.prestashop.client import (
     PrestashopCustomerSnapshot,
     PrestashopCustomerSummary,
 )
+from apps.sales.models import ExportStatus, PrestashopCustomer
 from apps.sync.cursor_service import get_or_create_cursor
 from apps.sync.customer_export import export_customer_to_icg, map_snapshot_to_clientes_web
 from apps.sync.models import (
@@ -29,6 +30,7 @@ def _clean_db(request):
         SyncError.objects.all().delete()
         SyncJob.objects.all().delete()
         SyncCursor.objects.all().delete()
+        PrestashopCustomer.objects.all().delete()
 
 
 def _aware(year: int, month: int, day: int, hour: int, minute: int = 0, second: int = 0):
@@ -266,10 +268,12 @@ class TestCustomerExportTask:
         with (
             patch("apps.sync.tasks.PrestashopClient") as client_factory,
             patch("apps.sync.tasks.ICGClientesWebWriter") as writer_factory,
-            patch("apps.sync.tasks.export_customer_to_icg") as export_mock,
+            patch("apps.sync.tasks.refresh_customer_from_prestashop") as refresh_mock,
+            patch("apps.sync.tasks.export_customer_to_icg_from_mirror") as export_mock,
         ):
             client_factory.return_value.list_customers_created_after.return_value = customers
             writer_factory.return_value = Mock()
+            refresh_mock.return_value = Mock()
             export_mock.side_effect = [
                 {"customer_id": 1, "inserted": True},
                 {"customer_id": 2, "inserted": False},
@@ -299,17 +303,28 @@ class TestCustomerExportTask:
                 9, "Grace", "Hopper", "grace@example.com", _aware(2026, 6, 30, 9)
             ),
         ]
+        PrestashopCustomer.objects.create(
+            prestashop_id=9,
+            firstname="Grace",
+            lastname="Hopper",
+            email="grace@example.com",
+            date_add=_aware(2026, 6, 30, 9),
+            last_snapshot_at=_aware(2026, 6, 30, 8),
+            export_status=ExportStatus.NEVER,
+        )
 
         with (
             patch("apps.sync.tasks.PrestashopClient") as client_factory,
             patch("apps.sync.tasks.ICGClientesWebWriter") as writer_factory,
+            patch("apps.sync.tasks.refresh_customer_from_prestashop") as refresh_mock,
             patch(
-                "apps.sync.tasks.export_customer_to_icg",
+                "apps.sync.tasks.export_customer_to_icg_from_mirror",
                 side_effect=Exception("sql down"),
             ),
         ):
             client_factory.return_value.list_customers_created_after.return_value = customers
             writer_factory.return_value = Mock()
+            refresh_mock.return_value = Mock()
 
             result = export_new_customers_to_icg(limit=100)
 
@@ -319,3 +334,34 @@ class TestCustomerExportTask:
         job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_CUSTOMER)
         assert job.status == SyncJobStatus.FAILED
         assert "sql down" in job.last_error
+
+    def test_task_stops_without_advancing_cursor_when_refresh_fails_before_mirror_exists(self):
+        customers = [
+            PrestashopCustomerSummary(
+                9, "Grace", "Hopper", "grace@example.com", _aware(2026, 6, 30, 9)
+            ),
+            PrestashopCustomerSummary(
+                10, "Katherine", "Johnson", "kat@example.com", _aware(2026, 6, 30, 10)
+            ),
+        ]
+
+        with (
+            patch("apps.sync.tasks.PrestashopClient") as client_factory,
+            patch("apps.sync.tasks.ICGClientesWebWriter") as writer_factory,
+            patch(
+                "apps.sync.tasks.refresh_customer_from_prestashop",
+                side_effect=Exception("prestashop timeout"),
+            ),
+            patch("apps.sync.tasks.export_customer_to_icg_from_mirror") as export_mock,
+        ):
+            client_factory.return_value.list_customers_created_after.return_value = customers
+            writer_factory.return_value = Mock()
+
+            result = export_new_customers_to_icg(limit=100)
+
+        assert result == {"status": "success", "processed": 0, "inserted": 0, "failed": 1}
+        cursor = get_or_create_cursor(SyncCursorSource.CUSTOMERS)
+        assert cursor.last_source_key == ""
+        assert cursor.last_modified_at is None
+        export_mock.assert_not_called()
+        assert SyncJob.objects.count() == 1
