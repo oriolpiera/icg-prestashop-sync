@@ -71,6 +71,57 @@ class TestBootstrapPrestashopCustomerCursor:
         assert cursor.last_modified_at == _aware(2026, 7, 5, 15)
         assert "#55" in out.getvalue()
 
+    def test_refuses_to_rewind_customer_cursor_without_flag(self):
+        SyncCursor.objects.create(
+            source=SyncCursorSource.CUSTOMERS,
+            last_source_key="99",
+            last_modified_at=_aware(2026, 7, 6, 12),
+        )
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_customer_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_customer_snapshot.return_value = type(
+                "CustomerSnapshot",
+                (),
+                {"customer_id": 55, "date_add": _aware(2026, 7, 5, 15)},
+            )()
+
+            with pytest.raises(CommandError, match="Refusing to rewind the customer cursor"):
+                call_command(
+                    "bootstrap_prestashop_customer_cursor",
+                    "--customer-id",
+                    "55",
+                    stdout=StringIO(),
+                )
+
+    def test_allows_rewind_customer_cursor_with_flag(self):
+        SyncCursor.objects.create(
+            source=SyncCursorSource.CUSTOMERS,
+            last_source_key="99",
+            last_modified_at=_aware(2026, 7, 6, 12),
+        )
+        out = StringIO()
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_customer_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_customer_snapshot.return_value = type(
+                "CustomerSnapshot",
+                (),
+                {"customer_id": 55, "date_add": _aware(2026, 7, 5, 15)},
+            )()
+
+            call_command(
+                "bootstrap_prestashop_customer_cursor",
+                "--customer-id",
+                "55",
+                "--allow-rewind",
+                stdout=out,
+            )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.CUSTOMERS)
+        assert cursor.last_source_key == "55"
+        assert "Previous cursor was #99" in out.getvalue()
+
 
 @pytest.mark.django_db
 class TestBootstrapPrestashopOrderCursor:
@@ -126,3 +177,54 @@ class TestBootstrapPrestashopOrderCursor:
         assert cursor.last_source_key == "88"
         assert cursor.last_modified_at == _aware(2026, 7, 5, 16)
         assert "#88" in out.getvalue()
+
+    def test_refuses_to_rewind_order_cursor_without_flag(self):
+        SyncCursor.objects.create(
+            source=SyncCursorSource.ORDERS,
+            last_source_key="120",
+            last_modified_at=_aware(2026, 7, 6, 13),
+        )
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_order_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_order_snapshot.return_value = type(
+                "OrderSnapshot",
+                (),
+                {"order_id": 88, "date_add": _aware(2026, 7, 5, 16)},
+            )()
+
+            with pytest.raises(CommandError, match="Refusing to rewind the order cursor"):
+                call_command(
+                    "bootstrap_prestashop_order_cursor",
+                    "--order-id",
+                    "88",
+                    stdout=StringIO(),
+                )
+
+    def test_allows_rewind_order_cursor_with_flag(self):
+        SyncCursor.objects.create(
+            source=SyncCursorSource.ORDERS,
+            last_source_key="120",
+            last_modified_at=_aware(2026, 7, 6, 13),
+        )
+        out = StringIO()
+        with patch(
+            "apps.sync.management.commands.bootstrap_prestashop_order_cursor.PrestashopClient"
+        ) as client_factory:
+            client_factory.return_value.get_order_snapshot.return_value = type(
+                "OrderSnapshot",
+                (),
+                {"order_id": 88, "date_add": _aware(2026, 7, 5, 16)},
+            )()
+
+            call_command(
+                "bootstrap_prestashop_order_cursor",
+                "--order-id",
+                "88",
+                "--allow-rewind",
+                stdout=out,
+            )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.ORDERS)
+        assert cursor.last_source_key == "88"
+        assert "Previous cursor was #120" in out.getvalue()
