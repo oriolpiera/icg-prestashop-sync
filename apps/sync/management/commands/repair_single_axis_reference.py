@@ -110,6 +110,9 @@ class Command(BaseCommand):
         if apply and placeholder_cleanup_candidates:
             Combination.objects.filter(pk__in=placeholder_cleanup_candidates).delete()
             django_combinations = list(product.combinations.all().order_by("pk"))
+        elif placeholder_cleanup_candidates:
+            cleanup_pks = set(placeholder_cleanup_candidates)
+            django_combinations = [c for c in django_combinations if c.pk not in cleanup_pks]
 
         remaps: list[tuple[Combination, int, int | None]] = []
         ambiguous = 0
