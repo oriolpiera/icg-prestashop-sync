@@ -7,6 +7,8 @@ from django.utils import timezone
 from apps.icg.services import ClientesWebRow, ICGClientesWebWriter
 from apps.prestashop.client import PrestashopClient, PrestashopCustomerSnapshot
 
+ICG_WEB_CUSTOMER_PREFIX = "5"
+
 
 def export_customer_to_icg(
     customer_id: int,
@@ -56,7 +58,7 @@ def map_snapshot_to_clientes_web(
     # timezone, and the partner owns FechaInsercion, so we leave it as NULL.
 
     return ClientesWebRow(
-        cod_cliente_web=snapshot.customer_id,
+        cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
         nombre_cliente=_trim(full_name, 255),
         nombre_comercial="",
         cif=_trim(cif, 12),
@@ -73,6 +75,10 @@ def map_snapshot_to_clientes_web(
         fecha_exportacion=exported_at,
         fecha_insercion=None,
     )
+
+
+def map_prestashop_customer_id_to_icg_web_code(prestashop_customer_id: int) -> int:
+    return int(f"{ICG_WEB_CUSTOMER_PREFIX}{prestashop_customer_id}")
 
 
 def _trim(value: str | None, max_length: int) -> str | None:
