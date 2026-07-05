@@ -92,50 +92,49 @@ def upsert_order_snapshot(
     captured_at: datetime | None = None,
 ) -> PrestashopOrder:
     captured_at = captured_at or timezone.now()
-    with transaction.atomic():
-        order, _ = PrestashopOrder.objects.update_or_create(
-            prestashop_id=snapshot.order_id,
-            defaults={
-                "customer": customer,
-                "payment": snapshot.payment,
-                "date_add": snapshot.date_add,
-                "total_paid_tax_incl": snapshot.total_paid_tax_incl,
-                "total_shipping_tax_incl": snapshot.total_shipping_tax_incl,
-                "total_shipping_tax_excl": snapshot.total_shipping_tax_excl,
-                "last_snapshot_at": captured_at,
-            },
-        )
-        order.lines.all().delete()
-        order.discounts.all().delete()
-        MirroredOrderLine.objects.bulk_create(
-            [
-                MirroredOrderLine(
-                    order=order,
-                    position=index,
-                    prestashop_product_id=line.product_id,
-                    prestashop_combination_id=line.combination_id,
-                    description=line.description,
-                    quantity=line.quantity,
-                    unit_price_tax_incl=line.unit_price_tax_incl,
-                    total_price_tax_incl=line.total_price_tax_incl,
-                    vat_rate=line.vat_rate,
-                )
-                for index, line in enumerate(snapshot.lines, start=1)
-            ]
-        )
-        MirroredDiscountLine.objects.bulk_create(
-            [
-                MirroredDiscountLine(
-                    order=order,
-                    position=index,
-                    description=discount.description,
-                    amount_tax_incl=discount.amount_tax_incl,
-                    amount_tax_excl=discount.amount_tax_excl,
-                    vat_rate=discount.vat_rate,
-                )
-                for index, discount in enumerate(snapshot.discounts, start=1)
-            ]
-        )
+    order, _ = PrestashopOrder.objects.update_or_create(
+        prestashop_id=snapshot.order_id,
+        defaults={
+            "customer": customer,
+            "payment": snapshot.payment,
+            "date_add": snapshot.date_add,
+            "total_paid_tax_incl": snapshot.total_paid_tax_incl,
+            "total_shipping_tax_incl": snapshot.total_shipping_tax_incl,
+            "total_shipping_tax_excl": snapshot.total_shipping_tax_excl,
+            "last_snapshot_at": captured_at,
+        },
+    )
+    order.lines.all().delete()
+    order.discounts.all().delete()
+    MirroredOrderLine.objects.bulk_create(
+        [
+            MirroredOrderLine(
+                order=order,
+                position=index,
+                prestashop_product_id=line.product_id,
+                prestashop_combination_id=line.combination_id,
+                description=line.description,
+                quantity=line.quantity,
+                unit_price_tax_incl=line.unit_price_tax_incl,
+                total_price_tax_incl=line.total_price_tax_incl,
+                vat_rate=line.vat_rate,
+            )
+            for index, line in enumerate(snapshot.lines, start=1)
+        ]
+    )
+    MirroredDiscountLine.objects.bulk_create(
+        [
+            MirroredDiscountLine(
+                order=order,
+                position=index,
+                description=discount.description,
+                amount_tax_incl=discount.amount_tax_incl,
+                amount_tax_excl=discount.amount_tax_excl,
+                vat_rate=discount.vat_rate,
+            )
+            for index, discount in enumerate(snapshot.discounts, start=1)
+        ]
+    )
     return order
 
 
@@ -268,7 +267,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
             )
-            for line in order.lines.all().order_by("position")
+            for line in order.lines.all()
         ],
         discounts=[
             PrestashopOrderDiscountLine(
@@ -277,7 +276,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
                 amount_tax_excl=discount.amount_tax_excl,
                 vat_rate=discount.vat_rate,
             )
-            for discount in order.discounts.all().order_by("position")
+            for discount in order.discounts.all()
         ],
     )
 
