@@ -25,7 +25,8 @@ from apps.sales.models import (
     PrestashopOrderDiscountLine,
     PrestashopOrderLine,
 )
-from apps.sync.models import SyncCursor, SyncError, SyncJob, SyncJobStatus
+from apps.sync.cursor_service import advance_cursor
+from apps.sync.models import SyncCursor, SyncCursorSource, SyncError, SyncJob, SyncJobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -334,6 +335,40 @@ def export_sales_to_icg(modeladmin, request, queryset):
     modeladmin.message_user(
         request,
         f"Dispatched {count} {entity_name}(s) for export to ICG.",
+        messages.SUCCESS,
+    )
+
+
+@admin.action(description="Set sync cursor to selected record")
+def set_sales_sync_cursor(modeladmin, request, queryset):
+    if queryset.model is PrestashopCustomer:
+        source = SyncCursorSource.CUSTOMERS
+        entity_name = "customer"
+    elif queryset.model is PrestashopOrder:
+        source = SyncCursorSource.ORDERS
+        entity_name = "order"
+    else:
+        modeladmin.message_user(
+            request,
+            "Setting the sync cursor is not supported for this model.",
+            messages.WARNING,
+        )
+        return
+
+    selected = list(queryset.order_by("date_add", "prestashop_id"))
+    if not selected:
+        modeladmin.message_user(request, "No records selected.", messages.WARNING)
+        return
+
+    target = selected[-1]
+    advance_cursor(source, target.date_add, str(target.prestashop_id))
+    modeladmin.message_user(
+        request,
+        (
+            f"Set {source.value} cursor to {entity_name} #{target.prestashop_id} "
+            f"({target.date_add.isoformat()}). "
+            "The next automatic export will start after this record."
+        ),
         messages.SUCCESS,
     )
 
@@ -800,7 +835,7 @@ class PrestashopCustomerAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    actions = (refresh_sales_from_prestashop, export_sales_to_icg)
+    actions = (refresh_sales_from_prestashop, export_sales_to_icg, set_sales_sync_cursor)
 
     def phone_or_mobile(self, obj):
         return obj.phone or obj.phone_mobile or "-"
@@ -846,7 +881,7 @@ class PrestashopOrderAdmin(admin.ModelAdmin):
         "updated_at",
     )
     inlines = [PrestashopOrderLineInline, PrestashopOrderDiscountLineInline]
-    actions = (refresh_sales_from_prestashop, export_sales_to_icg)
+    actions = (refresh_sales_from_prestashop, export_sales_to_icg, set_sales_sync_cursor)
 
     def last_export_error_short(self, obj):
         return (obj.last_export_error or "-")[:80]

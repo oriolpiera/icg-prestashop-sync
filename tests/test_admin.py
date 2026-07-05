@@ -28,11 +28,12 @@ from apps.operations.admin import (
     refresh_sales_from_prestashop,
     retry_entity_sync,
     retry_jobs,
+    set_sales_sync_cursor,
     update_from_icg,
 )
 from apps.operations.sites import admin_site
 from apps.sales.models import PrestashopCustomer, PrestashopOrder
-from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus, SyncJobType
+from apps.sync.models import SyncCursor, SyncCursorSource, SyncJob, SyncJobStatus, SyncJobType
 from apps.sync.tasks import retry_entity
 
 
@@ -359,6 +360,57 @@ class TestAdminActions:
         mock_retry.delay.assert_called_once_with(
             "prestashop_order", order.prestashop_id, str(order.prestashop_id)
         )
+
+    def test_set_sales_sync_cursor_for_customer_uses_selected_record(self):
+        first = _make_sales_customer(
+            prestashop_id=40,
+            date_add=timezone.now() - timedelta(days=2),
+            last_snapshot_at=timezone.now(),
+        )
+        second = _make_sales_customer(
+            prestashop_id=42,
+            date_add=timezone.now() - timedelta(days=1),
+            last_snapshot_at=timezone.now(),
+        )
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopCustomer]
+
+        set_sales_sync_cursor(
+            model_admin,
+            request,
+            PrestashopCustomer.objects.filter(pk__in=[first.pk, second.pk]),
+        )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.CUSTOMERS)
+        assert cursor.last_source_key == "42"
+        assert cursor.last_modified_at == second.date_add
+
+    def test_set_sales_sync_cursor_for_order_uses_selected_record(self):
+        customer = _make_sales_customer()
+        first = _make_sales_order(
+            customer,
+            prestashop_id=70,
+            date_add=timezone.now() - timedelta(days=2),
+            last_snapshot_at=timezone.now(),
+        )
+        second = _make_sales_order(
+            customer,
+            prestashop_id=77,
+            date_add=timezone.now() - timedelta(days=1),
+            last_snapshot_at=timezone.now(),
+        )
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopOrder]
+
+        set_sales_sync_cursor(
+            model_admin,
+            request,
+            PrestashopOrder.objects.filter(pk__in=[first.pk, second.pk]),
+        )
+
+        cursor = SyncCursor.objects.get(source=SyncCursorSource.ORDERS)
+        assert cursor.last_source_key == "77"
+        assert cursor.last_modified_at == second.date_add
 
 
 # --- Custom filters ---
