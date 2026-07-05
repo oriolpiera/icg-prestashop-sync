@@ -584,9 +584,11 @@ class PrestashopClient:
     ) -> list[PrestashopCustomerSummary]:
         params = {
             "display": "full",
-            "sort": "[date_add_ASC,id_ASC]",
+            "sort": "[id_ASC]",
         }
-        if cursor_at is not None:
+        if last_customer_id > 0:
+            params["filter[id]"] = f"[{last_customer_id + 1},]"
+        elif cursor_at is not None:
             params["date"] = "1"
             params["filter[date_add]"] = f"[{self._format_prestashop_datetime(cursor_at)},]"
         if limit > 0:
@@ -609,7 +611,10 @@ class PrestashopClient:
                 continue
 
             date_add = self._parse_prestashop_datetime(date_add_text)
-            if cursor_at is not None:
+            if last_customer_id > 0:
+                if customer_id <= last_customer_id:
+                    continue
+            elif cursor_at is not None:
                 if date_add < cursor_at:
                     continue
                 if date_add == cursor_at and customer_id <= last_customer_id:
@@ -625,7 +630,7 @@ class PrestashopClient:
                 )
             )
 
-        customers.sort(key=lambda customer: (customer.date_add, customer.customer_id))
+        customers.sort(key=lambda customer: customer.customer_id)
         return customers
 
     def get_latest_customer_summary(self) -> PrestashopCustomerSummary | None:
@@ -634,7 +639,7 @@ class PrestashopClient:
             "customers",
             params={
                 "display": "full",
-                "sort": "[date_add_DESC,id_DESC]",
+                "sort": "[id_DESC]",
                 "limit": "1",
             },
         )
@@ -694,9 +699,11 @@ class PrestashopClient:
     ) -> list[PrestashopOrderSummary]:
         params = {
             "display": "full",
-            "sort": "[date_add_ASC,id_ASC]",
+            "sort": "[id_ASC]",
         }
-        if cursor_at is not None:
+        if last_order_id > 0:
+            params["filter[id]"] = f"[{last_order_id + 1},]"
+        elif cursor_at is not None:
             params["date"] = "1"
             params["filter[date_add]"] = f"[{self._format_prestashop_datetime(cursor_at)},]"
         if limit > 0:
@@ -716,7 +723,10 @@ class PrestashopClient:
                 continue
 
             date_add = self._parse_prestashop_datetime(date_add_text)
-            if cursor_at is not None:
+            if last_order_id > 0:
+                if order_id <= last_order_id:
+                    continue
+            elif cursor_at is not None:
                 if date_add < cursor_at:
                     continue
                 if date_add == cursor_at and order_id <= last_order_id:
@@ -731,7 +741,7 @@ class PrestashopClient:
                 )
             )
 
-        orders.sort(key=lambda order: (order.date_add, order.order_id))
+        orders.sort(key=lambda order: order.order_id)
         return orders
 
     def get_latest_order_summary(self) -> PrestashopOrderSummary | None:
@@ -740,7 +750,7 @@ class PrestashopClient:
             "orders",
             params={
                 "display": "full",
-                "sort": "[date_add_DESC,id_DESC]",
+                "sort": "[id_DESC]",
                 "limit": "1",
             },
         )
