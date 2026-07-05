@@ -460,6 +460,17 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
                 except Exception as exc:
                     failed += 1
                     _record_sync_error(job, exc)
+                    if not PrestashopCustomer.objects.filter(
+                        prestashop_id=customer.customer_id
+                    ).exists():
+                        logger.warning(
+                            (
+                                "Stopping customer export batch at Prestashop customer %s: "
+                                "refresh failed before mirror creation"
+                            ),
+                            customer.customer_id,
+                        )
+                        break
                 else:
                     processed += 1
                     if result.get("inserted"):
@@ -475,6 +486,12 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
                             "updated_at",
                         ]
                     )
+                    advance_cursor(
+                        SyncCursorSource.CUSTOMERS,
+                        customer.date_add,
+                        str(customer.customer_id),
+                    )
+                    continue
 
                 advance_cursor(
                     SyncCursorSource.CUSTOMERS,
@@ -539,6 +556,15 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                 except Exception as exc:
                     failed += 1
                     _record_sync_error(job, exc)
+                    if not PrestashopOrder.objects.filter(prestashop_id=order.order_id).exists():
+                        logger.warning(
+                            (
+                                "Stopping order export batch at Prestashop order %s: "
+                                "refresh failed before mirror creation"
+                            ),
+                            order.order_id,
+                        )
+                        break
                 else:
                     processed += 1
                     inserted_rows += int(result.get("inserted_rows", 0))
@@ -553,6 +579,12 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                             "updated_at",
                         ]
                     )
+                    advance_cursor(
+                        SyncCursorSource.ORDERS,
+                        order.date_add,
+                        str(order.order_id),
+                    )
+                    continue
 
                 advance_cursor(
                     SyncCursorSource.ORDERS,

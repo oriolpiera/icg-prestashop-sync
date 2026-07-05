@@ -14,7 +14,7 @@ from apps.prestashop.client import (
     PrestashopOrderSnapshot,
     PrestashopOrderSummary,
 )
-from apps.sales.models import PrestashopCustomer, PrestashopOrder
+from apps.sales.models import ExportStatus, PrestashopCustomer, PrestashopOrder
 from apps.sync.cursor_service import get_or_create_cursor
 from apps.sync.models import (
     SyncCursor,
@@ -308,6 +308,26 @@ class TestOrderExportTask:
 
     def test_task_records_failure_and_still_advances_cursor(self):
         orders = [PrestashopOrderSummary(9, 7, "Redsys Card", _aware(2026, 6, 30, 9))]
+        customer = PrestashopCustomer.objects.create(
+            prestashop_id=7,
+            firstname="Grace",
+            lastname="Hopper",
+            email="grace@example.com",
+            date_add=_aware(2026, 6, 30, 8),
+            last_snapshot_at=_aware(2026, 6, 30, 8),
+            export_status=ExportStatus.NEVER,
+        )
+        PrestashopOrder.objects.create(
+            prestashop_id=9,
+            customer=customer,
+            payment="Redsys Card",
+            date_add=_aware(2026, 6, 30, 9),
+            total_paid_tax_incl=Decimal("100.00"),
+            total_shipping_tax_incl=Decimal("12.10"),
+            total_shipping_tax_excl=Decimal("10.00"),
+            last_snapshot_at=_aware(2026, 6, 30, 8),
+            export_status=ExportStatus.NEVER,
+        )
 
         with (
             patch("apps.sync.tasks.PrestashopClient") as client_factory,
@@ -330,3 +350,30 @@ class TestOrderExportTask:
         job = SyncJob.objects.get(job_type=SyncJobType.EXPORT_ORDER)
         assert job.status == SyncJobStatus.FAILED
         assert "payment mismatch" in job.last_error
+
+    def test_task_stops_without_advancing_cursor_when_refresh_fails_before_mirror_exists(self):
+        orders = [
+            PrestashopOrderSummary(9, 7, "Redsys Card", _aware(2026, 6, 30, 9)),
+            PrestashopOrderSummary(10, 8, "Bank transfer", _aware(2026, 6, 30, 10)),
+        ]
+
+        with (
+            patch("apps.sync.tasks.PrestashopClient") as client_factory,
+            patch("apps.sync.tasks.ICGFacturasWebWriter") as writer_factory,
+            patch(
+                "apps.sync.tasks.refresh_order_from_prestashop",
+                side_effect=Exception("prestashop timeout"),
+            ),
+            patch("apps.sync.tasks.export_order_to_icg_from_mirror") as export_mock,
+        ):
+            client_factory.return_value.list_orders_created_after.return_value = orders
+            writer_factory.return_value = Mock()
+
+            result = export_new_orders_to_icg(limit=100)
+
+        assert result == {"status": "success", "processed": 0, "inserted_rows": 0, "failed": 1}
+        cursor = get_or_create_cursor(SyncCursorSource.ORDERS)
+        assert cursor.last_source_key == ""
+        assert cursor.last_modified_at is None
+        export_mock.assert_not_called()
+        assert SyncJob.objects.count() == 1

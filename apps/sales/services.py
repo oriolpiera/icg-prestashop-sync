@@ -62,6 +62,10 @@ def upsert_customer_snapshot(
         "dni": _blank(address.dni if address else None),
         "vat_number": _blank(address.vat_number if address else None),
         "last_snapshot_at": captured_at,
+        "export_status": ExportStatus.NEVER,
+        "exported_to_icg_at": None,
+        "last_export_error": "",
+        "last_export_inserted": None,
     }
     customer, _ = PrestashopCustomer.objects.update_or_create(
         prestashop_id=snapshot.customer_id,
@@ -102,6 +106,10 @@ def upsert_order_snapshot(
             "total_shipping_tax_incl": snapshot.total_shipping_tax_incl,
             "total_shipping_tax_excl": snapshot.total_shipping_tax_excl,
             "last_snapshot_at": captured_at,
+            "export_status": ExportStatus.NEVER,
+            "exported_to_icg_at": None,
+            "last_export_error": "",
+            "inserted_rows": 0,
         },
     )
     order.lines.all().delete()
