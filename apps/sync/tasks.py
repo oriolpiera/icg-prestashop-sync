@@ -23,8 +23,13 @@ from apps.prestashop.services import (
     export_stock,
     format_sync_error,
 )
+from apps.sales.services import (
+    export_customer_to_icg_from_mirror,
+    export_order_to_icg_from_mirror,
+    refresh_customer_from_prestashop,
+    refresh_order_from_prestashop,
+)
 from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
-from apps.sync.customer_export import export_customer_to_icg, export_customer_to_icg_from_job
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
@@ -36,7 +41,6 @@ from apps.sync.models import (
     SyncJobStatus,
     SyncJobType,
 )
-from apps.sync.order_export import export_order_to_icg, export_order_to_icg_from_job
 
 logger = logging.getLogger(__name__)
 
@@ -450,11 +454,8 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
                 )
 
                 try:
-                    result = export_customer_to_icg(
-                        customer.customer_id,
-                        client=client,
-                        writer=writer,
-                    )
+                    refresh_customer_from_prestashop(customer.customer_id, client=client)
+                    result = export_customer_to_icg_from_mirror(customer.customer_id, writer=writer)
                 except Exception as exc:
                     failed += 1
                     _record_sync_error(job, exc)
@@ -532,11 +533,8 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                 )
 
                 try:
-                    result = export_order_to_icg(
-                        order.order_id,
-                        client=client,
-                        writer=writer,
-                    )
+                    refresh_order_from_prestashop(order.order_id, client=client)
+                    result = export_order_to_icg_from_mirror(order.order_id, writer=writer)
                 except Exception as exc:
                     failed += 1
                     _record_sync_error(job, exc)
@@ -580,8 +578,8 @@ _EXPORT_DISPATCH = {
     "price": (SyncJobType.EXPORT_PRICE, export_price),
     "stock": (SyncJobType.EXPORT_STOCK, export_stock),
     "discount": (SyncJobType.EXPORT_DISCOUNT, export_discount),
-    "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg_from_job),
-    "prestashop_order": (SyncJobType.EXPORT_ORDER, export_order_to_icg_from_job),
+    "prestashop_customer": (SyncJobType.EXPORT_CUSTOMER, export_customer_to_icg_from_mirror),
+    "prestashop_order": (SyncJobType.EXPORT_ORDER, export_order_to_icg_from_mirror),
 }
 
 
@@ -621,8 +619,8 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
 
 
 _RETRYABLE_EXPORT_MAP = {
-    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_job,
-    SyncJobType.EXPORT_ORDER: export_order_to_icg_from_job,
+    SyncJobType.EXPORT_CUSTOMER: export_customer_to_icg_from_mirror,
+    SyncJobType.EXPORT_ORDER: export_order_to_icg_from_mirror,
     SyncJobType.EXPORT_MANUFACTURER: export_manufacturer,
     SyncJobType.EXPORT_CATEGORY: export_category,
     SyncJobType.EXPORT_PRODUCT: export_product,
@@ -631,6 +629,20 @@ _RETRYABLE_EXPORT_MAP = {
     SyncJobType.EXPORT_STOCK: export_stock,
     SyncJobType.EXPORT_DISCOUNT: export_discount,
 }
+
+
+@shared_task
+def refresh_prestashop_customer(prestashop_customer_id: int) -> dict[str, int | str]:
+    logger.info("Celery task: refresh_prestashop_customer")
+    refresh_customer_from_prestashop(prestashop_customer_id)
+    return {"status": "success", "customer_id": prestashop_customer_id}
+
+
+@shared_task
+def refresh_prestashop_order(prestashop_order_id: int) -> dict[str, int | str]:
+    logger.info("Celery task: refresh_prestashop_order")
+    refresh_order_from_prestashop(prestashop_order_id)
+    return {"status": "success", "order_id": prestashop_order_id}
 
 
 @shared_task

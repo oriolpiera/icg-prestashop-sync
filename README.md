@@ -11,6 +11,8 @@ This repository will host the new integration between ICG Manager and Prestashop
 
 The main use cases are:
 - synchronize products, prices and stock from ICG to Prestashop
+- mirror Prestashop customers and orders locally for operations
+- export Prestashop customers and orders to ICG from persisted Django data
 - give shop staff a backoffice to inspect sync status and errors
 - allow manual reprocessing of a specific product when data issues are fixed in ICG
 
@@ -168,16 +170,6 @@ Current typing policy:
 - baseline scope: `apps/icg/services.py`, `apps/prestashop/client.py`, and `config/settings/`
 - CI integration is a clear next step, but not part of this issue
 
-## First scope
-
-The first iteration will focus only on:
-- products
-- prices
-- stock
-- operational backoffice in Django admin
-
-Orders from Prestashop to ICG are intentionally out of scope for now.
-
 ## Current structure
 
 ```text
@@ -185,6 +177,7 @@ config/          Django project, settings split, Celery wiring
 apps/core/       Shared base models and common building blocks
 apps/icg/        ICG access layer placeholders
 apps/catalog/    Catalog and Prestashop mapping models
+apps/sales/      Mirrored Prestashop customers/orders for operations and re-export
 apps/sync/       Synchronization cursors, jobs and Celery tasks
 apps/prestashop/ Prestashop client placeholders
 apps/operations/ Django admin configuration for operations

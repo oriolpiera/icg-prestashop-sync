@@ -24,7 +24,8 @@ The project is split into a small number of clear responsibilities:
 2. `catalog` maps ICG records into internal domain records.
 3. `sync` queues and executes synchronization jobs.
 4. `prestashop` sends validated payloads to Prestashop Webservice.
-5. `operations` exposes status, errors and manual actions in Django admin.
+5. `sales` mirrors Prestashop customers and orders for deterministic re-export.
+6. `operations` exposes status, errors and manual actions in Django admin.
 
 ## Proposed Django apps
 
@@ -80,6 +81,19 @@ Responsibilities:
 
 This app should be the only place that knows Prestashop API details.
 
+### `sales`
+
+Responsibilities:
+- store mirrored Prestashop customers and orders locally
+- persist enough order detail to re-export to ICG without calling Prestashop again
+- keep refresh-from-Prestashop separate from export-to-ICG
+
+Likely models:
+- `PrestashopCustomer`
+- `PrestashopOrder`
+- `PrestashopOrderLine`
+- `PrestashopOrderDiscountLine`
+
 ### `operations`
 
 Responsibilities:
@@ -107,6 +121,14 @@ No custom frontend is planned initially. Django admin is enough.
 4. The worker creates or updates the target entity in Prestashop.
 5. The worker stores success or structured failure details.
 
+### Export Prestashop customers and orders to ICG
+
+1. A task lists newly created Prestashop customers or orders using a persisted cursor.
+2. The task refreshes the local `sales` mirror from Prestashop.
+3. The export to ICG reads only from the mirrored Django data.
+4. Manual re-export from Django admin reuses the same mirrored data without fetching Prestashop.
+5. Refreshing from Prestashop is a separate explicit operation.
+
 ## Important rules
 
 ### Source of truth
@@ -123,6 +145,9 @@ This project must persist explicit sync cursors to avoid missed or duplicated up
 
 Retrying the same product twice must be safe.
 The sync process should always be able to resume after temporary failures.
+
+For Prestashop customer and order export, retries should use the persisted Django mirror rather
+than fetching a live Prestashop snapshot implicitly.
 
 ### Structured errors
 
@@ -148,6 +173,7 @@ icg-prestashop-sync/
     core/
     icg/
     catalog/
+    sales/
     sync/
     prestashop/
     operations/

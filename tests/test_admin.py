@@ -23,12 +23,15 @@ from apps.operations.admin import (
     ProductAdmin,
     StuckJobFilter,
     _sync_error_display,
+    export_sales_to_icg,
     mark_for_resync,
+    refresh_sales_from_prestashop,
     retry_entity_sync,
     retry_jobs,
     update_from_icg,
 )
 from apps.operations.sites import admin_site
+from apps.sales.models import PrestashopCustomer, PrestashopOrder
 from apps.sync.models import SyncCursor, SyncJob, SyncJobStatus, SyncJobType
 from apps.sync.tasks import retry_entity
 
@@ -36,6 +39,8 @@ from apps.sync.tasks import retry_entity
 @pytest.fixture(autouse=True)
 def _clean_db():
     SyncJob.objects.all().delete()
+    PrestashopOrder.objects.all().delete()
+    PrestashopCustomer.objects.all().delete()
     Product.objects.all().delete()
     Manufacturer.objects.all().delete()
     Category.objects.all().delete()
@@ -95,6 +100,32 @@ def _make_job(**overrides):
         status=overrides.pop("status", SyncJobStatus.FAILED),
         last_error=overrides.pop("last_error", '{"message": "boom", "status_code": 500}'),
         started_at=overrides.pop("started_at", timezone.now()),
+        **overrides,
+    )
+
+
+def _make_sales_customer(**overrides):
+    return PrestashopCustomer.objects.create(
+        prestashop_id=overrides.pop("prestashop_id", 42),
+        firstname=overrides.pop("firstname", "Ada"),
+        lastname=overrides.pop("lastname", "Lovelace"),
+        email=overrides.pop("email", "ada@example.com"),
+        date_add=overrides.pop("date_add", timezone.now()),
+        last_snapshot_at=overrides.pop("last_snapshot_at", timezone.now()),
+        **overrides,
+    )
+
+
+def _make_sales_order(customer, **overrides):
+    return PrestashopOrder.objects.create(
+        prestashop_id=overrides.pop("prestashop_id", 77),
+        customer=customer,
+        payment=overrides.pop("payment", "Redsys Card"),
+        date_add=overrides.pop("date_add", timezone.now()),
+        total_paid_tax_incl=overrides.pop("total_paid_tax_incl", "100.00"),
+        total_shipping_tax_incl=overrides.pop("total_shipping_tax_incl", "12.10"),
+        total_shipping_tax_excl=overrides.pop("total_shipping_tax_excl", "10.00"),
+        last_snapshot_at=overrides.pop("last_snapshot_at", timezone.now()),
         **overrides,
     )
 
@@ -295,6 +326,39 @@ class TestAdminActions:
         msgs = list(request._messages)
         assert len(msgs) == 1
         assert str(msgs[0]) == "Updated 1 record(s) from ICG. Skipped 1. Failed 1."
+
+    def test_refresh_sales_from_prestashop_dispatches_customer_task(self):
+        customer = _make_sales_customer()
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopCustomer]
+
+        with patch("apps.sync.tasks.refresh_prestashop_customer") as mock_refresh:
+            mock_refresh.delay.return_value = None
+            refresh_sales_from_prestashop(
+                model_admin,
+                request,
+                PrestashopCustomer.objects.filter(pk=customer.pk),
+            )
+
+        mock_refresh.delay.assert_called_once_with(customer.prestashop_id)
+
+    def test_export_sales_to_icg_dispatches_order_retry(self):
+        customer = _make_sales_customer()
+        order = _make_sales_order(customer)
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopOrder]
+
+        with patch("apps.sync.tasks.retry_entity") as mock_retry:
+            mock_retry.delay.return_value = None
+            export_sales_to_icg(
+                model_admin,
+                request,
+                PrestashopOrder.objects.filter(pk=order.pk),
+            )
+
+        mock_retry.delay.assert_called_once_with(
+            "prestashop_order", order.prestashop_id, str(order.prestashop_id)
+        )
 
 
 # --- Custom filters ---
