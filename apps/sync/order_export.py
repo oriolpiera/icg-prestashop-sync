@@ -17,6 +17,7 @@ from apps.sync.customer_export import map_prestashop_customer_id_to_icg_web_code
 
 TIPO_DOCUMENTO_TICKET = 13
 ESTADO_INSERCION = 1
+COD_CLIENTE_WEB_DEFAULT = 0
 FORMA_DE_PAGO_CARD = 2
 FORMA_DE_PAGO_TRANSFER = 4
 TRANSPORT_ARTICLE_CODE = 14873
@@ -62,7 +63,7 @@ def map_snapshot_to_facturas_web(
                 tipo_documento=TIPO_DOCUMENTO_TICKET,
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
-                cod_cliente=None,
+                cod_cliente=COD_CLIENTE_WEB_DEFAULT,
                 cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=combination.product.icg_id,
                 talla=_variant_value(combination.icg_size),
@@ -92,7 +93,7 @@ def map_snapshot_to_facturas_web(
                 tipo_documento=TIPO_DOCUMENTO_TICKET,
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
-                cod_cliente=None,
+                cod_cliente=COD_CLIENTE_WEB_DEFAULT,
                 cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=TRANSPORT_ARTICLE_CODE,
                 talla=".",
@@ -127,7 +128,7 @@ def map_snapshot_to_facturas_web(
                 tipo_documento=TIPO_DOCUMENTO_TICKET,
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
-                cod_cliente=None,
+                cod_cliente=COD_CLIENTE_WEB_DEFAULT,
                 cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=DISCOUNT_ARTICLE_CODE,
                 talla=".",

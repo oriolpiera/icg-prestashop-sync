@@ -38,12 +38,11 @@ class TestPrestashopOrderClient:
         cursor_at = timezone.make_aware(datetime(2026, 6, 30, 9, 0, 0))
         orders = client.list_orders_created_after(cursor_at, last_order_id=10)
 
-        assert [order.order_id for order in orders] == [11, 9]
+        assert [order.order_id for order in orders] == [11]
         assert session.request.call_args.kwargs["params"] == {
             "display": "full",
-            "sort": "[date_add_ASC,id_ASC]",
-            "date": "1",
-            "filter[date_add]": "[2026-06-30 09:00:00,]",
+            "sort": "[id_ASC]",
+            "filter[id]": "[11,]",
         }
 
     def test_get_order_snapshot_reads_lines_and_discounts(self, settings):
@@ -111,6 +110,6 @@ class TestPrestashopOrderClient:
         assert order.order_id == 77
         assert session.request.call_args.kwargs["params"] == {
             "display": "full",
-            "sort": "[date_add_DESC,id_DESC]",
+            "sort": "[id_DESC]",
             "limit": "1",
         }

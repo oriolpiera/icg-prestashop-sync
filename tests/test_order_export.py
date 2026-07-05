@@ -137,6 +137,7 @@ def test_map_snapshot_to_facturas_web_builds_product_shipping_and_discount_lines
     assert all(row.total_lin == 4 for row in rows)
 
     product_row = rows[0]
+    assert product_row.cod_cliente == 0
     assert product_row.cod_cliente_web == 57
     assert product_row.cod_articulo == 5001
     assert product_row.talla == "UNI"
@@ -146,6 +147,7 @@ def test_map_snapshot_to_facturas_web_builds_product_shipping_and_discount_lines
     assert product_row.tipo_iva == 1
 
     shipping_row = rows[1]
+    assert shipping_row.cod_cliente == 0
     assert shipping_row.cod_cliente_web == 57
     assert shipping_row.cod_articulo == 14873
     assert shipping_row.talla == "."
@@ -155,6 +157,7 @@ def test_map_snapshot_to_facturas_web_builds_product_shipping_and_discount_lines
     assert shipping_row.tipo_iva == 1
 
     discount_row = rows[2]
+    assert discount_row.cod_cliente == 0
     assert discount_row.cod_cliente_web == 57
     assert discount_row.cod_articulo == 14089
     assert discount_row.unidades_total == -1
