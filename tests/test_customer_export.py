@@ -12,7 +12,11 @@ from apps.prestashop.client import (
 )
 from apps.sales.models import ExportStatus, PrestashopCustomer
 from apps.sync.cursor_service import get_or_create_cursor
-from apps.sync.customer_export import export_customer_to_icg, map_snapshot_to_clientes_web
+from apps.sync.customer_export import (
+    export_customer_to_icg,
+    map_prestashop_customer_id_to_icg_web_code,
+    map_snapshot_to_clientes_web,
+)
 from apps.sync.models import (
     SyncCursor,
     SyncCursorSource,
@@ -48,6 +52,10 @@ def _snapshot(*, address: PrestashopAddress | None = None) -> PrestashopCustomer
     )
 
 
+def test_map_prestashop_customer_id_to_icg_web_code_prefixes_with_five():
+    assert map_prestashop_customer_id_to_icg_web_code(25392) == 525392
+
+
 class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
@@ -81,7 +89,7 @@ class _CursorStub:
 def test_map_snapshot_to_clientes_web_uses_nulls_without_address():
     row = map_snapshot_to_clientes_web(_snapshot(), exported_at=_aware(2026, 6, 30, 12, 0, 0))
 
-    assert row.cod_cliente_web == 42
+    assert row.cod_cliente_web == 542
     assert row.nombre_cliente == "Oriol Piera"
     assert row.nombre_comercial == ""
     assert row.cif is None

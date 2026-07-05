@@ -13,6 +13,7 @@ from apps.prestashop.client import (
     PrestashopOrderLine,
     PrestashopOrderSnapshot,
 )
+from apps.sync.customer_export import map_prestashop_customer_id_to_icg_web_code
 
 TIPO_DOCUMENTO_TICKET = 13
 ESTADO_INSERCION = 1
@@ -62,7 +63,7 @@ def map_snapshot_to_facturas_web(
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
                 cod_cliente=None,
-                cod_cliente_web=snapshot.customer_id,
+                cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=combination.product.icg_id,
                 talla=_variant_value(combination.icg_size),
                 color=_variant_value(combination.icg_color),
@@ -92,7 +93,7 @@ def map_snapshot_to_facturas_web(
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
                 cod_cliente=None,
-                cod_cliente_web=snapshot.customer_id,
+                cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=TRANSPORT_ARTICLE_CODE,
                 talla=".",
                 color=".",
@@ -127,7 +128,7 @@ def map_snapshot_to_facturas_web(
                 num_documento=snapshot.order_id,
                 num_lin=len(rows) + 1,
                 cod_cliente=None,
-                cod_cliente_web=snapshot.customer_id,
+                cod_cliente_web=map_prestashop_customer_id_to_icg_web_code(snapshot.customer_id),
                 cod_articulo=DISCOUNT_ARTICLE_CODE,
                 talla=".",
                 color=".",
