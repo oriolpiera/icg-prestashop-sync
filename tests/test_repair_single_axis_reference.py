@@ -203,3 +203,37 @@ class TestRepairSingleAxisReference:
 
         assert "remaps=0" in out.getvalue()
         assert "duplicate_target_conflicts=2" in out.getvalue()
+
+    def test_apply_deletes_dot_placeholder_duplicates_before_remap(self):
+        product = _make_product()
+        keep = Combination.objects.create(
+            product=product, icg_size="***", icg_color="B00", prestashop_id=9001
+        )
+        drop = Combination.objects.create(
+            product=product, icg_size=".", icg_color="B00", prestashop_id=None
+        )
+
+        with patch(
+            "apps.sync.management.commands.repair_single_axis_reference.PrestashopClient"
+        ) as client_cls:
+            client = client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 11, "name": "COPIC_colores"},
+                {"ps_id": 12, "name": "Size"},
+            ]
+            client.list_attribute_values.side_effect = [
+                [{"ps_id": 201, "name": "B00"}],
+                [{"ps_id": 301, "name": "***"}],
+            ]
+            client.list_combinations_for_product.return_value = [
+                PrestashopCombinationSummary(55, 2090, [201], ""),
+                PrestashopCombinationSummary(9001, 2090, [301, 201], ""),
+            ]
+
+            out = StringIO()
+            call_command("repair_single_axis_reference", "0090837", "--apply", stdout=out)
+
+        keep.refresh_from_db()
+        assert keep.prestashop_id == 55
+        assert not Combination.objects.filter(pk=drop.pk).exists()
+        assert "placeholder_rows_deleted=1" in out.getvalue()

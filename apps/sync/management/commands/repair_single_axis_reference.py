@@ -86,6 +86,31 @@ class Command(BaseCommand):
                 placeholder_candidates.add(ps_combination.combination_id)
 
         django_combinations = list(product.combinations.all().order_by("pk"))
+        placeholder_cleanup_candidates: list[int] = []
+        placeholder_dupe_buckets: dict[str, list[Combination]] = defaultdict(list)
+        for combination in django_combinations:
+            if not is_placeholder_variant_axis(combination.icg_size):
+                continue
+            if is_placeholder_variant_axis(combination.icg_color):
+                continue
+            placeholder_dupe_buckets[combination.icg_color].append(combination)
+
+        for _color, rows in placeholder_dupe_buckets.items():
+            if len(rows) < 2:
+                continue
+
+            keep = next((row for row in rows if row.icg_size == "***"), rows[0])
+            for row in rows:
+                if row.pk == keep.pk:
+                    continue
+                if row.prestashop_id is not None:
+                    continue
+                placeholder_cleanup_candidates.append(row.pk)
+
+        if apply and placeholder_cleanup_candidates:
+            Combination.objects.filter(pk__in=placeholder_cleanup_candidates).delete()
+            django_combinations = list(product.combinations.all().order_by("pk"))
+
         remaps: list[tuple[Combination, int, int | None]] = []
         ambiguous = 0
         missing = 0
@@ -192,6 +217,6 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(
-                f"Placeholder candidates={len(placeholder_candidates)} obsolete_delete_candidates={len(obsolete_ids_to_delete)} deleted={deleted}"  # noqa:E501
+                f"Placeholder candidates={len(placeholder_candidates)} placeholder_rows_deleted={len(placeholder_cleanup_candidates)} obsolete_delete_candidates={len(obsolete_ids_to_delete)} deleted={deleted}"  # noqa:E501
             )
         )
