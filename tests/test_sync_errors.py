@@ -410,7 +410,7 @@ class TestRetryFailedJobs:
             available_at=timezone.now() - timedelta(minutes=1),
             payload={"entity_id": product.pk},
         )
-        SyncError.objects.create(
+        error = SyncError.objects.create(
             job=job,
             entity_type="product",
             entity_key="REF001",
@@ -427,7 +427,66 @@ class TestRetryFailedJobs:
 
         assert result["retried"] == 1
         job.refresh_from_db()
+        error.refresh_from_db()
         assert job.status == SyncJobStatus.SUCCEEDED
+        assert error.resolved is True
+
+    def test_successful_retry_closes_superseded_jobs_for_same_entity(self):
+        product = Product.objects.create(
+            icg_id=1010,
+            reference="REF010",
+            name="Test Product 10",
+        )
+        stale_job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF010",
+            status=SyncJobStatus.FAILED,
+            attempts=2,
+            available_at=timezone.now() - timedelta(hours=1),
+            payload={"entity_id": product.pk},
+        )
+        stale_error = SyncError.objects.create(
+            job=stale_job,
+            entity_type="product",
+            entity_key="REF010",
+            error_type=SyncErrorType.TRANSIENT,
+            message="old server error",
+        )
+        retry_job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF010",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": product.pk},
+        )
+        retry_error = SyncError.objects.create(
+            job=retry_job,
+            entity_type="product",
+            entity_key="REF010",
+            error_type=SyncErrorType.TRANSIENT,
+            message="latest server error",
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._RETRYABLE_EXPORT_MAP",
+            {SyncJobType.EXPORT_PRODUCT: mock_export},
+        ):
+            result = retry_failed_jobs()
+
+        assert result["retried"] == 1
+        stale_job.refresh_from_db()
+        retry_job.refresh_from_db()
+        stale_error.refresh_from_db()
+        retry_error.refresh_from_db()
+        assert retry_job.status == SyncJobStatus.SUCCEEDED
+        assert stale_job.status == SyncJobStatus.SUCCEEDED
+        assert stale_job.last_error == ""
+        assert stale_error.resolved is True
+        assert retry_error.resolved is True
 
     def test_skips_permanent_errors(self):
         product = Product.objects.create(

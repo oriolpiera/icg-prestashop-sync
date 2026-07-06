@@ -46,6 +46,49 @@ from apps.sync.models import (
 logger = logging.getLogger(__name__)
 
 
+def _resolve_job_errors(job: SyncJob) -> None:
+    job.errors.filter(resolved=False).update(resolved=True, updated_at=timezone.now())
+
+
+def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
+    superseded_jobs = SyncJob.objects.filter(
+        job_type=job.job_type,
+        entity_type=job.entity_type,
+        entity_key=job.entity_key,
+        status__in=[SyncJobStatus.PENDING, SyncJobStatus.FAILED],
+    ).exclude(pk=job.pk)
+
+    SyncError.objects.filter(job__in=superseded_jobs, resolved=False).update(
+        resolved=True,
+        updated_at=timezone.now(),
+    )
+    superseded_jobs.update(
+        status=SyncJobStatus.SUCCEEDED,
+        last_error="",
+        finished_at=finished_at,
+        updated_at=timezone.now(),
+    )
+
+
+def _mark_job_succeeded(job: SyncJob, result: dict[str, Any]) -> None:
+    finished_at = timezone.now().astimezone(UTC)
+    job.status = SyncJobStatus.SUCCEEDED
+    job.payload = {**job.payload, **result}
+    job.last_error = ""
+    job.finished_at = finished_at
+    job.save(
+        update_fields=[
+            "status",
+            "payload",
+            "last_error",
+            "finished_at",
+            "updated_at",
+        ]
+    )
+    _resolve_job_errors(job)
+    _resolve_superseded_jobs(job, finished_at=finished_at)
+
+
 def _record_sync_error(
     job: SyncJob,
     exc: Exception,
@@ -100,6 +143,14 @@ def _run_export_batch(
         with sync_lock(lock_key):
             for entity in queryset:
                 key = entity_key_fn(entity)
+                if SyncJob.objects.filter(
+                    job_type=job_type,
+                    entity_type=entity_type,
+                    entity_key=key,
+                    status__in=[SyncJobStatus.PENDING, SyncJobStatus.RUNNING],
+                ).exists():
+                    continue
+
                 job = SyncJob.objects.create(
                     job_type=job_type,
                     entity_type=entity_type,
@@ -117,17 +168,7 @@ def _run_export_batch(
                     _record_sync_error(job, exc)
                 else:
                     processed += 1
-                    job.status = SyncJobStatus.SUCCEEDED
-                    job.payload = {**job.payload, **result}
-                    job.finished_at = timezone.now().astimezone(UTC)
-                    job.save(
-                        update_fields=[
-                            "status",
-                            "payload",
-                            "finished_at",
-                            "updated_at",
-                        ]
-                    )
+                    _mark_job_succeeded(job, result)
     except LockAcquisitionError:
         logger.warning("Skipping %s: lock already held", task_name)
         return {"status": "skipped", "reason": "lock_held"}
@@ -741,17 +782,7 @@ def retry_failed_jobs() -> dict:
                 except Exception as exc:
                     _record_sync_error(job, exc)
                 else:
-                    job.status = SyncJobStatus.SUCCEEDED
-                    job.payload = {**job.payload, **result}
-                    job.finished_at = timezone.now().astimezone(UTC)
-                    job.save(
-                        update_fields=[
-                            "status",
-                            "payload",
-                            "finished_at",
-                            "updated_at",
-                        ]
-                    )
+                    _mark_job_succeeded(job, result)
                     retried += 1
 
     except LockAcquisitionError:
