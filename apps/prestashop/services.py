@@ -215,7 +215,8 @@ def export_manufacturer(
 
     try:
         if manufacturer.prestashop_id is not None:
-            prestashop_name = client.get_manufacturer_name(manufacturer.prestashop_id)
+            manufacturer_root = client.get_manufacturer_xml(manufacturer.prestashop_id)
+            prestashop_name = client._manufacturer_name_from_root(manufacturer_root)
             if (
                 isinstance(prestashop_name, str)
                 and prestashop_name
@@ -240,7 +241,11 @@ def export_manufacturer(
                     manufacturer.save(update_fields=["prestashop_id", "updated_at"])
                     return export_manufacturer(manufacturer_id, client=client)
 
-            client.update_manufacturer(manufacturer.prestashop_id, manufacturer.name)
+            client.update_manufacturer(
+                manufacturer.prestashop_id,
+                manufacturer.name,
+                root=manufacturer_root,
+            )
             prestashop_id = manufacturer.prestashop_id
         else:
             prestashop_id = client.find_manufacturer_id_by_name(manufacturer.name)
@@ -252,7 +257,14 @@ def export_manufacturer(
                     .exclude(pk=manufacturer.pk)
                     .first()
                 )
-                if existing is not None and existing.name != manufacturer.name:
+                if existing is not None:
+                    if existing.name == manufacturer.name:
+                        raise PrestashopError(
+                            "Prestashop manufacturer "
+                            f"{prestashop_id} is already mapped to local manufacturer "
+                            f"{existing.icg_code} with the same name {manufacturer.name!r}."
+                        )
+
                     logger.warning(
                         "Reassigning stale Prestashop manufacturer mapping %s from %s to %s.",
                         prestashop_id,

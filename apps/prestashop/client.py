@@ -242,6 +242,9 @@ class PrestashopClient:
 
     def get_manufacturer_name(self, manufacturer_id: int) -> str | None:
         root = self.get_manufacturer_xml(manufacturer_id)
+        return self._manufacturer_name_from_root(root)
+
+    def _manufacturer_name_from_root(self, root: ElementTree.Element) -> str | None:
         node = root.find("./manufacturer")
         if node is None:
             return None
@@ -257,8 +260,14 @@ class PrestashopClient:
             raise PrestashopError("Prestashop create manufacturer response did not include an id.")
         return int(manufacturer_id)
 
-    def update_manufacturer(self, manufacturer_id: int, name: str) -> None:
-        root = self.get_manufacturer_xml(manufacturer_id)
+    def update_manufacturer(
+        self,
+        manufacturer_id: int,
+        name: str,
+        *,
+        root: ElementTree.Element | None = None,
+    ) -> None:
+        root = root or self.get_manufacturer_xml(manufacturer_id)
         manufacturer_node = root.find("./manufacturer")
         if manufacturer_node is None:
             raise PrestashopError(
