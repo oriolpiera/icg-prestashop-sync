@@ -7,8 +7,10 @@ from apps.catalog.models import AttributeGroup, AttributeValue
 from apps.prestashop.client import PrestashopClient
 
 
-def _expected_group_name(group: AttributeGroup) -> str:
+def _expected_group_name(group: AttributeGroup) -> str | None:
     if group.icg_type == "color":
+        if group.product is None:
+            return None
         return f"{group.product.reference}_color"
     return "Size"
 
@@ -77,7 +79,11 @@ class Command(BaseCommand):
             if isinstance(group.get("ps_id"), int)
         }
         groups = list(AttributeGroup.objects.select_related("product").all())
-        needed_group_names = {_expected_group_name(group) for group in groups}
+        needed_group_names = {
+            group_name
+            for group in groups
+            if (group_name := _expected_group_name(group)) is not None
+        }
         remote_values_by_group_and_name: dict[tuple[int, str], int] = {}
         for group_name in needed_group_names:
             group_ps_id = remote_group_ids_by_name.get(group_name)
@@ -98,6 +104,10 @@ class Command(BaseCommand):
 
         for group in groups:
             expected_name = _expected_group_name(group)
+            if expected_name is None:
+                missing_group_pks.append(group.pk)
+                missing_groups.append(f"invalid_color_group:pk={group.pk}")
+                continue
             target_id = remote_group_ids_by_name.get(expected_name)
             if target_id is None:
                 missing_group_pks.append(group.pk)
@@ -134,15 +144,20 @@ class Command(BaseCommand):
             AttributeValue.objects.select_related("attribute_group", "attribute_group__product")
         )
         for value in values:
+            expected_group_name = _expected_group_name(value.attribute_group)
+            if expected_group_name is None:
+                missing_value_pks.append(value.pk)
+                missing_values.append(
+                    f"invalid_color_group:pk={value.attribute_group.pk}::{value.icg_value}"
+                )
+                continue
             target_group_id = group_updates.get(
                 value.attribute_group_id, value.attribute_group.prestashop_id
             )
             target_id = remote_values_by_group_and_name.get((target_group_id, value.icg_value))
             if target_id is None:
                 missing_value_pks.append(value.pk)
-                missing_values.append(
-                    f"{_expected_group_name(value.attribute_group)}::{value.icg_value}"
-                )
+                missing_values.append(f"{expected_group_name}::{value.icg_value}")
                 continue
             if target_id != value.prestashop_id:
                 value_updates[value.pk] = target_id
@@ -161,9 +176,12 @@ class Command(BaseCommand):
                 and occupied.pk != value.pk
                 and occupied.pk not in value_updates
             ):
+                group_name = (
+                    _expected_group_name(value.attribute_group) or value.attribute_group.name
+                )
                 value_conflicts.append(
                     "Attribute value "
-                    f"'{_expected_group_name(value.attribute_group)}::"
+                    f"'{group_name}::"
                     f"{value.icg_value}' wants PS #{target_id}, "
                     f"but local value pk={occupied.pk} is fixed there."
                 )

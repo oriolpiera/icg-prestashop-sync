@@ -171,3 +171,23 @@ class TestReconcilePrestashopAttributeMappingsCommand:
         assert AttributeValue.objects.filter(pk=stale_value.pk).exists() is False
         assert AttributeGroup.objects.filter(pk=color_group.pk).exists() is True
         assert "pruned_groups=0 pruned_values=1" in out.getvalue()
+
+    def test_dry_run_handles_orphan_color_group_without_crashing(self):
+        orphan_group = AttributeGroup.objects.create(
+            icg_type="color",
+            name="orphan_color",
+            prestashop_id=12345,
+            product=None,
+        )
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_attribute_mappings.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = []
+
+            out = StringIO()
+            call_command("reconcile_prestashop_attribute_mappings", stdout=out)
+
+        assert AttributeGroup.objects.filter(pk=orphan_group.pk).exists() is True
+        assert "Missing remote group: invalid_color_group:pk=" in out.getvalue()
