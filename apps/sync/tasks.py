@@ -4,7 +4,7 @@ from datetime import UTC
 from typing import Any
 
 from celery import shared_task
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.catalog.models import Category, Combination, Manufacturer, Price, Product, Stock
@@ -71,22 +71,23 @@ def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
 
 
 def _mark_job_succeeded(job: SyncJob, result: dict[str, Any]) -> None:
-    finished_at = timezone.now().astimezone(UTC)
-    job.status = SyncJobStatus.SUCCEEDED
-    job.payload = {**job.payload, **result}
-    job.last_error = ""
-    job.finished_at = finished_at
-    job.save(
-        update_fields=[
-            "status",
-            "payload",
-            "last_error",
-            "finished_at",
-            "updated_at",
-        ]
-    )
-    _resolve_job_errors(job)
-    _resolve_superseded_jobs(job, finished_at=finished_at)
+    with transaction.atomic():
+        finished_at = timezone.now().astimezone(UTC)
+        job.status = SyncJobStatus.SUCCEEDED
+        job.payload = {**job.payload, **result}
+        job.last_error = ""
+        job.finished_at = finished_at
+        job.save(
+            update_fields=[
+                "status",
+                "payload",
+                "last_error",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+        _resolve_job_errors(job)
+        _resolve_superseded_jobs(job, finished_at=finished_at)
 
 
 def _record_sync_error(
