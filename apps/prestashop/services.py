@@ -215,12 +215,53 @@ def export_manufacturer(
 
     try:
         if manufacturer.prestashop_id is not None:
+            prestashop_name = client.get_manufacturer_name(manufacturer.prestashop_id)
+            if (
+                isinstance(prestashop_name, str)
+                and prestashop_name
+                and prestashop_name != manufacturer.name
+            ):
+                other = (
+                    Manufacturer.objects.filter(name=prestashop_name)
+                    .exclude(pk=manufacturer.pk)
+                    .first()
+                )
+                if other is not None:
+                    logger.warning(
+                        (
+                            "Manufacturer %s had stale Prestashop mapping %s -> %s; "
+                            "resetting local mapping."
+                        ),
+                        manufacturer.icg_code,
+                        manufacturer.prestashop_id,
+                        prestashop_name,
+                    )
+                    manufacturer.prestashop_id = None
+                    manufacturer.save(update_fields=["prestashop_id", "updated_at"])
+                    return export_manufacturer(manufacturer_id, client=client)
+
             client.update_manufacturer(manufacturer.prestashop_id, manufacturer.name)
             prestashop_id = manufacturer.prestashop_id
         else:
             prestashop_id = client.find_manufacturer_id_by_name(manufacturer.name)
             if prestashop_id is None:
                 prestashop_id = client.create_manufacturer(manufacturer.name)
+            else:
+                existing = (
+                    Manufacturer.objects.filter(prestashop_id=prestashop_id)
+                    .exclude(pk=manufacturer.pk)
+                    .first()
+                )
+                if existing is not None and existing.name != manufacturer.name:
+                    logger.warning(
+                        "Reassigning stale Prestashop manufacturer mapping %s from %s to %s.",
+                        prestashop_id,
+                        existing.icg_code,
+                        manufacturer.icg_code,
+                    )
+                    existing.prestashop_id = None
+                    existing.sync_required = True
+                    existing.save(update_fields=["prestashop_id", "sync_required", "updated_at"])
             manufacturer.prestashop_id = prestashop_id
 
         manufacturer.sync_required = False
