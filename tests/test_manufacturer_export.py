@@ -58,12 +58,71 @@ class TestManufacturerExport:
             sync_required=True,
         )
         client = Mock()
+        manufacturer_root = PrestashopClient._parse_xml(
+            PrestashopClient(session=Mock()),
+            (
+                "<prestashop><manufacturer><id>34</id><name>Updated Brand</name>"
+                "</manufacturer></prestashop>"
+            ),
+        )
+        client.get_manufacturer_xml.return_value = manufacturer_root
 
         export_manufacturer(manufacturer.pk, client=client)
 
         manufacturer.refresh_from_db()
-        client.update_manufacturer.assert_called_once_with(34, "Updated Brand")
+        client.get_manufacturer_xml.assert_called_once_with(34)
+        client.update_manufacturer.assert_called_once_with(
+            34,
+            "Updated Brand",
+            root=manufacturer_root,
+        )
         assert manufacturer.sync_required is False
+
+    def test_export_reclaims_stale_mapping_from_other_manufacturer(self):
+        stale = Manufacturer.objects.create(icg_code="27500", name="CKREUL", prestashop_id=334)
+        manufacturer = Manufacturer.objects.create(icg_code="95500", name="TULIP")
+        client = Mock()
+        client.find_manufacturer_id_by_name.return_value = 334
+
+        result = export_manufacturer(manufacturer.pk, client=client)
+
+        stale.refresh_from_db()
+        manufacturer.refresh_from_db()
+        assert result == {"manufacturer_id": manufacturer.pk, "prestashop_id": 334}
+        assert stale.prestashop_id is None
+        assert stale.sync_required is True
+        assert manufacturer.prestashop_id == 334
+        client.create_manufacturer.assert_not_called()
+
+    def test_export_raises_clear_error_when_same_prestashop_id_matches_same_name(self):
+        Manufacturer.objects.create(icg_code="legacy", name="TULIP", prestashop_id=334)
+        manufacturer = Manufacturer.objects.create(icg_code="95500", name="TULIP")
+        client = Mock()
+        client.find_manufacturer_id_by_name.return_value = 334
+
+        with pytest.raises(PrestashopError, match="already mapped to local manufacturer"):
+            export_manufacturer(manufacturer.pk, client=client)
+
+        manufacturer.refresh_from_db()
+        assert manufacturer.prestashop_id is None
+
+    def test_export_resets_stale_existing_mapping_before_update(self):
+        stale = Manufacturer.objects.create(icg_code="27500", name="CKREUL", prestashop_id=334)
+        Manufacturer.objects.create(icg_code="95500", name="TULIP")
+        client = Mock()
+        manufacturer_root = Mock()
+        client.get_manufacturer_xml.return_value = manufacturer_root
+        client._manufacturer_name_from_root.return_value = "TULIP"
+        client.find_manufacturer_id_by_name.return_value = None
+        client.create_manufacturer.return_value = 999
+
+        result = export_manufacturer(stale.pk, client=client)
+
+        stale.refresh_from_db()
+        assert result == {"manufacturer_id": stale.pk, "prestashop_id": 999}
+        assert stale.prestashop_id == 999
+        client.update_manufacturer.assert_not_called()
+        client.create_manufacturer.assert_called_once_with("CKREUL")
 
     def test_export_stores_structured_error(self):
         manufacturer = Manufacturer.objects.create(icg_code="17000", name="Broken Brand")
@@ -99,7 +158,11 @@ class TestManufacturerExport:
         assert result == {"manufacturer_id": manufacturer.pk, "prestashop_id": 55}
         assert manufacturer.prestashop_id == 55
         assert manufacturer.sync_required is False
-        client.update_manufacturer.assert_called_once_with(44, "Deleted Brand")
+        client.update_manufacturer.assert_called_once_with(
+            44,
+            "Deleted Brand",
+            root=client.get_manufacturer_xml.return_value,
+        )
         client.find_manufacturer_id_by_name.assert_called_once_with("Deleted Brand")
 
     def test_export_does_not_recover_manufacturer_on_non_404_error(self):
@@ -203,3 +266,24 @@ class TestPrestashopClient:
             client.find_manufacturer_id_by_name("Brand|Name")
 
         session.request.assert_not_called()
+
+    def test_update_manufacturer_removes_link_rewrite(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        response_get = Mock(
+            status_code=200,
+            text=(
+                "<prestashop><manufacturer><id>12</id><name>Old</name>"
+                "<link_rewrite>old</link_rewrite></manufacturer></prestashop>"
+            ),
+        )
+        response_put = Mock(status_code=200, text="<prestashop />")
+        session = Mock()
+        session.request.side_effect = [response_get, response_put]
+
+        client = PrestashopClient(session=session)
+        client.update_manufacturer(12, "New")
+
+        put_payload = session.request.call_args_list[1].kwargs["data"]
+        assert "<link_rewrite>" not in put_payload
+        assert "<name>New</name>" in put_payload

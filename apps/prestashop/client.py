@@ -240,6 +240,18 @@ class PrestashopClient:
         response = self._request("GET", "manufacturers", resource_id=manufacturer_id)
         return self._parse_xml(response.text)
 
+    def get_manufacturer_name(self, manufacturer_id: int) -> str | None:
+        root = self.get_manufacturer_xml(manufacturer_id)
+        return self._manufacturer_name_from_root(root)
+
+    def _manufacturer_name_from_root(self, root: ElementTree.Element) -> str | None:
+        node = root.find("./manufacturer")
+        if node is None:
+            return None
+        return self._extract_default_language_text(node.find("name")) or self._text_or_none(
+            node.findtext("name")
+        )
+
     def create_manufacturer(self, name: str) -> int:
         response = self._request("POST", "manufacturers", data=self._manufacturer_xml(name))
         root = self._parse_xml(response.text)
@@ -248,9 +260,22 @@ class PrestashopClient:
             raise PrestashopError("Prestashop create manufacturer response did not include an id.")
         return int(manufacturer_id)
 
-    def update_manufacturer(self, manufacturer_id: int, name: str) -> None:
-        root = self.get_manufacturer_xml(manufacturer_id)
-        name_node = root.find("./manufacturer/name")
+    def update_manufacturer(
+        self,
+        manufacturer_id: int,
+        name: str,
+        *,
+        root: ElementTree.Element | None = None,
+    ) -> None:
+        root = root or self.get_manufacturer_xml(manufacturer_id)
+        manufacturer_node = root.find("./manufacturer")
+        if manufacturer_node is None:
+            raise PrestashopError(
+                "Prestashop manufacturer payload did not include a manufacturer node."
+            )
+
+        self._remove_node(manufacturer_node, "link_rewrite")
+        name_node = manufacturer_node.find("./name")
         if name_node is None:
             raise PrestashopError("Prestashop manufacturer payload did not include a name node.")
         name_node.text = name
