@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import Any
 
 from celery import shared_task
@@ -44,6 +44,11 @@ from apps.sync.models import (
 )
 
 logger = logging.getLogger(__name__)
+STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
+
+
+def _stale_running_threshold():
+    return timezone.now() - STALE_RUNNING_JOB_TIMEOUT
 
 
 def _resolve_job_errors(job: SyncJob) -> None:
@@ -51,12 +56,21 @@ def _resolve_job_errors(job: SyncJob) -> None:
 
 
 def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
-    superseded_jobs = SyncJob.objects.filter(
-        job_type=job.job_type,
-        entity_type=job.entity_type,
-        entity_key=job.entity_key,
-        status__in=[SyncJobStatus.PENDING, SyncJobStatus.FAILED],
-    ).exclude(pk=job.pk)
+    superseded_jobs = (
+        SyncJob.objects.filter(
+            job_type=job.job_type,
+            entity_type=job.entity_type,
+            entity_key=job.entity_key,
+        )
+        .filter(
+            models.Q(status__in=[SyncJobStatus.PENDING, SyncJobStatus.FAILED])
+            | models.Q(
+                status=SyncJobStatus.RUNNING,
+                started_at__lt=_stale_running_threshold(),
+            )
+        )
+        .exclude(pk=job.pk)
+    )
 
     SyncError.objects.filter(job__in=superseded_jobs, resolved=False).update(
         resolved=True,
@@ -126,6 +140,24 @@ def _record_sync_error(
     return error_message
 
 
+def _has_open_job_conflict(job_type: str, entity_type: str, entity_key: str) -> bool:
+    return (
+        SyncJob.objects.filter(
+            job_type=job_type,
+            entity_type=entity_type,
+            entity_key=entity_key,
+        )
+        .filter(
+            models.Q(status=SyncJobStatus.PENDING)
+            | models.Q(
+                status=SyncJobStatus.RUNNING,
+                started_at__gte=_stale_running_threshold(),
+            )
+        )
+        .exists()
+    )
+
+
 def _run_export_batch(
     task_name: str,
     queryset: models.QuerySet,
@@ -144,12 +176,7 @@ def _run_export_batch(
         with sync_lock(lock_key):
             for entity in queryset:
                 key = entity_key_fn(entity)
-                if SyncJob.objects.filter(
-                    job_type=job_type,
-                    entity_type=entity_type,
-                    entity_key=key,
-                    status__in=[SyncJobStatus.PENDING, SyncJobStatus.RUNNING],
-                ).exists():
+                if _has_open_job_conflict(job_type, entity_type, key):
                     continue
 
                 job = SyncJob.objects.create(
