@@ -389,6 +389,42 @@ class TestRetryEntityTask:
         assert error.entity_type == "product"
         assert error.message == "API down"
 
+    def test_successful_retry_entity_closes_superseded_jobs_for_same_entity(self):
+        product = Product.objects.create(
+            icg_id=1011,
+            reference="REF011",
+            name="Test Product 11",
+        )
+        stale_job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key=product.reference,
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            payload={"entity_id": product.pk},
+        )
+        stale_error = SyncError.objects.create(
+            job=stale_job,
+            entity_type="product",
+            entity_key=product.reference,
+            error_type=SyncErrorType.TRANSIENT,
+            message="old error",
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._EXPORT_DISPATCH",
+            {"product": (SyncJobType.EXPORT_PRODUCT, mock_export)},
+        ):
+            result = retry_entity("product", product.pk, product.reference)
+
+        assert result["status"] == "succeeded"
+        stale_job.refresh_from_db()
+        stale_error.refresh_from_db()
+        assert stale_job.status == SyncJobStatus.SUCCEEDED
+        assert stale_job.last_error == ""
+        assert stale_error.resolved is True
+
 
 # --- Retry failed jobs task ---
 

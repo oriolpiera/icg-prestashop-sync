@@ -1,7 +1,9 @@
 import json
+from datetime import timedelta
 from unittest.mock import Mock
 
 import pytest
+from django.utils import timezone
 
 from apps.catalog.models import Manufacturer
 from apps.prestashop.client import PrestashopClient, PrestashopError
@@ -252,6 +254,36 @@ class TestManufacturerExportTask:
 
         assert result == {"status": "success", "processed": 0, "failed": 0}
         assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_MANUFACTURER).count() == 1
+
+    def test_task_retries_when_running_job_is_stale(self, monkeypatch):
+        manufacturer = Manufacturer.objects.create(icg_code="14001", name="STALE BRAND")
+        stale_job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_MANUFACTURER,
+            entity_type="manufacturer",
+            entity_key=manufacturer.icg_code,
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now() - timedelta(minutes=60),
+            payload={"entity_id": manufacturer.pk, "manufacturer_id": manufacturer.pk},
+        )
+
+        def fake_export(manufacturer_id: int):
+            manufacturer = Manufacturer.objects.get(pk=manufacturer_id)
+            manufacturer.prestashop_id = manufacturer.pk + 100
+            manufacturer.sync_required = False
+            manufacturer.last_sync_error = ""
+            manufacturer.last_synced_at = manufacturer.updated_at
+            manufacturer.save()
+            return {"manufacturer_id": manufacturer_id, "prestashop_id": manufacturer.prestashop_id}
+
+        monkeypatch.setattr("apps.sync.tasks.export_manufacturer", fake_export)
+
+        result = export_manufacturers()
+
+        assert result == {"status": "success", "processed": 1, "failed": 0}
+        stale_job.refresh_from_db()
+        assert stale_job.status == SyncJobStatus.SUCCEEDED
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_MANUFACTURER).count() == 2
 
 
 @pytest.mark.django_db
