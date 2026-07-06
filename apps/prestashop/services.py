@@ -771,10 +771,19 @@ def export_discount(
     client = client or PrestashopClient()
 
     try:
+        existing_ps_id = product.prestashop_specific_price_id
+
         if _is_product_unsyncable(product):
-            existing_ps_id = product.prestashop_specific_price_id
-            if existing_ps_id is not None:
+            if product.prestashop_id is not None:
+                existing_specific_price_ids = client.list_all_specific_price_ids_by_product(
+                    product.prestashop_id
+                )
+                for specific_price_id in existing_specific_price_ids:
+                    client.delete_specific_price(specific_price_id)
+            elif existing_ps_id is not None:
                 client.delete_specific_price(existing_ps_id)
+
+            if existing_ps_id is not None:
                 product.prestashop_specific_price_id = None
                 product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
             _clear_sync_fields(product, sync_field="discount_sync_required")
@@ -792,19 +801,19 @@ def export_discount(
 
         product_ps_id = product.prestashop_id
         discount = product.discount_percent
-        existing_ps_id = product.prestashop_specific_price_id
+
+        existing_specific_price_ids = client.list_all_specific_price_ids_by_product(product_ps_id)
+
+        for specific_price_id in existing_specific_price_ids:
+            client.delete_specific_price(specific_price_id)
+
+        if existing_ps_id is not None:
+            product.prestashop_specific_price_id = None
+            product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
 
         if discount > 0:
-            ps_id = client.upsert_specific_price(
-                product_ps_id,
-                discount,
-                prestashop_id=existing_ps_id,
-            )
+            ps_id = client.upsert_specific_price(product_ps_id, discount, prestashop_id=None)
             product.prestashop_specific_price_id = ps_id
-            product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
-        elif existing_ps_id is not None:
-            client.delete_specific_price(existing_ps_id)
-            product.prestashop_specific_price_id = None
             product.save(update_fields=["prestashop_specific_price_id", "updated_at"])
 
         product.discount_sync_required = False

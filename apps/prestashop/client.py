@@ -1433,6 +1433,26 @@ class PrestashopClient:
 
         return specific_prices
 
+    def list_all_specific_price_ids_by_product(self, product_ps_id: int) -> list[int]:
+        response = self._request(
+            "GET",
+            "specific_prices",
+            params={
+                "display": "full",
+                "filter[id_product]": str(product_ps_id),
+                "sort": "[id_ASC]",
+            },
+        )
+        root = self._parse_xml(response.text)
+
+        specific_price_ids: list[int] = []
+        for node in root.findall("./specific_prices/specific_price"):
+            specific_price_id = self._parse_int(node, "id")
+            if specific_price_id is not None:
+                specific_price_ids.append(specific_price_id)
+
+        return specific_price_ids
+
     def get_specific_price_xml(self, specific_price_id: int) -> ElementTree.Element:
         response = self._request("GET", "specific_prices", resource_id=specific_price_id)
         return self._parse_xml(response.text)
