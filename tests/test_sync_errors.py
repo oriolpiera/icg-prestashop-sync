@@ -399,8 +399,8 @@ class TestRetryEntityTask:
             job_type=SyncJobType.EXPORT_PRODUCT,
             entity_type="product",
             entity_key=product.reference,
-            status=SyncJobStatus.PENDING,
-            attempts=1,
+            status=SyncJobStatus.FAILED,
+            attempts=2,
             payload={"entity_id": product.pk},
         )
         stale_error = SyncError.objects.create(
@@ -424,6 +424,33 @@ class TestRetryEntityTask:
         assert stale_job.status == SyncJobStatus.SUCCEEDED
         assert stale_job.last_error == ""
         assert stale_error.resolved is True
+
+    def test_retry_entity_skips_when_pending_job_already_exists(self):
+        product = Product.objects.create(
+            icg_id=1012,
+            reference="REF012",
+            name="Test Product 12",
+        )
+        SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key=product.reference,
+            status=SyncJobStatus.PENDING,
+            attempts=2,
+            payload={"entity_id": product.pk},
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._EXPORT_DISPATCH",
+            {"product": (SyncJobType.EXPORT_PRODUCT, mock_export)},
+        ):
+            result = retry_entity("product", product.pk, product.reference)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "job_already_open"
+        mock_export.assert_not_called()
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_PRODUCT).count() == 1
 
 
 # --- Retry failed jobs task ---
