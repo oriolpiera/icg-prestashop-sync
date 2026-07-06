@@ -232,6 +232,27 @@ class TestManufacturerExportTask:
         assert job.attempts == 2
         assert json.loads(manufacturer.last_sync_error)["status_code"] == 503
 
+    def test_task_does_not_create_duplicate_open_jobs(self, monkeypatch):
+        manufacturer = Manufacturer.objects.create(icg_code="14000", name="ARTECREATION")
+        SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_MANUFACTURER,
+            entity_type="manufacturer",
+            entity_key=manufacturer.icg_code,
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            payload={"entity_id": manufacturer.pk, "manufacturer_id": manufacturer.pk},
+        )
+
+        def fail_if_called(manufacturer_id: int):
+            raise AssertionError(f"unexpected duplicate export for manufacturer {manufacturer_id}")
+
+        monkeypatch.setattr("apps.sync.tasks.export_manufacturer", fail_if_called)
+
+        result = export_manufacturers()
+
+        assert result == {"status": "success", "processed": 0, "failed": 0}
+        assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_MANUFACTURER).count() == 1
+
 
 @pytest.mark.django_db
 class TestPrestashopClient:
