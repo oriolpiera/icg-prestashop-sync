@@ -803,8 +803,6 @@ def export_discount(
         discount = product.discount_percent
 
         existing_specific_price_ids = client.list_all_specific_price_ids_by_product(product_ps_id)
-        if existing_ps_id is not None and existing_ps_id not in existing_specific_price_ids:
-            existing_specific_price_ids.append(existing_ps_id)
 
         for specific_price_id in existing_specific_price_ids:
             client.delete_specific_price(specific_price_id)

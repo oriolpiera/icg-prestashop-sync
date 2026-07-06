@@ -134,6 +134,31 @@ class TestExportDiscount:
         client.delete_specific_price.assert_not_called()
         assert result["prestashop_specific_price_id"] is None
 
+    def test_unsyncable_product_with_prestashop_id_deletes_all_specific_prices(self):
+        product = _make_product(discount_percent=Decimal("20"), discontinued=True)
+        _make_product_prestashop_id(product, 22)
+        product.prestashop_specific_price_id = 500
+        product.discount_sync_required = True
+        product.save(update_fields=["prestashop_specific_price_id", "discount_sync_required"])
+
+        client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = [500, 501, 777]
+
+        result = export_discount(product.pk, client=client)
+
+        client.list_all_specific_price_ids_by_product.assert_called_once_with(22)
+        assert client.delete_specific_price.call_args_list == [
+            ((500,), {}),
+            ((501,), {}),
+            ((777,), {}),
+        ]
+        client.upsert_specific_price.assert_not_called()
+        assert result["prestashop_specific_price_id"] is None
+
+        product.refresh_from_db()
+        assert product.prestashop_specific_price_id is None
+        assert product.discount_sync_required is False
+
     def test_delete_persists_id_before_final_save(self):
         product = _make_product(discount_percent=Decimal("0"))
         _make_product_prestashop_id(product, 22)
