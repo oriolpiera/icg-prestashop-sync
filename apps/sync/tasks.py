@@ -519,17 +519,7 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
                     processed += 1
                     if result.get("inserted"):
                         inserted += 1
-                    job.status = SyncJobStatus.SUCCEEDED
-                    job.payload = {**job.payload, **result}
-                    job.finished_at = timezone.now().astimezone(UTC)
-                    job.save(
-                        update_fields=[
-                            "status",
-                            "payload",
-                            "finished_at",
-                            "updated_at",
-                        ]
-                    )
+                    _mark_job_succeeded(job, result)
                     advance_cursor(
                         SyncCursorSource.CUSTOMERS,
                         customer.date_add,
@@ -612,17 +602,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                 else:
                     processed += 1
                     inserted_rows += int(result.get("inserted_rows", 0))
-                    job.status = SyncJobStatus.SUCCEEDED
-                    job.payload = {**job.payload, **result}
-                    job.finished_at = timezone.now().astimezone(UTC)
-                    job.save(
-                        update_fields=[
-                            "status",
-                            "payload",
-                            "finished_at",
-                            "updated_at",
-                        ]
-                    )
+                    _mark_job_succeeded(job, result)
                     advance_cursor(
                         SyncCursorSource.ORDERS,
                         order.date_add,
@@ -688,10 +668,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
             "error": error,
         }
 
-    job.status = SyncJobStatus.SUCCEEDED
-    job.payload = {**job.payload, **result}
-    job.finished_at = timezone.now().astimezone(UTC)
-    job.save(update_fields=["status", "payload", "finished_at", "updated_at"])
+    _mark_job_succeeded(job, result)
     return {"status": "succeeded", "entity_type": entity_type, "entity_id": entity_id, **result}
 
 
