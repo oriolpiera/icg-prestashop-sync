@@ -674,10 +674,19 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
         return {"status": "error", "detail": f"Unknown entity_type: {entity_type}"}
 
     job_type, export_fn = entry
+    resolved_entity_key = entity_key or str(entity_id)
+    if _has_open_job_conflict(job_type, entity_type, resolved_entity_key):
+        return {
+            "status": "skipped",
+            "reason": "job_already_open",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+        }
+
     job = SyncJob.objects.create(
         job_type=job_type,
         entity_type=entity_type,
-        entity_key=entity_key or str(entity_id),
+        entity_key=resolved_entity_key,
         status=SyncJobStatus.RUNNING,
         attempts=1,
         started_at=timezone.now(),

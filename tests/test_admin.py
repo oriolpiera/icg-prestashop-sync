@@ -195,6 +195,27 @@ class TestRetryEntityTask:
         assert result["status"] == "error"
         assert "Unknown entity_type" in result["detail"]
 
+    def test_retry_skips_when_job_already_open(self):
+        product = _make_product()
+        _make_job(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key=product.reference,
+            status=SyncJobStatus.PENDING,
+            attempts=2,
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._EXPORT_DISPATCH",
+            {"product": (SyncJobType.EXPORT_PRODUCT, mock_export)},
+        ):
+            result = retry_entity("product", product.pk, product.reference)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "job_already_open"
+        mock_export.assert_not_called()
+
 
 # --- Admin actions ---
 
