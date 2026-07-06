@@ -104,6 +104,50 @@ def _mark_job_succeeded(job: SyncJob, result: dict[str, Any]) -> None:
         _resolve_superseded_jobs(job, finished_at=finished_at)
 
 
+def _resolve_job_errors(job: SyncJob) -> None:
+    job.errors.filter(resolved=False).update(resolved=True, updated_at=timezone.now())
+
+
+def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
+    superseded_jobs = SyncJob.objects.filter(
+        job_type=job.job_type,
+        entity_type=job.entity_type,
+        entity_key=job.entity_key,
+        status__in=[SyncJobStatus.PENDING, SyncJobStatus.FAILED],
+    ).exclude(pk=job.pk)
+
+    SyncError.objects.filter(job__in=superseded_jobs, resolved=False).update(
+        resolved=True,
+        updated_at=timezone.now(),
+    )
+    superseded_jobs.update(
+        status=SyncJobStatus.SUCCEEDED,
+        last_error="",
+        finished_at=finished_at,
+        updated_at=timezone.now(),
+    )
+
+
+def _mark_job_succeeded(job: SyncJob, result: dict[str, Any]) -> None:
+    with transaction.atomic():
+        finished_at = timezone.now().astimezone(UTC)
+        job.status = SyncJobStatus.SUCCEEDED
+        job.payload = {**job.payload, **result}
+        job.last_error = ""
+        job.finished_at = finished_at
+        job.save(
+            update_fields=[
+                "status",
+                "payload",
+                "last_error",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+        _resolve_job_errors(job)
+        _resolve_superseded_jobs(job, finished_at=finished_at)
+
+
 def _record_sync_error(
     job: SyncJob,
     exc: Exception,
