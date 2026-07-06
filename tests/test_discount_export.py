@@ -63,6 +63,7 @@ class TestExportDiscount:
         _make_product_prestashop_id(product, 22)
 
         client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = []
         client.upsert_specific_price.return_value = 500
 
         result = export_discount(product.pk, client=client)
@@ -70,35 +71,51 @@ class TestExportDiscount:
         assert result["discount_percent"] == "20.00"
         assert result["prestashop_specific_price_id"] == 500
         client.upsert_specific_price.assert_called_once_with(22, Decimal("20"), prestashop_id=None)
+        client.delete_specific_price.assert_not_called()
 
         product.refresh_from_db()
         assert product.prestashop_specific_price_id == 500
 
-    def test_nonzero_discount_updates_existing_specific_price(self):
+    def test_nonzero_discount_recreates_single_specific_price_after_cleanup(self):
         product = _make_product(discount_percent=Decimal("15"))
         _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 
         client = Mock()
-        client.upsert_specific_price.return_value = 500
+        client.list_all_specific_price_ids_by_product.return_value = [500, 501, 777]
+        client.upsert_specific_price.return_value = 900
 
         result = export_discount(product.pk, client=client)
 
-        client.upsert_specific_price.assert_called_once_with(22, Decimal("15"), prestashop_id=500)
-        assert result["prestashop_specific_price_id"] == 500
+        assert client.delete_specific_price.call_args_list == [
+            ((500,), {}),
+            ((501,), {}),
+            ((777,), {}),
+        ]
+        client.upsert_specific_price.assert_called_once_with(22, Decimal("15"), prestashop_id=None)
+        assert result["prestashop_specific_price_id"] == 900
 
-    def test_zero_discount_deletes_existing_specific_price(self):
+        product.refresh_from_db()
+        assert product.prestashop_specific_price_id == 900
+
+    def test_zero_discount_deletes_all_specific_prices_for_product(self):
         product = _make_product(discount_percent=Decimal("0"))
         _make_product_prestashop_id(product, 22)
         product.prestashop_specific_price_id = 500
         product.save(update_fields=["prestashop_specific_price_id"])
 
         client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = [500, 501, 777]
 
         result = export_discount(product.pk, client=client)
 
-        client.delete_specific_price.assert_called_once_with(500)
+        assert client.delete_specific_price.call_args_list == [
+            ((500,), {}),
+            ((501,), {}),
+            ((777,), {}),
+        ]
+        client.upsert_specific_price.assert_not_called()
         assert result["prestashop_specific_price_id"] is None
 
         product.refresh_from_db()
@@ -109,6 +126,7 @@ class TestExportDiscount:
         _make_product_prestashop_id(product, 22)
 
         client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = []
 
         result = export_discount(product.pk, client=client)
 
@@ -123,6 +141,7 @@ class TestExportDiscount:
         product.save(update_fields=["prestashop_specific_price_id"])
 
         client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = [500]
 
         call_count = 0
         original_save = Product.save
@@ -157,6 +176,7 @@ class TestExportDiscount:
         _make_product_prestashop_id(product, 22)
 
         client = Mock()
+        client.list_all_specific_price_ids_by_product.return_value = []
         client.upsert_specific_price.side_effect = PrestashopError(
             "Prestashop returned HTTP 500 for specific_prices.",
             status_code=500,
@@ -210,6 +230,23 @@ class TestPrestashopClientSpecificPrices:
         sp_id = client.find_specific_price_by_product(22)
 
         assert sp_id is None
+
+    def test_list_all_specific_price_ids_by_product(self, settings):
+        response = self._response(
+            "<prestashop><specific_prices>"
+            "<specific_price><id>42</id><id_product_attribute>0</id_product_attribute></specific_price>"
+            "<specific_price><id>43</id><id_product_attribute>55</id_product_attribute></specific_price>"
+            "</specific_prices></prestashop>"
+        )
+        session = Mock()
+        session.request.return_value = response
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+
+        client = PrestashopClient(session=session)
+        sp_ids = client.list_all_specific_price_ids_by_product(22)
+
+        assert sp_ids == [42, 43]
 
     def test_delete_specific_price(self, settings):
         response = self._response("")
