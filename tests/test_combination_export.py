@@ -673,6 +673,34 @@ class TestCombinationExportTask:
         assert job.attempts == 2
         assert json.loads(combination.last_sync_error)["status_code"] == 503
 
+    def test_failed_combination_moves_behind_older_pending_rows(self, monkeypatch):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        first = _make_combination(product=product, icg_size="M", icg_color="Red")
+        second = _make_combination(product=product, icg_size="L", icg_color="Blue")
+
+        def fake_export(combination_id):
+            combination = Combination.objects.get(pk=combination_id)
+            combination.last_sync_error = format_sync_error(
+                PrestashopError("boom", status_code=503)
+            )
+            combination.save(update_fields=["last_sync_error", "updated_at"])
+            raise PrestashopError("boom", status_code=503)
+
+        monkeypatch.setattr("apps.sync.tasks.export_combination", fake_export)
+
+        first_result = export_combinations(limit=1)
+        second_result = export_combinations(limit=1)
+
+        assert first_result == {"status": "success", "processed": 0, "failed": 1}
+        assert second_result == {"status": "success", "processed": 0, "failed": 1}
+        assert list(
+            SyncJob.objects.order_by("created_at").values_list("entity_key", flat=True)
+        ) == [
+            f"{first.product.reference}/{first.icg_size}/{first.icg_color}",
+            f"{second.product.reference}/{second.icg_size}/{second.icg_color}",
+        ]
+
 
 # ─── PrestaShopClient combination methods ──────────────────────────
 

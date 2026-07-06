@@ -179,7 +179,9 @@ def import_stock() -> dict:
 def export_manufacturers(limit: int = 10) -> dict:
     return _run_export_batch(
         task_name="export_manufacturers",
-        queryset=Manufacturer.objects.filter(sync_required=True).order_by("pk")[:limit],
+        queryset=Manufacturer.objects.filter(sync_required=True).order_by("updated_at", "pk")[
+            :limit
+        ],
         job_type=SyncJobType.EXPORT_MANUFACTURER,
         entity_type="manufacturer",
         entity_key_fn=lambda m: m.icg_code,
@@ -226,7 +228,7 @@ def export_products(limit: int = 100) -> dict:
         queryset=Product.objects.filter(sync_required=True)
         .filter(models.Q(discontinued=False) | models.Q(prestashop_id__isnull=False))
         .filter(models.Q(visible_web=True) | models.Q(prestashop_id__isnull=False))
-        .order_by("pk")[:limit],
+        .order_by("updated_at", "pk")[:limit],
         job_type=SyncJobType.EXPORT_PRODUCT,
         entity_type="product",
         entity_key_fn=lambda p: p.reference,
@@ -265,7 +267,7 @@ def export_combinations(limit: int = 1000) -> dict:
         .filter(
             models.Q(product__visible_web=True) | models.Q(product__prestashop_id__isnull=False)
         )
-        .order_by("pk")[:limit],
+        .order_by("updated_at", "pk")[:limit],
         job_type=SyncJobType.EXPORT_COMBINATION,
         entity_type="combination",
         entity_key_fn=lambda c: f"{c.product.reference}/{c.icg_size}/{c.icg_color}",
@@ -312,7 +314,7 @@ def export_prices(limit: int = 1000) -> dict:
             models.Q(combination__product__visible_web=True)
             | models.Q(combination__product__prestashop_id__isnull=False)
         )
-        .order_by("pk")[:limit],
+        .order_by("updated_at", "pk")[:limit],
         job_type=SyncJobType.EXPORT_PRICE,
         entity_type="price",
         entity_key_fn=lambda p: (
@@ -363,7 +365,7 @@ def export_stocks(limit: int = 1000) -> dict:
             models.Q(combination__product__visible_web=True)
             | models.Q(combination__product__prestashop_id__isnull=False)
         )
-        .order_by("pk")[:limit],
+        .order_by("updated_at", "pk")[:limit],
         job_type=SyncJobType.EXPORT_STOCK,
         entity_type="stock",
         entity_key_fn=lambda s: (
@@ -398,7 +400,7 @@ def export_discounts(limit: int = 1000) -> dict:
             discontinued=False,
             visible_web=True,
             prestashop_id__isnull=False,
-        ).order_by("pk")[:limit],
+        ).order_by("updated_at", "pk")[:limit],
         job_type=SyncJobType.EXPORT_DISCOUNT,
         entity_type="discount",
         entity_key_fn=lambda p: p.reference,
