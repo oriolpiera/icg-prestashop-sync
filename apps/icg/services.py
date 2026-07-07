@@ -218,7 +218,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
+                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado > ? "
                     "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
                     cursor_at,
                 )
@@ -296,7 +296,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
+                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado > ? "
                     "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
@@ -367,7 +367,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
+                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado > ? "
                     "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
