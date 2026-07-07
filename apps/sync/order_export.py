@@ -31,6 +31,16 @@ def export_order_to_icg(
     writer: ICGFacturasWebWriter | None = None,
     exported_at: datetime | None = None,
 ) -> dict[str, int]:
+    from apps.sales.models import PrestashopOrder
+    from apps.sales.services import export_order_to_icg_from_mirror
+
+    if PrestashopOrder.objects.filter(prestashop_id=order_id).exists():
+        return export_order_to_icg_from_mirror(
+            order_id,
+            writer=writer,
+            exported_at=exported_at,
+        )
+
     client = client or PrestashopClient()
     writer = writer or ICGFacturasWebWriter()
     snapshot = client.get_order_snapshot(order_id)

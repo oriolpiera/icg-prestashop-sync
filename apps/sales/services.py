@@ -163,20 +163,17 @@ def upsert_order_snapshot(
         )
 
     existing_exact_override_by_line: dict[tuple, deque[int]] = defaultdict(deque)
+    existing_exact_line_keys: set[tuple] = set()
+    existing_override_ids_by_identity: dict[tuple[int, int], deque[int]] = defaultdict(deque)
     for line in order.lines.all():
+        existing_exact_line_keys.add(_line_exact_key_from_model(line))
         if line.override_combination_id is None:
             continue
-        existing_exact_override_by_line[
-            (
-                line.prestashop_product_id,
-                line.prestashop_combination_id,
-                line.description,
-                line.quantity,
-                line.unit_price_tax_incl,
-                line.total_price_tax_incl,
-                line.vat_rate,
-            )
-        ].append(line.override_combination_id)
+        identity = (line.prestashop_product_id, line.prestashop_combination_id)
+        existing_exact_override_by_line[_line_exact_key_from_model(line)].append(
+            line.override_combination_id
+        )
+        existing_override_ids_by_identity[identity].append(line.override_combination_id)
 
     existing_line_identities = [
         (line.prestashop_product_id, line.prestashop_combination_id) for line in order.lines.all()
@@ -207,30 +204,12 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=(
-                    existing_exact_override_by_line[
-                        (
-                            line.product_id,
-                            line.combination_id,
-                            line.description,
-                            line.quantity,
-                            line.unit_price_tax_incl,
-                            line.total_price_tax_incl,
-                            line.vat_rate,
-                        )
-                    ].popleft()
-                    if existing_exact_override_by_line[
-                        (
-                            line.product_id,
-                            line.combination_id,
-                            line.description,
-                            line.quantity,
-                            line.unit_price_tax_incl,
-                            line.total_price_tax_incl,
-                            line.vat_rate,
-                        )
-                    ]
-                    else existing_override_by_line.get((line.product_id, line.combination_id))
+                override_combination_id=_carry_forward_override_combination_id(
+                    line=line,
+                    existing_exact_line_keys=existing_exact_line_keys,
+                    exact_overrides=existing_exact_override_by_line,
+                    identity_overrides=existing_override_ids_by_identity,
+                    unique_identity_overrides=existing_override_by_line,
                 ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
@@ -319,6 +298,56 @@ def _order_export_state_stale(
         for index, discount in enumerate(snapshot.discounts, start=1)
     ]
     return existing_discounts != incoming_discounts
+
+
+def _line_exact_key_from_model(line: MirroredOrderLine) -> tuple:
+    return (
+        line.prestashop_product_id,
+        line.prestashop_combination_id,
+        line.description,
+        line.quantity,
+        line.unit_price_tax_incl,
+        line.total_price_tax_incl,
+        line.vat_rate,
+    )
+
+
+def _line_exact_key_from_snapshot(line: PrestashopOrderLine) -> tuple:
+    return (
+        line.product_id,
+        line.combination_id,
+        line.description,
+        line.quantity,
+        line.unit_price_tax_incl,
+        line.total_price_tax_incl,
+        line.vat_rate,
+    )
+
+
+def _carry_forward_override_combination_id(
+    *,
+    line: PrestashopOrderLine,
+    existing_exact_line_keys: set[tuple],
+    exact_overrides: dict[tuple, deque[int]],
+    identity_overrides: dict[tuple[int, int], deque[int]],
+    unique_identity_overrides: dict[tuple[int, int], int],
+) -> int | None:
+    exact_key = _line_exact_key_from_snapshot(line)
+    if exact_overrides[exact_key]:
+        override_id = exact_overrides[exact_key].popleft()
+        identity = (line.product_id, line.combination_id)
+        if identity_overrides[identity]:
+            identity_overrides[identity].remove(override_id)
+        return override_id
+
+    if exact_key in existing_exact_line_keys:
+        return None
+
+    identity = (line.product_id, line.combination_id)
+    if identity_overrides[identity]:
+        return identity_overrides[identity].popleft()
+
+    return unique_identity_overrides.get(identity)
 
 
 def export_customer_to_icg_from_mirror(
