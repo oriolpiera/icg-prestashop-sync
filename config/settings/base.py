@@ -178,7 +178,8 @@ if _infra_env.exists():
     load_dotenv(_infra_env)
 
 MARIADB = {
-    "HOST": os.getenv("MARIADB_HOST", "prod-mariadb"),
+    "CONTAINER": os.getenv("MARIADB_CONTAINER", "prod-mariadb"),
+    "HOST": os.getenv("MARIADB_HOST", "localhost"),
     "PORT": int(os.getenv("MARIADB_PORT", "3306")),
     "USER": os.getenv("MARIADB_USER", "prestashop"),
     "PASSWORD": os.getenv("MARIADB_PASSWORD", ""),

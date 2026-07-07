@@ -1,8 +1,7 @@
 import csv
 import io
-import os
+import re
 import subprocess
-import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -37,6 +36,34 @@ HAVING combination_count >= %(min_combinations)s
 ORDER BY combination_count DESC, color_group_count DESC, p.id_product
 LIMIT %(limit)s;
 """
+
+
+def _run_mariadb_in_container(
+    container: str,
+    user: str,
+    password: str,
+    database: str,
+    query: str,
+    lang_id: int,
+    db_host: str | None = None,
+    db_port: int | None = None,
+) -> subprocess.CompletedProcess:
+    secret_file = f"/tmp/mariauth_{re.sub(r'[^a-zA-Z0-9]', '', password)[:16]}.cnf"
+    shell_cmd = (
+        f"cat > {secret_file} << 'MARIASEcret'\n"
+        f"[client]\n"
+        f"password={password}\n"
+        f"MARIASEcret\n"
+        f"mariadb --defaults-extra-file={secret_file} "
+        f'-u {user} --database {database} -B -e "{query}" ; '
+        f"rm -f {secret_file}"
+    )
+    result = subprocess.run(
+        ["docker", "exec", "-i", container, "sh", "-c", shell_cmd],
+        capture_output=True,
+        text=True,
+    )
+    return result
 
 
 class Command(BaseCommand):
@@ -76,7 +103,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--container",
             default=None,
-            help="MariaDB container name (default: from MARIADB_HOST setting).",
+            help="MariaDB container name (default: MARIADB_CONTAINER or prod-mariadb).",
         )
 
     def handle(self, *args, **options):
@@ -96,8 +123,10 @@ class Command(BaseCommand):
             )
             return
 
-        container_name = container or mariadb_cfg.get("HOST", "prod-mariadb")
+        container_name = container or mariadb_cfg.get("CONTAINER", "prod-mariadb")
         lang_id = getattr(settings, "PRESTASHOP_DEFAULT_LANGUAGE_ID", 1)
+        db_host = mariadb_cfg.get("HOST")
+        db_port = mariadb_cfg.get("PORT")
 
         query = MARIADB_QUERY % {
             "min_combinations": min_combinations,
@@ -106,43 +135,16 @@ class Command(BaseCommand):
             "lang_id": lang_id,
         }
 
-        db_host = mariadb_cfg.get("HOST", "localhost")
-        db_port = mariadb_cfg.get("PORT", 3306)
-
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as secret_file:
-            secret_file.write(f"[client]\npassword={mariadb_cfg['PASSWORD']}\n")
-            secret_path = secret_file.name
-        os.chmod(secret_path, 0o600)
-
-        mariadb_cmd = [
-            "docker",
-            "exec",
-            "-i",
-            container_name,
-            "mariadb",
-            f"--defaults-extra-file={secret_path}",
-            "-u",
-            mariadb_cfg["USER"],
-            "--database",
-            mariadb_cfg["DATABASE"],
-            "-B",
-            "-e",
-            query,
-        ]
-
-        if db_host not in ("localhost", "127.0.0.1"):
-            mariadb_cmd.extend(["--host", db_host])
-        if db_port != 3306:
-            mariadb_cmd.extend(["--port", str(db_port)])
-
-        try:
-            result = subprocess.run(
-                mariadb_cmd,
-                capture_output=True,
-                text=True,
-            )
-        finally:
-            os.unlink(secret_path)
+        result = _run_mariadb_in_container(
+            container=container_name,
+            user=mariadb_cfg["USER"],
+            password=mariadb_cfg["PASSWORD"],
+            database=mariadb_cfg["DATABASE"],
+            query=query,
+            lang_id=lang_id,
+            db_host=db_host,
+            db_port=db_port,
+        )
 
         if result.returncode != 0:
             self.stderr.write(self.style.ERROR(f"MariaDB query failed: {result.stderr}"))

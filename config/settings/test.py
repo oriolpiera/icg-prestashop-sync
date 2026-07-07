@@ -8,7 +8,8 @@ DATABASES = {
 }
 
 MARIADB = {
-    "HOST": "test-mariadb",
+    "CONTAINER": "test-mariadb",
+    "HOST": "localhost",
     "PORT": 3306,
     "USER": "test_user",
     "PASSWORD": "test_password",
