@@ -473,6 +473,10 @@ class TestRetryEntityTask:
         assert job.status == SyncJobStatus.PENDING
         assert job.attempts == 1
         assert job.payload["icg_sales_export_lock_contention_count"] == 1
+        assert job.error_type == SyncErrorType.TRANSIENT
+        error = job.errors.order_by("-created_at").first()
+        assert error is not None
+        assert "icg_sales_export" in error.message
 
 
 # --- Retry failed jobs task ---

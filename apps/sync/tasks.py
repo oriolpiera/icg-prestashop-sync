@@ -186,6 +186,20 @@ def _record_sync_error(
     return error_message
 
 
+def _record_lock_contention(job: SyncJob) -> None:
+    message = f"ICG sales export lock '{ICG_SALES_EXPORT_LOCK_KEY}' is currently held"
+    SyncError.objects.create(
+        job=job,
+        entity_type=job.entity_type,
+        entity_key=job.entity_key,
+        error_type=SyncErrorType.TRANSIENT,
+        message=message,
+        details=job.payload,
+    )
+    job.last_error = message
+    job.save(update_fields=["last_error", "updated_at"])
+
+
 def _has_open_job_conflict(job_type: str, entity_type: str, entity_key: str) -> bool:
     return (
         SyncJob.objects.filter(
@@ -743,6 +757,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
         with _maybe_icg_sales_export_lock(entity_type=entity_type, job_type=job_type):
             result = export_fn(entity_id)
     except LockAcquisitionError:
+        _record_lock_contention(job)
         _release_running_job_for_lock_contention(job)
         return {
             "status": "skipped",
