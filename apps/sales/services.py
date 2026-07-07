@@ -47,6 +47,9 @@ def upsert_customer_snapshot(
 ) -> PrestashopCustomer:
     captured_at = captured_at or timezone.now()
     address = snapshot.address
+    existing_customer = PrestashopCustomer.objects.filter(
+        prestashop_id=snapshot.customer_id
+    ).first()
     defaults = {
         "firstname": snapshot.firstname,
         "lastname": snapshot.lastname,
@@ -67,7 +70,41 @@ def upsert_customer_snapshot(
         prestashop_id=snapshot.customer_id,
         defaults=defaults,
     )
+    if existing_customer is not None and _customer_export_state_stale(existing_customer, defaults):
+        customer.export_status = ExportStatus.NEVER
+        customer.exported_to_icg_at = None
+        customer.last_export_error = ""
+        customer.last_export_inserted = None
+        customer.save(
+            update_fields=[
+                "export_status",
+                "exported_to_icg_at",
+                "last_export_error",
+                "last_export_inserted",
+                "updated_at",
+            ]
+        )
     return customer
+
+
+def _customer_export_state_stale(
+    customer: PrestashopCustomer, incoming: dict[str, str | datetime | None]
+) -> bool:
+    exported_fields = (
+        "firstname",
+        "lastname",
+        "email",
+        "address1",
+        "postcode",
+        "city",
+        "state",
+        "country",
+        "phone",
+        "phone_mobile",
+        "dni",
+        "vat_number",
+    )
+    return any(getattr(customer, field) != incoming[field] for field in exported_fields)
 
 
 def refresh_order_from_prestashop(

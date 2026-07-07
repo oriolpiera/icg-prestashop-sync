@@ -72,6 +72,14 @@ def test_upsert_customer_snapshot_preserves_export_state():
         lastname="Lovelace",
         email="ada@example.com",
         date_add=_aware(2026, 7, 1, 10),
+        address1="Main street 1",
+        postcode="08001",
+        city="Barcelona",
+        state="Barcelona",
+        country="Spain",
+        phone="931000000",
+        phone_mobile="600000000",
+        dni="12345678A",
         last_snapshot_at=_aware(2026, 7, 1, 11),
         export_status=ExportStatus.FAILED,
         exported_to_icg_at=_aware(2026, 7, 1, 12),
@@ -86,7 +94,17 @@ def test_upsert_customer_snapshot_preserves_export_state():
             lastname="Lovelace",
             email="ada@example.com",
             date_add=_aware(2026, 7, 1, 10),
-            address=None,
+            address=PrestashopAddress(
+                address1="Main street 1",
+                postcode="08001",
+                city="Barcelona",
+                state="Barcelona",
+                country="Spain",
+                phone="931000000",
+                phone_mobile="600000000",
+                dni="12345678A",
+                vat_number=None,
+            ),
         ),
         captured_at=_aware(2026, 7, 1, 13),
     )
@@ -97,6 +115,59 @@ def test_upsert_customer_snapshot_preserves_export_state():
     assert customer.exported_to_icg_at == _aware(2026, 7, 1, 12)
     assert customer.last_export_error == "old error"
     assert customer.last_export_inserted is False
+
+
+@pytest.mark.django_db
+def test_upsert_customer_snapshot_resets_export_state_when_exported_fields_change():
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 10),
+        address1="Main street 1",
+        postcode="08001",
+        city="Barcelona",
+        state="Barcelona",
+        country="Spain",
+        phone="931000000",
+        phone_mobile="600000000",
+        dni="12345678A",
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+        export_status=ExportStatus.SUCCEEDED,
+        exported_to_icg_at=_aware(2026, 7, 1, 12),
+        last_export_error="",
+        last_export_inserted=True,
+    )
+
+    refreshed = upsert_customer_snapshot(
+        PrestashopCustomerSnapshot(
+            customer_id=42,
+            firstname="Ada",
+            lastname="Lovelace",
+            email="ada+new@example.com",
+            date_add=_aware(2026, 7, 1, 10),
+            address=PrestashopAddress(
+                address1="Main street 1",
+                postcode="08001",
+                city="Barcelona",
+                state="Barcelona",
+                country="Spain",
+                phone="931000000",
+                phone_mobile="600000000",
+                dni="12345678A",
+                vat_number=None,
+            ),
+        ),
+        captured_at=_aware(2026, 7, 1, 13),
+    )
+
+    customer.refresh_from_db()
+    assert refreshed.pk == customer.pk
+    assert customer.export_status == ExportStatus.NEVER
+    assert customer.exported_to_icg_at is None
+    assert customer.last_export_error == ""
+    assert customer.last_export_inserted is None
 
 
 @pytest.mark.django_db
