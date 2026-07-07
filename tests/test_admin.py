@@ -382,6 +382,34 @@ class TestAdminActions:
             "prestashop_order", order.prestashop_id, str(order.prestashop_id)
         )
 
+    def test_export_sales_to_icg_skips_customer_with_open_job(self):
+        customer = _make_sales_customer(prestashop_id=25459)
+        SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key=str(customer.prestashop_id),
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now(),
+            payload={"entity_id": customer.prestashop_id},
+        )
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopCustomer]
+
+        with patch("apps.sync.tasks.retry_entity") as mock_retry:
+            export_sales_to_icg(
+                model_admin,
+                request,
+                PrestashopCustomer.objects.filter(pk=customer.pk),
+            )
+
+        mock_retry.delay.assert_not_called()
+        msgs = list(request._messages)
+        assert len(msgs) == 1
+        expected = "Dispatched 0 customer(s) for export to ICG."
+        expected += " Skipped 1 with an open export job."
+        assert str(msgs[0]) == expected
+
     def test_set_sales_sync_cursor_for_customer_uses_selected_record(self):
         first = _make_sales_customer(
             prestashop_id=40,

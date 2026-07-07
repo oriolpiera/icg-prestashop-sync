@@ -65,13 +65,21 @@ def test_upsert_customer_snapshot_persists_address_data():
 
 
 @pytest.mark.django_db
-def test_upsert_customer_snapshot_resets_stale_export_state():
+def test_upsert_customer_snapshot_preserves_export_state():
     customer = PrestashopCustomer.objects.create(
         prestashop_id=42,
         firstname="Ada",
         lastname="Lovelace",
         email="ada@example.com",
         date_add=_aware(2026, 7, 1, 10),
+        address1="Main street 1",
+        postcode="08001",
+        city="Barcelona",
+        state="Barcelona",
+        country="Spain",
+        phone="931000000",
+        phone_mobile="600000000",
+        dni="12345678A",
         last_snapshot_at=_aware(2026, 7, 1, 11),
         export_status=ExportStatus.FAILED,
         exported_to_icg_at=_aware(2026, 7, 1, 12),
@@ -86,7 +94,70 @@ def test_upsert_customer_snapshot_resets_stale_export_state():
             lastname="Lovelace",
             email="ada@example.com",
             date_add=_aware(2026, 7, 1, 10),
-            address=None,
+            address=PrestashopAddress(
+                address1="Main street 1",
+                postcode="08001",
+                city="Barcelona",
+                state="Barcelona",
+                country="Spain",
+                phone="931000000",
+                phone_mobile="600000000",
+                dni="12345678A",
+                vat_number=None,
+            ),
+        ),
+        captured_at=_aware(2026, 7, 1, 13),
+    )
+
+    customer.refresh_from_db()
+    assert refreshed.pk == customer.pk
+    assert customer.export_status == ExportStatus.FAILED
+    assert customer.exported_to_icg_at == _aware(2026, 7, 1, 12)
+    assert customer.last_export_error == "old error"
+    assert customer.last_export_inserted is False
+
+
+@pytest.mark.django_db
+def test_upsert_customer_snapshot_resets_export_state_when_exported_fields_change():
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 10),
+        address1="Main street 1",
+        postcode="08001",
+        city="Barcelona",
+        state="Barcelona",
+        country="Spain",
+        phone="931000000",
+        phone_mobile="600000000",
+        dni="12345678A",
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+        export_status=ExportStatus.SUCCEEDED,
+        exported_to_icg_at=_aware(2026, 7, 1, 12),
+        last_export_error="",
+        last_export_inserted=True,
+    )
+
+    refreshed = upsert_customer_snapshot(
+        PrestashopCustomerSnapshot(
+            customer_id=42,
+            firstname="Ada",
+            lastname="Lovelace",
+            email="ada+new@example.com",
+            date_add=_aware(2026, 7, 1, 10),
+            address=PrestashopAddress(
+                address1="Main street 1",
+                postcode="08001",
+                city="Barcelona",
+                state="Barcelona",
+                country="Spain",
+                phone="931000000",
+                phone_mobile="600000000",
+                dni="12345678A",
+                vat_number=None,
+            ),
         ),
         captured_at=_aware(2026, 7, 1, 13),
     )
@@ -163,7 +234,7 @@ def test_refresh_order_from_prestashop_replaces_lines_and_discounts():
 
 
 @pytest.mark.django_db
-def test_refresh_order_from_prestashop_resets_stale_export_state():
+def test_refresh_order_from_prestashop_preserves_export_state():
     customer = PrestashopCustomer.objects.create(
         prestashop_id=42,
         firstname="Ada",
@@ -209,10 +280,73 @@ def test_refresh_order_from_prestashop_resets_stale_export_state():
 
     order = refresh_order_from_prestashop(77, client=client, captured_at=_aware(2026, 7, 1, 13))
 
-    assert order.export_status == ExportStatus.NEVER
-    assert order.exported_to_icg_at is None
-    assert order.last_export_error == ""
-    assert order.inserted_rows == 0
+    assert order.export_status == ExportStatus.FAILED
+    assert order.exported_to_icg_at == _aware(2026, 7, 1, 12)
+    assert order.last_export_error == "old error"
+    assert order.inserted_rows == 3
+
+
+@pytest.mark.django_db
+def test_refresh_order_from_prestashop_resets_export_state_when_lines_change():
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        last_snapshot_at=_aware(2026, 7, 1, 10),
+    )
+    order = PrestashopOrder.objects.create(
+        prestashop_id=77,
+        customer=customer,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("12.10"),
+        total_shipping_tax_excl=Decimal("10.00"),
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+        export_status=ExportStatus.SUCCEEDED,
+        exported_to_icg_at=_aware(2026, 7, 1, 12),
+        last_export_error="",
+        inserted_rows=3,
+    )
+    order.lines.create(
+        position=1,
+        prestashop_product_id=101,
+        prestashop_combination_id=202,
+        description="Blue mug",
+        quantity=1,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("24.20"),
+        vat_rate=Decimal("21.00"),
+    )
+    client = Mock()
+    client.get_order_snapshot.return_value = PrestashopOrderSnapshot(
+        order_id=77,
+        customer_id=42,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("12.10"),
+        total_shipping_tax_excl=Decimal("10.00"),
+        lines=[],
+        discounts=[],
+    )
+    client.get_customer_snapshot.return_value = PrestashopCustomerSnapshot(
+        customer_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        address=None,
+    )
+
+    refreshed = refresh_order_from_prestashop(77, client=client, captured_at=_aware(2026, 7, 1, 13))
+
+    assert refreshed.export_status == ExportStatus.NEVER
+    assert refreshed.exported_to_icg_at is None
+    assert refreshed.last_export_error == ""
+    assert refreshed.inserted_rows == 0
 
 
 @pytest.mark.django_db

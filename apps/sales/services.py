@@ -47,6 +47,9 @@ def upsert_customer_snapshot(
 ) -> PrestashopCustomer:
     captured_at = captured_at or timezone.now()
     address = snapshot.address
+    existing_customer = PrestashopCustomer.objects.filter(
+        prestashop_id=snapshot.customer_id
+    ).first()
     defaults = {
         "firstname": snapshot.firstname,
         "lastname": snapshot.lastname,
@@ -62,16 +65,46 @@ def upsert_customer_snapshot(
         "dni": _blank(address.dni if address else None),
         "vat_number": _blank(address.vat_number if address else None),
         "last_snapshot_at": captured_at,
-        "export_status": ExportStatus.NEVER,
-        "exported_to_icg_at": None,
-        "last_export_error": "",
-        "last_export_inserted": None,
     }
     customer, _ = PrestashopCustomer.objects.update_or_create(
         prestashop_id=snapshot.customer_id,
         defaults=defaults,
     )
+    if existing_customer is not None and _customer_export_state_stale(existing_customer, defaults):
+        customer.export_status = ExportStatus.NEVER
+        customer.exported_to_icg_at = None
+        customer.last_export_error = ""
+        customer.last_export_inserted = None
+        customer.save(
+            update_fields=[
+                "export_status",
+                "exported_to_icg_at",
+                "last_export_error",
+                "last_export_inserted",
+                "updated_at",
+            ]
+        )
     return customer
+
+
+def _customer_export_state_stale(
+    customer: PrestashopCustomer, incoming: dict[str, str | datetime | None]
+) -> bool:
+    exported_fields = (
+        "firstname",
+        "lastname",
+        "email",
+        "address1",
+        "postcode",
+        "city",
+        "state",
+        "country",
+        "phone",
+        "phone_mobile",
+        "dni",
+        "vat_number",
+    )
+    return any(getattr(customer, field) != incoming[field] for field in exported_fields)
 
 
 def refresh_order_from_prestashop(
@@ -96,6 +129,11 @@ def upsert_order_snapshot(
     captured_at: datetime | None = None,
 ) -> PrestashopOrder:
     captured_at = captured_at or timezone.now()
+    existing_order = PrestashopOrder.objects.filter(prestashop_id=snapshot.order_id).first()
+    export_state_stale = existing_order is not None and _order_export_state_stale(
+        existing_order, snapshot, customer=customer
+    )
+
     order, _ = PrestashopOrder.objects.update_or_create(
         prestashop_id=snapshot.order_id,
         defaults={
@@ -106,12 +144,23 @@ def upsert_order_snapshot(
             "total_shipping_tax_incl": snapshot.total_shipping_tax_incl,
             "total_shipping_tax_excl": snapshot.total_shipping_tax_excl,
             "last_snapshot_at": captured_at,
-            "export_status": ExportStatus.NEVER,
-            "exported_to_icg_at": None,
-            "last_export_error": "",
-            "inserted_rows": 0,
         },
     )
+    if export_state_stale:
+        order.export_status = ExportStatus.NEVER
+        order.exported_to_icg_at = None
+        order.last_export_error = ""
+        order.inserted_rows = 0
+        order.save(
+            update_fields=[
+                "export_status",
+                "exported_to_icg_at",
+                "last_export_error",
+                "inserted_rows",
+                "updated_at",
+            ]
+        )
+
     order.lines.all().delete()
     order.discounts.all().delete()
     MirroredOrderLine.objects.bulk_create(
@@ -144,6 +193,75 @@ def upsert_order_snapshot(
         ]
     )
     return order
+
+
+def _order_export_state_stale(
+    order: PrestashopOrder,
+    snapshot: PrestashopOrderSnapshot,
+    *,
+    customer: PrestashopCustomer,
+) -> bool:
+    if order.customer_id != customer.pk:
+        return True
+    if order.payment != snapshot.payment:
+        return True
+    if order.date_add != snapshot.date_add:
+        return True
+    if order.total_paid_tax_incl != snapshot.total_paid_tax_incl:
+        return True
+    if order.total_shipping_tax_incl != snapshot.total_shipping_tax_incl:
+        return True
+    if order.total_shipping_tax_excl != snapshot.total_shipping_tax_excl:
+        return True
+
+    existing_lines = list(
+        order.lines.order_by("position").values_list(
+            "position",
+            "prestashop_product_id",
+            "prestashop_combination_id",
+            "description",
+            "quantity",
+            "unit_price_tax_incl",
+            "total_price_tax_incl",
+            "vat_rate",
+        )
+    )
+    incoming_lines = [
+        (
+            index,
+            line.product_id,
+            line.combination_id,
+            line.description,
+            line.quantity,
+            line.unit_price_tax_incl,
+            line.total_price_tax_incl,
+            line.vat_rate,
+        )
+        for index, line in enumerate(snapshot.lines, start=1)
+    ]
+    if existing_lines != incoming_lines:
+        return True
+
+    existing_discounts = list(
+        order.discounts.order_by("position").values_list(
+            "position",
+            "description",
+            "amount_tax_incl",
+            "amount_tax_excl",
+            "vat_rate",
+        )
+    )
+    incoming_discounts = [
+        (
+            index,
+            discount.description,
+            discount.amount_tax_incl,
+            discount.amount_tax_excl,
+            discount.vat_rate,
+        )
+        for index, discount in enumerate(snapshot.discounts, start=1)
+    ]
+    return existing_discounts != incoming_discounts
 
 
 def export_customer_to_icg_from_mirror(

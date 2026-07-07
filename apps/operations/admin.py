@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.contrib import admin, messages
 from django.contrib.admin import SimpleListFilter, register
+from django.db import models
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -26,9 +27,35 @@ from apps.sales.models import (
     PrestashopOrderLine,
 )
 from apps.sync.cursor_service import advance_cursor
-from apps.sync.models import SyncCursor, SyncCursorSource, SyncError, SyncJob, SyncJobStatus
+from apps.sync.models import (
+    SyncCursor,
+    SyncCursorSource,
+    SyncError,
+    SyncJob,
+    SyncJobStatus,
+    SyncJobType,
+)
 
 logger = logging.getLogger(__name__)
+STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
+
+
+def _has_open_export_job(job_type: str, entity_type: str, entity_key: str) -> bool:
+    return (
+        SyncJob.objects.filter(
+            job_type=job_type,
+            entity_type=entity_type,
+            entity_key=entity_key,
+        )
+        .filter(
+            models.Q(status=SyncJobStatus.PENDING)
+            | models.Q(
+                status=SyncJobStatus.RUNNING,
+                started_at__gte=timezone.now() - STALE_RUNNING_JOB_TIMEOUT,
+            )
+        )
+        .exists()
+    )
 
 
 class FailedSyncFilter(SimpleListFilter):
@@ -316,9 +343,11 @@ def export_sales_to_icg(modeladmin, request, queryset):
     if queryset.model is PrestashopCustomer:
         entity_type = "prestashop_customer"
         entity_name = "customer"
+        job_type = SyncJobType.EXPORT_CUSTOMER
     elif queryset.model is PrestashopOrder:
         entity_type = "prestashop_order"
         entity_name = "order"
+        job_type = SyncJobType.EXPORT_ORDER
     else:
         modeladmin.message_user(
             request,
@@ -328,14 +357,24 @@ def export_sales_to_icg(modeladmin, request, queryset):
         return
 
     count = 0
+    skipped_open = 0
     for obj in queryset:
+        entity_key = str(obj.prestashop_id)
+        if _has_open_export_job(job_type, entity_type, entity_key):
+            skipped_open += 1
+            continue
+
         retry_entity.delay(entity_type, obj.prestashop_id, str(obj.prestashop_id))
         count += 1
 
+    message = f"Dispatched {count} {entity_name}(s) for export to ICG."
+    if skipped_open:
+        message += f" Skipped {skipped_open} with an open export job."
+
     modeladmin.message_user(
         request,
-        f"Dispatched {count} {entity_name}(s) for export to ICG.",
-        messages.SUCCESS,
+        message,
+        messages.WARNING if skipped_open else messages.SUCCESS,
     )
 
 
