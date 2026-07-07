@@ -107,6 +107,24 @@
 
   {# Filter form #}
   <form class="db-filter" method="get" action="{% url 'db_explorer:table_detail' table_name %}">
+    {% if has_structured_filters %}
+      {% for filter in table_filters %}
+      <div>
+        <label for="{{ filter.param }}">{{ filter.label }}</label><br>
+        {% if filter.kind == "text" %}
+        <input type="text" name="{{ filter.param }}" id="{{ filter.param }}" value="{{ filter.value }}">
+        {% else %}
+        <select name="{{ filter.param }}_presence" id="{{ filter.param }}_presence">
+          <option value="any" {% if filter.presence == "any" %}selected{% endif %}>{% translate 'Any' %}</option>
+          <option value="set" {% if filter.presence == "set" %}selected{% endif %}>{% translate 'Set' %}</option>
+          <option value="not_set" {% if filter.presence == "not_set" %}selected{% endif %}>{% translate 'Not set' %}</option>
+        </select><br>
+        <input type="date" name="{{ filter.param }}_from" value="{{ filter.from }}" aria-label="{{ filter.label }} from">
+        <input type="date" name="{{ filter.param }}_to" value="{{ filter.to }}" aria-label="{{ filter.label }} to">
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
     <div>
       <label for="filter_column">{% translate 'Column' %}</label><br>
       <select name="filter_column" id="filter_column">
@@ -120,10 +138,15 @@
       <label for="filter_value">{% translate 'Value' %}</label><br>
       <input type="text" name="filter_value" id="filter_value" value="{{ filter_value }}" placeholder="{% translate 'Filter value...' %}">
     </div>
+    {% endif %}
     <div>
+      {% if current_sort %}
+      <input type="hidden" name="sort" value="{{ current_sort }}">
+      <input type="hidden" name="direction" value="{{ current_direction }}">
+      {% endif %}
       <br>
       <button type="submit">{% translate 'Filter' %}</button>
-      {% if filter_column %}
+      {% if has_active_filters %}
       <a href="{% url 'db_explorer:table_detail' table_name %}" style="margin-left:8px;">{% translate 'Clear' %}</a>
       {% endif %}
     </div>
@@ -134,8 +157,14 @@
     <table class="db-table">
       <thead>
         <tr>
-          {% for col_name in data.columns %}
-          <th>{{ col_name }}</th>
+          {% for header in column_headers %}
+          <th>
+            {% if header.is_sortable %}
+            <a href="?{{ header.query_string }}">{{ header.name }}{% if header.indicator %} {{ header.indicator }}{% endif %}</a>
+            {% else %}
+            {{ header.name }}
+            {% endif %}
+          </th>
           {% endfor %}
         </tr>
       </thead>
@@ -163,7 +192,7 @@
   {% if data.total_pages > 1 %}
   <div class="db-pagination">
     {% if page_obj.has_previous %}
-    <a href="?page={{ page_obj.previous_page_number }}{% if filter_column %}&filter_column={{ filter_column }}&filter_value={{ filter_value }}{% endif %}">&laquo; {% translate 'Prev' %}</a>
+    <a href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.previous_page_number }}">&laquo; {% translate 'Prev' %}</a>
     {% endif %}
 
     <span>
@@ -172,14 +201,14 @@
     </span>
 
     {% if page_obj.has_next %}
-    <a href="?page={{ page_obj.next_page_number }}{% if filter_column %}&filter_column={{ filter_column }}&filter_value={{ filter_value }}{% endif %}">{% translate 'Next' %} &raquo;</a>
+    <a href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.next_page_number }}">{% translate 'Next' %} &raquo;</a>
     {% endif %}
   </div>
   {% endif %}
 
   {% else %}
   <div class="db-empty">
-    {% if filter_column %}
+    {% if has_active_filters %}
       {% translate 'No rows match the filter.' %}
     {% else %}
       {% translate 'Table is empty.' %}

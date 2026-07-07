@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from apps.db_explorer.sql import (
     QUERY_COLUMNS,
@@ -89,6 +90,58 @@ class TableData:
     page: int = 1
     page_size: int = 100
     total_pages: int = 1
+
+
+@dataclass
+class FilterCondition:
+    column: str
+    operator: str
+    value: Any = None
+
+
+def _build_where_clause(
+    columns: list[str], filters: list[FilterCondition]
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    for condition in filters:
+        if condition.column not in columns:
+            raise ValueError(f"Invalid filter column: {condition.column}")
+
+        safe_col = _safe_ident(condition.column)
+        if condition.operator == "eq":
+            clauses.append(f"[{safe_col}] = ?")
+            params.append(condition.value)
+        elif condition.operator == "gte":
+            clauses.append(f"[{safe_col}] >= ?")
+            params.append(condition.value)
+        elif condition.operator == "lte":
+            clauses.append(f"[{safe_col}] <= ?")
+            params.append(condition.value)
+        elif condition.operator == "is_null":
+            clauses.append(f"[{safe_col}] IS NULL")
+        elif condition.operator == "is_not_null":
+            clauses.append(f"[{safe_col}] IS NOT NULL")
+        else:
+            raise ValueError(f"Invalid filter operator: {condition.operator}")
+
+    if not clauses:
+        return "", []
+
+    return " WHERE " + " AND ".join(clauses), params
+
+
+def _build_order_by_clause(columns: list[str], sort_column: str | None, sort_desc: bool) -> str:
+    if not sort_column:
+        return "ORDER BY (SELECT NULL)"
+
+    if sort_column not in columns:
+        raise ValueError(f"Invalid sort column: {sort_column}")
+
+    safe_col = _safe_ident(sort_column)
+    direction = "DESC" if sort_desc else "ASC"
+    return f"ORDER BY [{safe_col}] {direction}"
 
 
 def get_tables() -> list[TableInfo]:
@@ -219,64 +272,61 @@ def get_table_schema(table_name: str, schema: str = "dbo") -> dict:
 
 def get_table_data(
     table_name: str,
+    schema: str = "dbo",
     page: int = 1,
     page_size: int = 100,
     filter_column: str | None = None,
     filter_value: str | None = None,
+    filters: list[FilterCondition] | None = None,
+    sort_column: str | None = None,
+    sort_desc: bool = False,
 ) -> TableData:
     """Fetch paginated data from a table.
 
-    When filter_column and filter_value are provided, a parameterised
-    WHERE clause filters on that column using '=' comparison.
+    When filters are provided, build a parameterised WHERE clause.
+    The legacy filter_column/filter_value pair is still supported.
     """
     offset = (page - 1) * page_size
+    normalized_filters = list(filters or [])
+
+    if filter_column and filter_value is not None:
+        normalized_filters.append(
+            FilterCondition(column=filter_column, operator="eq", value=filter_value)
+        )
 
     with reader._connect() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
 
         # Get columns first
-        cursor.execute(QUERY_COLUMNS, ("dbo", table_name, "dbo", table_name))
+        cursor.execute(QUERY_COLUMNS, (schema, table_name, schema, table_name))
         col_info = cursor.fetchall()
         columns = [c.COLUMN_NAME for c in col_info]
+        where_sql, where_params = _build_where_clause(columns, normalized_filters)
+        order_by = _build_order_by_clause(columns, sort_column, sort_desc)
 
         # Count total rows (with optional filter)
-        if filter_column and filter_value is not None:
-            # Validate filter_column against known columns
-            if filter_column not in columns:
-                raise ValueError(f"Invalid filter column: {filter_column}")
-            safe_table = _safe_ident(table_name)
-            safe_col = _safe_ident(filter_column)
-            count_sql = (
-                f"SELECT COUNT(*) AS row_count FROM [dbo].[{safe_table}] WHERE [{safe_col}] = ?"
-            )
-            cursor.execute(count_sql, (filter_value,))
+        safe_schema = _safe_ident(schema)
+        safe_table = _safe_ident(table_name)
+        quoted = f"[{safe_schema}].[{safe_table}]"
+        if where_sql:
+            count_sql = f"SELECT COUNT(*) AS row_count FROM {quoted}{where_sql}"
+            cursor.execute(count_sql, tuple(where_params))
         else:
-            cursor.execute(query_table_row_count(table_name))
+            cursor.execute(f"SELECT COUNT(*) AS row_count FROM {quoted}")
         total_rows = cursor.fetchone().row_count
 
         # Fetch page of data using ROW_NUMBER() (SQL Server 2008 compatible)
         # OFFSET/FETCH NEXT requires SQL Server 2012+.
-        quoted = f"[dbo].[{_safe_ident(table_name)}]"
         rn_start = offset + 1
         rn_end = offset + page_size
-        if filter_column and filter_value is not None:
-            safe_col = _safe_ident(filter_column)
-            data_sql = (
-                f"SELECT * FROM ("
-                f"SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS _rn"
-                f" FROM {quoted} WHERE [{safe_col}] = ?"
-                f") AS paged WHERE _rn BETWEEN ? AND ?"
-            )
-            cursor.execute(data_sql, (filter_value, rn_start, rn_end))
-        else:
-            data_sql = (
-                f"SELECT * FROM ("
-                f"SELECT *, ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS _rn"
-                f" FROM {quoted}"
-                f") AS paged WHERE _rn BETWEEN ? AND ?"
-            )
-            cursor.execute(data_sql, (rn_start, rn_end))
+        data_sql = (
+            f"SELECT * FROM ("
+            f"SELECT *, ROW_NUMBER() OVER ({order_by}) AS _rn"
+            f" FROM {quoted}{where_sql}"
+            f") AS paged WHERE _rn BETWEEN ? AND ?"
+        )
+        cursor.execute(data_sql, tuple([*where_params, rn_start, rn_end]))
 
         rows = [tuple(row[:-1]) for row in cursor.fetchall()]
 
@@ -317,11 +367,24 @@ def get_table_data_with_schema(
     page_size: int = 100,
     filter_column: str | None = None,
     filter_value: str | None = None,
+    filters: list[FilterCondition] | None = None,
+    sort_column: str | None = None,
+    sort_desc: bool = False,
 ) -> tuple[dict, TableData]:
     """Convenience wrapper: validate + fetch schema + data."""
     info = get_table_schema_by_name(table_name)
     if info is None:
         raise ValueError(f"Table '{table_name}' not found or name is invalid")
     schema_info = get_table_schema(table_name, info["schema"])
-    data = get_table_data(table_name, page, page_size, filter_column, filter_value)
+    data = get_table_data(
+        table_name,
+        schema=info["schema"],
+        page=page,
+        page_size=page_size,
+        filter_column=filter_column,
+        filter_value=filter_value,
+        filters=filters,
+        sort_column=sort_column,
+        sort_desc=sort_desc,
+    )
     return schema_info, data
