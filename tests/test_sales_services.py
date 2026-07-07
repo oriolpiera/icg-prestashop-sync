@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from django.utils import timezone
@@ -924,7 +924,10 @@ def test_export_order_to_icg_from_mirror_updates_status():
     writer = Mock()
     writer.insert_order_rows.return_value = 3
 
-    result = export_order_to_icg_from_mirror(42, writer=writer, exported_at=_aware(2026, 7, 1, 14))
+    with patch("apps.sales.services._ensure_customer_in_icg"):
+        result = export_order_to_icg_from_mirror(
+            42, writer=writer, exported_at=_aware(2026, 7, 1, 14)
+        )
 
     order.refresh_from_db()
     assert result == {"order_id": 42, "inserted_rows": 3}
@@ -987,7 +990,8 @@ def test_export_order_to_icg_from_mirror_uses_order_line_override_combination():
     writer = Mock()
     writer.insert_order_rows.return_value = 1
 
-    export_order_to_icg_from_mirror(42, writer=writer, exported_at=_aware(2026, 7, 1, 14))
+    with patch("apps.sales.services._ensure_customer_in_icg"):
+        export_order_to_icg_from_mirror(42, writer=writer, exported_at=_aware(2026, 7, 1, 14))
 
     inserted_rows = writer.insert_order_rows.call_args.args[0]
     assert inserted_rows[0].cod_articulo == 5001
