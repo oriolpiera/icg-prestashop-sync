@@ -146,7 +146,7 @@
       {% endif %}
       <br>
       <button type="submit">{% translate 'Filter' %}</button>
-      {% if has_structured_filters or filter_column %}
+      {% if has_active_filters %}
       <a href="{% url 'db_explorer:table_detail' table_name %}" style="margin-left:8px;">{% translate 'Clear' %}</a>
       {% endif %}
     </div>
@@ -208,7 +208,7 @@
 
   {% else %}
   <div class="db-empty">
-    {% if has_structured_filters or filter_column %}
+    {% if has_active_filters %}
       {% translate 'No rows match the filter.' %}
     {% else %}
       {% translate 'Table is empty.' %}

@@ -196,6 +196,30 @@ def _build_column_headers(
     return headers
 
 
+def _has_active_filters(
+    *,
+    filter_column: str | None,
+    filter_value: str | None,
+    structured_filter_states: list[dict],
+    current_sort: str | None,
+) -> bool:
+    if filter_column and filter_value is not None:
+        return True
+
+    if current_sort:
+        return True
+
+    for state in structured_filter_states:
+        if state["kind"] == "text" and state["value"]:
+            return True
+        if state["kind"] == "datetime" and (
+            state["presence"] != "any" or state["from"] or state["to"]
+        ):
+            return True
+
+    return False
+
+
 @staff_member_required
 def table_list(request: HttpRequest) -> HttpResponse:
     """Show all tables/views in the ICG database."""
@@ -225,13 +249,8 @@ def table_detail(request: HttpRequest, table_name: str) -> HttpResponse:
     # Filtering
     filter_column = request.GET.get("filter_column", "").strip() or None
     filter_value = request.GET.get("filter_value", "").strip() or None
-    structured_filters, table_filter_states = _get_table_filters(request, table_name)
-
     # If filter_column is set but filter_value is empty, clear the filter
     if filter_column and not filter_value:
-        filter_column = filter_value = None
-
-    if structured_filters:
         filter_column = filter_value = None
 
     sortable_columns = {field["column"] for field in TABLE_FILTERS.get(table_name, [])}
@@ -243,6 +262,11 @@ def table_detail(request: HttpRequest, table_name: str) -> HttpResponse:
         sort_column = None
 
     try:
+        structured_filters, table_filter_states = _get_table_filters(request, table_name)
+
+        if structured_filters:
+            filter_column = filter_value = None
+
         data = db.get_table_data(
             table_name,
             schema=info["schema"],
@@ -276,6 +300,12 @@ def table_detail(request: HttpRequest, table_name: str) -> HttpResponse:
         sort_column,
         sort_direction,
     )
+    has_active_filters = _has_active_filters(
+        filter_column=filter_column,
+        filter_value=filter_value,
+        structured_filter_states=table_filter_states,
+        current_sort=sort_column,
+    )
 
     return render(
         request,
@@ -294,6 +324,7 @@ def table_detail(request: HttpRequest, table_name: str) -> HttpResponse:
             "column_headers": column_headers,
             "current_sort": sort_column or "",
             "current_direction": sort_direction,
+            "has_active_filters": has_active_filters,
             "pagination_query": _build_query_string(request, page=None),
         },
     )

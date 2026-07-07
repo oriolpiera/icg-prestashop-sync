@@ -313,7 +313,7 @@ def get_table_data(
             count_sql = f"SELECT COUNT(*) AS row_count FROM {quoted}{where_sql}"
             cursor.execute(count_sql, tuple(where_params))
         else:
-            cursor.execute(query_table_row_count(table_name))
+            cursor.execute(f"SELECT COUNT(*) AS row_count FROM {quoted}")
         total_rows = cursor.fetchone().row_count
 
         # Fetch page of data using ROW_NUMBER() (SQL Server 2008 compatible)
