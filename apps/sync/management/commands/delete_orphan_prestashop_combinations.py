@@ -105,17 +105,16 @@ class Command(BaseCommand):
                     )
                     continue
 
-                color_groups_in_combination = {
-                    str(v["group_prestashop_id"])
-                    for v in resolved.resolved_values
-                    if v["role"] == "color"
-                }
-                if len(color_groups_in_combination) > 1:
+                color_values_in_combination = [
+                    v for v in resolved.resolved_values if v["role"] == "color"
+                ]
+                if len(color_values_in_combination) > 1:
                     skipped_multi_color += 1
+                    color_names = [v["name"] for v in color_values_in_combination]
                     self.stdout.write(
                         self.style.WARNING(
                             f"Skipping PS #{ps_combination.combination_id}: "
-                            f"multiple color groups {color_groups_in_combination}"
+                            f"multiple color values {color_names}"
                         )
                     )
                     continue
