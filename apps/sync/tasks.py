@@ -743,7 +743,7 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
         with _maybe_icg_sales_export_lock(entity_type=entity_type, job_type=job_type):
             result = export_fn(entity_id)
     except LockAcquisitionError:
-        job.delete()
+        _release_running_job_for_lock_contention(job)
         return {
             "status": "skipped",
             "reason": "lock_held",
@@ -844,19 +844,18 @@ def retry_failed_jobs() -> dict:
 
                 job.status = SyncJobStatus.RUNNING
                 job.started_at = timezone.now()
-                if ICG_SALES_EXPORT_LOCK_CONTENTION_KEY in job.payload:
-                    payload = dict(job.payload)
-                    payload.pop(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, None)
-                    job.payload = payload
-                    job.save(update_fields=["status", "started_at", "payload", "updated_at"])
-                else:
-                    job.save(update_fields=["status", "started_at", "updated_at"])
+                job.save(update_fields=["status", "started_at", "updated_at"])
 
                 try:
                     with _maybe_icg_sales_export_lock(
                         entity_type=job.entity_type,
                         job_type=job.job_type,
                     ):
+                        if ICG_SALES_EXPORT_LOCK_CONTENTION_KEY in job.payload:
+                            payload = dict(job.payload)
+                            payload.pop(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, None)
+                            job.payload = payload
+                            job.save(update_fields=["payload", "updated_at"])
                         result = export_fn(entity_id)
                 except LockAcquisitionError:
                     _release_running_job_for_lock_contention(job)
