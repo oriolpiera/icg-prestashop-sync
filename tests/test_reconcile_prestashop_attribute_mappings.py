@@ -247,3 +247,39 @@ class TestReconcilePrestashopAttributeMappingsCommand:
         size_group.refresh_from_db()
         assert size_group.prestashop_id == 99
         assert "groups=1 values=0" in out.getvalue()
+
+    def test_apply_prune_missing_local_preserves_values_when_current_remote_group_still_exists(
+        self,
+    ):
+        product = _make_product("REF001")
+        color_group = AttributeGroup.objects.create(
+            icg_type="color",
+            name="legacy_color",
+            prestashop_id=20000,
+            product=product,
+        )
+        value = AttributeValue.objects.create(
+            attribute_group=color_group,
+            icg_value="Red",
+            name="Red",
+            prestashop_id=30000,
+        )
+
+        with patch(
+            "apps.sync.management.commands.reconcile_prestashop_attribute_mappings.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [{"ps_id": 20000, "name": "legacy_color"}]
+            client.list_attribute_values.return_value = [{"ps_id": 30000, "name": "Red"}]
+
+            out = StringIO()
+            call_command(
+                "reconcile_prestashop_attribute_mappings",
+                "--apply",
+                "--prune-missing-local",
+                stdout=out,
+            )
+
+        assert AttributeGroup.objects.filter(pk=color_group.pk).exists() is True
+        assert AttributeValue.objects.filter(pk=value.pk).exists() is True
+        assert "pruned_groups=0 pruned_values=0" in out.getvalue()

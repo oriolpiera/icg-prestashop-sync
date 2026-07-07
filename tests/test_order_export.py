@@ -181,13 +181,47 @@ def test_map_snapshot_to_facturas_web_rejects_unsupported_payment(_catalog_mappi
 
 @pytest.mark.django_db
 def test_map_snapshot_to_facturas_web_uses_override_combination():
+    product = Product.objects.create(
+        icg_id=5001,
+        prestashop_id=101,
+        reference="MUG-001",
+        name="Blue mug",
+    )
+    Combination.objects.create(
+        product=product,
+        prestashop_id=202,
+        icg_size="UNI",
+        icg_color="BLUE",
+        ean13="1234567890123",
+    )
+    override_combination = Combination.objects.create(
+        product=product,
+        prestashop_id=304,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+
+    snapshot = _snapshot()
+    snapshot.lines[0].override_combination_id = override_combination.pk
+
+    rows = map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
+
+    assert rows[0].cod_articulo == 5001
+    assert rows[0].talla == "XL"
+    assert rows[0].color == "GREEN"
+    assert rows[0].cod_barras == "9876543210987"
+
+
+@pytest.mark.django_db
+def test_map_snapshot_to_facturas_web_rejects_override_from_another_product():
     original_product = Product.objects.create(
         icg_id=5001,
         prestashop_id=101,
         reference="MUG-001",
         name="Blue mug",
     )
-    override_product = Product.objects.create(
+    other_product = Product.objects.create(
         icg_id=5002,
         prestashop_id=102,
         reference="MUG-002",
@@ -201,7 +235,7 @@ def test_map_snapshot_to_facturas_web_uses_override_combination():
         ean13="1234567890123",
     )
     override_combination = Combination.objects.create(
-        product=override_product,
+        product=other_product,
         prestashop_id=303,
         icg_size="XL",
         icg_color="GREEN",
@@ -211,12 +245,8 @@ def test_map_snapshot_to_facturas_web_uses_override_combination():
     snapshot = _snapshot()
     snapshot.lines[0].override_combination_id = override_combination.pk
 
-    rows = map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
-
-    assert rows[0].cod_articulo == 5002
-    assert rows[0].talla == "XL"
-    assert rows[0].color == "GREEN"
-    assert rows[0].cod_barras == "9876543210987"
+    with pytest.raises(PrestashopError, match="belongs to Prestashop product"):
+        map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
 
 
 def test_writer_insert_order_rows_inserts_when_missing():

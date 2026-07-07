@@ -75,6 +75,9 @@ class Command(BaseCommand):
         prune_missing_local = options["prune_missing_local"]
 
         remote_groups = client.list_attribute_groups()
+        remote_group_ids = {
+            int(group["ps_id"]) for group in remote_groups if isinstance(group.get("ps_id"), int)
+        }
         groups = list(AttributeGroup.objects.select_related("product").all())
 
         group_updates: dict[int, int] = {}
@@ -95,6 +98,9 @@ class Command(BaseCommand):
                 product=group.product,
             )
             if remote_match is None:
+                if group.prestashop_id in remote_group_ids:
+                    resolved_group_targets[group.pk] = group.prestashop_id
+                    continue
                 missing_group_pks.append(group.pk)
                 missing_groups.append(expected_name)
                 continue

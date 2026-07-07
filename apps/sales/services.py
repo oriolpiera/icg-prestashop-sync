@@ -161,6 +161,20 @@ def upsert_order_snapshot(
             ]
         )
 
+    existing_override_by_line = {
+        (
+            line.position,
+            line.prestashop_product_id,
+            line.prestashop_combination_id,
+            line.description,
+            line.quantity,
+            line.unit_price_tax_incl,
+            line.total_price_tax_incl,
+            line.vat_rate,
+        ): line.override_combination_id
+        for line in order.lines.all()
+    }
+
     order.lines.all().delete()
     order.discounts.all().delete()
     MirroredOrderLine.objects.bulk_create(
@@ -175,6 +189,18 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
+                override_combination_id=existing_override_by_line.get(
+                    (
+                        index,
+                        line.product_id,
+                        line.combination_id,
+                        line.description,
+                        line.quantity,
+                        line.unit_price_tax_incl,
+                        line.total_price_tax_incl,
+                        line.vat_rate,
+                    )
+                ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
         ]
