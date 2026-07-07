@@ -2,6 +2,11 @@ import logging
 
 import requests
 
+try:
+    import pyodbc
+except ImportError:  # pragma: no cover - pyodbc is available in production, but keep import safe.
+    pyodbc = None
+
 from apps.prestashop.client import PrestashopError
 from apps.sync.models import SyncErrorType
 
@@ -21,6 +26,9 @@ def classify_error(exc: Exception) -> str:
                 return SyncErrorType.TRANSIENT
 
     if isinstance(exc, requests.ConnectionError | requests.Timeout | OSError):
+        return SyncErrorType.TRANSIENT
+
+    if pyodbc is not None and isinstance(exc, pyodbc.Error):
         return SyncErrorType.TRANSIENT
 
     return SyncErrorType.PERMANENT
