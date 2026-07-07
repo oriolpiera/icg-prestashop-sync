@@ -494,6 +494,7 @@ def test_refresh_order_from_prestashop_preserves_legacy_override_when_match_is_u
         total_shipping_tax_excl=Decimal("0.00"),
         lines=[
             PrestashopOrderLine(
+                order_detail_id=901,
                 product_id=101,
                 combination_id=202,
                 description="Blue mug updated",
@@ -521,11 +522,12 @@ def test_refresh_order_from_prestashop_preserves_legacy_override_when_match_is_u
     )
 
     refreshed_line = refreshed_order.lines.get(position=1)
+    assert refreshed_line.prestashop_order_detail_id == 901
     assert refreshed_line.override_combination_id == override_combination.pk
 
 
 @pytest.mark.django_db
-def test_refresh_order_from_prestashop_does_not_apply_legacy_override_to_line_with_detail_id():
+def test_refresh_order_refresh_skips_legacy_promotion_when_key_has_identified_override():
     product = Product.objects.create(
         icg_id=5001,
         prestashop_id=101,
@@ -565,6 +567,18 @@ def test_refresh_order_from_prestashop_does_not_apply_legacy_override_to_line_wi
         quantity=2,
         unit_price_tax_incl=Decimal("24.20"),
         total_price_tax_incl=Decimal("48.40"),
+        vat_rate=Decimal("21.00"),
+        override_combination=override_combination,
+    )
+    order.lines.create(
+        position=2,
+        prestashop_order_detail_id=999,
+        prestashop_product_id=101,
+        prestashop_combination_id=202,
+        description="Blue mug identified",
+        quantity=1,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("24.20"),
         vat_rate=Decimal("21.00"),
         override_combination=override_combination,
     )

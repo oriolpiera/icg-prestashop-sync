@@ -134,16 +134,22 @@ def upsert_order_snapshot(
     existing_line_overrides: dict[int, int] = {}
     legacy_line_overrides: dict[tuple[int, int], int] = {}
     if existing_order is not None:
+        existing_lines = list(existing_order.lines.all())
         incoming_line_keys = [(line.product_id, line.combination_id) for line in snapshot.lines]
         incoming_line_counts = Counter(incoming_line_keys)
         legacy_override_counts = Counter(
             (line.prestashop_product_id, line.prestashop_combination_id)
-            for line in existing_order.lines.all()
+            for line in existing_lines
             if line.override_combination_id and line.prestashop_order_detail_id is None
+        )
+        identified_override_counts = Counter(
+            (line.prestashop_product_id, line.prestashop_combination_id)
+            for line in existing_lines
+            if line.override_combination_id and line.prestashop_order_detail_id is not None
         )
         existing_line_overrides = {
             line.prestashop_order_detail_id: line.override_combination_id
-            for line in existing_order.lines.all()
+            for line in existing_lines
             if line.override_combination_id and line.prestashop_order_detail_id is not None
         }
         legacy_line_overrides = {
@@ -151,11 +157,15 @@ def upsert_order_snapshot(
                 line.prestashop_product_id,
                 line.prestashop_combination_id,
             ): line.override_combination_id
-            for line in existing_order.lines.all()
+            for line in existing_lines
             if line.override_combination_id
             and line.prestashop_order_detail_id is None
             and legacy_override_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
             == 1
+            and identified_override_counts[
+                (line.prestashop_product_id, line.prestashop_combination_id)
+            ]
+            == 0
             and incoming_line_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
             == 1
         }
@@ -208,6 +218,7 @@ def upsert_order_snapshot(
                 override_combination_id=(
                     existing_line_overrides.get(line.order_detail_id)
                     if line.order_detail_id is not None
+                    and existing_line_overrides.get(line.order_detail_id) is not None
                     else legacy_line_overrides.get((line.product_id, line.combination_id))
                 ),
             )
