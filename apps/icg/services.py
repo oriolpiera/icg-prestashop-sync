@@ -1,5 +1,6 @@
 import logging
 from contextlib import closing
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -134,11 +135,24 @@ class ICGCatalogReader:
         cs = self.connection_settings()
         conn_str = self.build_connection_string()
         target = cs.servername or cs.server
-        logger.info("Connecting to ICG MSSQL on %s/%s", target, cs.database)
+        logger.info("ICG connect start target=%s/%s", target, cs.database)
+        t0 = time.monotonic()
         try:
-            return pyodbc.connect(conn_str)
+            conn = pyodbc.connect(conn_str)
+            logger.info(
+                "ICG connect OK target=%s/%s elapsed=%.3fs",
+                target,
+                cs.database,
+                time.monotonic() - t0,
+            )
+            return conn
         except pyodbc.Error:
-            logger.exception("Failed to connect to ICG MSSQL on %s/%s", target, cs.database)
+            logger.exception(
+                "ICG connect FAILED target=%s/%s elapsed=%.3fs",
+                target,
+                cs.database,
+                time.monotonic() - t0,
+            )
             raise
 
     def _connection(self):
@@ -160,8 +174,19 @@ class ICGCatalogReader:
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
+            t0 = time.monotonic()
             db_cursor.execute(query, params)
-            return db_cursor.fetchall()
+            elapsed_exec = time.monotonic() - t0
+            t1 = time.monotonic()
+            rows = db_cursor.fetchall()
+            elapsed_fetch = time.monotonic() - t1
+            logger.info(
+                "ICG query exec=%.3fs fetch=%.3fs rows=%d",
+                elapsed_exec,
+                elapsed_fetch,
+                len(rows),
+            )
+            return rows
 
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
@@ -188,8 +213,16 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_articles "
                     "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC"
                 )
+            t0 = time.monotonic()
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            elapsed = time.monotonic() - t0
             has_more = len(rows) == limit if limit else False
+            logger.info(
+                "ICG fetch products elapsed=%.3fs rows=%d has_more=%s",
+                elapsed,
+                len(rows),
+                has_more,
+            )
             return rows, has_more
 
     def fetch_product_rows(self, icg_id: int) -> list:
@@ -214,12 +247,23 @@ class ICGCatalogReader:
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
+            t0 = time.monotonic()
             db_cursor.execute(
                 "SELECT * FROM view_imp_articles WHERE Referencia = ? "
                 "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
                 reference,
             )
-            return db_cursor.fetchall()
+            elapsed_exec = time.monotonic() - t0
+            t1 = time.monotonic()
+            rows = db_cursor.fetchall()
+            elapsed_fetch = time.monotonic() - t1
+            logger.info(
+                "ICG fetch by ref exec=%.3fs fetch=%.3fs rows=%d",
+                elapsed_exec,
+                elapsed_fetch,
+                len(rows),
+            )
+            return rows
 
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
@@ -246,8 +290,16 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_preus "
                     "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC"
                 )
+            t0 = time.monotonic()
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            elapsed = time.monotonic() - t0
             has_more = len(rows) == limit if limit else False
+            logger.info(
+                "ICG fetch prices elapsed=%.3fs rows=%d has_more=%s",
+                elapsed,
+                len(rows),
+                has_more,
+            )
             return rows, has_more
 
     def fetch_price_rows(self, icg_id: int, icg_size: str, icg_color: str) -> list:
@@ -264,13 +316,24 @@ class ICGCatalogReader:
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
+            t0 = time.monotonic()
             db_cursor.execute(
                 "SELECT * FROM view_imp_preus WHERE Codarticulo = ? AND Talla = ? AND Color = ?",
                 icg_id,
                 talla,
                 color,
             )
-            return db_cursor.fetchall()
+            elapsed_exec = time.monotonic() - t0
+            t1 = time.monotonic()
+            rows = db_cursor.fetchall()
+            elapsed_fetch = time.monotonic() - t1
+            logger.info(
+                "ICG fetch price combo exec=%.3fs fetch=%.3fs rows=%d",
+                elapsed_exec,
+                elapsed_fetch,
+                len(rows),
+            )
+            return rows
 
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
@@ -297,8 +360,16 @@ class ICGCatalogReader:
                     "SELECT * FROM view_imp_stocks "
                     "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC"
                 )
+            t0 = time.monotonic()
             rows = db_cursor.fetchmany(limit) if limit else db_cursor.fetchall()
+            elapsed = time.monotonic() - t0
             has_more = len(rows) == limit if limit else False
+            logger.info(
+                "ICG fetch stock elapsed=%.3fs rows=%d has_more=%s",
+                elapsed,
+                len(rows),
+                has_more,
+            )
             return rows, has_more
 
     def fetch_stock_rows(self, icg_id: int, icg_size: str, icg_color: str) -> list:
@@ -322,6 +393,7 @@ class ICGCatalogReader:
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
+            t0 = time.monotonic()
             db_cursor.execute(
                 "SELECT * FROM view_imp_stocks "
                 "WHERE Codalmacen = ? AND Codarticulo = ? AND Talla = ? AND Color = ?",
@@ -330,7 +402,17 @@ class ICGCatalogReader:
                 talla,
                 color,
             )
-            return db_cursor.fetchall()
+            elapsed_exec = time.monotonic() - t0
+            t1 = time.monotonic()
+            rows = db_cursor.fetchall()
+            elapsed_fetch = time.monotonic() - t1
+            logger.info(
+                "ICG fetch stock combo exec=%.3fs fetch=%.3fs rows=%d",
+                elapsed_exec,
+                elapsed_fetch,
+                len(rows),
+            )
+            return rows
 
 
 class ICGClientesWebWriter:
@@ -341,13 +423,20 @@ class ICGClientesWebWriter:
         with self.reader._connection() as conn:
             cursor = conn.cursor()
             self.reader._set_query_timeout(cursor)
+            t0 = time.monotonic()
             cursor.execute(
                 "SELECT TOP 1 1 FROM ClientesWeb WHERE CodClienteWeb = ?",
                 (row.cod_cliente_web,),
             )
             if cursor.fetchone() is not None:
+                logger.debug(
+                    "ICG customer already exists cod_cliente_web=%d elapsed=%.3fs",
+                    row.cod_cliente_web,
+                    time.monotonic() - t0,
+                )
                 return False
 
+            t1 = time.monotonic()
             cursor.execute(
                 "INSERT INTO ClientesWeb ("
                 "CodClienteWeb, NombreCliente, NombreComercial, CIF, Direccion, CP, "
@@ -374,6 +463,15 @@ class ICGClientesWebWriter:
                 ),
             )
             conn.commit()
+            elapsed = time.monotonic() - t0
+            logger.info(
+                "ICG insert customer OK cod_cliente_web=%d "
+                "elapsed=%.3fs (check=%.3fs insert=%.3fs)",
+                row.cod_cliente_web,
+                elapsed,
+                t1 - t0,
+                time.monotonic() - t1,
+            )
             return True
 
     def _as_sql_datetime(self, value: datetime | None) -> datetime | None:
@@ -393,7 +491,10 @@ class ICGFacturasWebWriter:
             return 0
 
         inserted = 0
+
+        t_start = time.monotonic()
         with self.reader._connection() as conn:
+
             cursor = conn.cursor()
             self.reader._set_query_timeout(cursor)
 
@@ -445,6 +546,13 @@ class ICGFacturasWebWriter:
 
             if inserted:
                 conn.commit()
+        elapsed = time.monotonic() - t_start
+        logger.info(
+            "ICG insert orders total=%d inserted=%d elapsed=%.3fs",
+            len(rows),
+            inserted,
+            elapsed,
+        )
         return inserted
 
     def _as_sql_datetime(self, value: datetime | None) -> datetime | None:
