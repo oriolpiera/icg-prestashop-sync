@@ -158,6 +158,18 @@ def map_snapshot_to_facturas_web(
 
 
 def _resolve_catalog_combination(line: PrestashopOrderLine) -> Combination:
+    override_combination_id = getattr(line, "override_combination_id", None)
+    if override_combination_id:
+        combination = (
+            Combination.objects.select_related("product").filter(pk=override_combination_id).first()
+        )
+        if combination is None:
+            raise PrestashopError(
+                f"Override combination {override_combination_id} not found in catalog.",
+                status_code=400,
+            )
+        return combination
+
     if line.combination_id:
         combination = (
             Combination.objects.select_related("product")

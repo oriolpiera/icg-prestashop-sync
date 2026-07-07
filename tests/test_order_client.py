@@ -59,7 +59,7 @@ class TestPrestashopOrderClient:
                 "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
                 "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
                 "<associations><order_rows>"
-                "<order_row><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
                 "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
                 "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
                 "<total_price_tax_incl>48.40</total_price_tax_incl><tax_rate>21.00</tax_rate>"
@@ -82,6 +82,7 @@ class TestPrestashopOrderClient:
         assert snapshot.payment == "Redsys Card"
         assert snapshot.total_paid_tax_incl == Decimal("100.00")
         assert len(snapshot.lines) == 1
+        assert snapshot.lines[0].order_detail_id == 901
         assert snapshot.lines[0].combination_id == 200
         assert len(snapshot.discounts) == 1
         assert snapshot.discounts[0].vat_rate == Decimal("21.00")

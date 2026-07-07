@@ -1,5 +1,8 @@
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
+from apps.catalog.models import Combination
 from apps.core.models import TimeStampedModel
 
 
@@ -78,6 +81,7 @@ class PrestashopOrderLine(models.Model):
         related_name="lines",
     )
     position = models.PositiveIntegerField()
+    prestashop_order_detail_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     prestashop_product_id = models.PositiveIntegerField()
     prestashop_combination_id = models.PositiveIntegerField(default=0)
     description = models.CharField(max_length=255, blank=True)
@@ -85,6 +89,17 @@ class PrestashopOrderLine(models.Model):
     unit_price_tax_incl = models.DecimalField(max_digits=12, decimal_places=2)
     total_price_tax_incl = models.DecimalField(max_digits=12, decimal_places=2)
     vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    override_combination = models.ForeignKey(
+        Combination,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text=(
+            "Manually map this order line to a catalog combination "
+            "when the Prestashop combination is missing from the catalog."
+        ),
+    )
 
     class Meta:
         ordering = ["order", "position"]
@@ -95,8 +110,40 @@ class PrestashopOrderLine(models.Model):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        previous_override_combination_id = None
+        if self.pk:
+            previous_override_combination_id = (
+                PrestashopOrderLine.objects.filter(pk=self.pk)
+                .values_list("override_combination_id", flat=True)
+                .first()
+            )
+
+        super().save(*args, **kwargs)
+
+        if previous_override_combination_id != self.override_combination_id:
+            PrestashopOrder.objects.filter(pk=self.order_id).update(
+                export_status=ExportStatus.NEVER,
+                exported_to_icg_at=None,
+                last_export_error="",
+                inserted_rows=0,
+            )
+
     def __str__(self) -> str:
         return f"{self.order} line {self.position}"
+
+
+@receiver(pre_delete, sender=Combination)
+def invalidate_orders_when_override_combination_is_deleted(sender, instance, **kwargs):
+    affected_order_ids = PrestashopOrderLine.objects.filter(
+        override_combination=instance
+    ).values_list("order_id", flat=True)
+    PrestashopOrder.objects.filter(pk__in=affected_order_ids).update(
+        export_status=ExportStatus.NEVER,
+        exported_to_icg_at=None,
+        last_export_error="",
+        inserted_rows=0,
+    )
 
 
 class PrestashopOrderDiscountLine(models.Model):
