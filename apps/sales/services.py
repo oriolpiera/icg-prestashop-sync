@@ -445,6 +445,15 @@ def export_customer_to_icg_from_mirror(
     return {"customer_id": prestashop_customer_id, "inserted": inserted}
 
 
+def _ensure_customer_in_icg(customer: PrestashopCustomer) -> None:
+    from apps.sync.customer_export import ICG_WEB_CUSTOMER_PREFIX
+
+    customer_code = int(f"{ICG_WEB_CUSTOMER_PREFIX}{customer.prestashop_id}")
+    clientes_writer = ICGClientesWebWriter()
+    if not clientes_writer.customer_exists(customer_code):
+        export_customer_to_icg_from_mirror(customer.prestashop_id)
+
+
 def export_order_to_icg_from_mirror(
     prestashop_order_id: int,
     *,
@@ -458,6 +467,7 @@ def export_order_to_icg_from_mirror(
         .select_related("customer")
         .get(prestashop_id=prestashop_order_id)
     )
+    _ensure_customer_in_icg(order.customer)
     try:
         snapshot = _order_snapshot_from_record(order)
         rows = map_snapshot_to_facturas_web(snapshot, exported_at=exported_at)
