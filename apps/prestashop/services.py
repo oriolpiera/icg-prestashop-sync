@@ -632,10 +632,14 @@ def export_combination(
         color_placeholder = is_placeholder_variant_axis(combination.icg_color)
 
         # Keep legacy Prestashop placeholder attributes intact on already-mapped
-        # combinations. We treat placeholders as empty for new matching/creation,
-        # but we do not rewrite historical PS structures unless there is a real
-        # non-placeholder variant value to sync.
-        if combination.prestashop_id and size_placeholder and color_placeholder:
+        # combinations that use non-*** placeholder values. For ***/*** combinations,
+        # we must always send the price on every sync since price can change.
+        both_placeholders = size_placeholder and color_placeholder
+        is_asterisk_asterisk = (
+            str(combination.icg_size).strip() == "***"
+            and str(combination.icg_color).strip() == "***"
+        )
+        if combination.prestashop_id and both_placeholders and not is_asterisk_asterisk:
             combination.sync_required = False
             combination.last_sync_error = ""
             combination.last_synced_at = timezone.now().astimezone(UTC)
@@ -650,6 +654,43 @@ def export_combination(
             return {
                 "combination_id": combination.pk,
                 "prestashop_combination_id": combination.prestashop_id,
+            }
+
+        if both_placeholders:
+            size_group_ps_id = ensure_attribute_group(
+                "size", client=client, product=combination.product
+            )
+            size_value_ps_id = ensure_attribute_value(size_group_ps_id, "***", client=client)
+            attribute_value_ps_ids = [size_value_ps_id]
+            price_obj = getattr(combination, "price", None)
+            combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
+            ean13_clean = combination.ean13 and barcodenumber.check_code("ean13", combination.ean13)
+            ean13 = combination.ean13 if ean13_clean else ""
+            prestashop_combination_id = client.upsert_combination(
+                product_ps_id,
+                ean13,
+                combination.active,
+                attribute_value_ps_ids,
+                prestashop_id=combination.prestashop_id,
+                price=combination_price,
+            )
+            if not combination.prestashop_id:
+                combination.prestashop_id = prestashop_combination_id
+            combination.sync_required = False
+            combination.last_sync_error = ""
+            combination.last_synced_at = timezone.now().astimezone(UTC)
+            combination.save(
+                update_fields=[
+                    "prestashop_id",
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "combination_id": combination.pk,
+                "prestashop_combination_id": prestashop_combination_id,
             }
 
         size_ps_ids = []
