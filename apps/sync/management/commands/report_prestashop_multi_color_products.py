@@ -1,5 +1,6 @@
 import csv
 import io
+import os
 import subprocess
 from pathlib import Path
 
@@ -13,21 +14,21 @@ SELECT
     pl.name AS product_name,
     COUNT(DISTINCT pa.id_product_attribute) AS combination_count,
     COUNT(DISTINCT CASE
-        WHEN agl.name LIKE '%%_color' OR agl.name REGEXP '(_|^)color$'
+        WHEN agl.name REGEXP '(_|^)color(s|es)?$'
         THEN agl.id_attribute_group
     END) AS color_group_count,
     GROUP_CONCAT(DISTINCT CASE
-        WHEN agl.name LIKE '%%_color' OR agl.name REGEXP '(_|^)color$'
+        WHEN agl.name REGEXP '(_|^)color(s|es)?$'
         THEN agl.name
     END SEPARATOR '|') AS color_groups
 FROM ps_product p
-JOIN ps_product_lang pl ON p.id_product = pl.id_product AND pl.id_lang = 1
+JOIN ps_product_lang pl ON p.id_product = pl.id_product AND pl.id_lang = %(lang_id)s
 JOIN ps_product_attribute pa ON p.id_product = pa.id_product
 JOIN ps_product_attribute_combination pac
     ON pa.id_product_attribute = pac.id_product_attribute
 JOIN ps_attribute a ON pac.id_attribute = a.id_attribute
 JOIN ps_attribute_group_lang agl
-    ON a.id_attribute_group = agl.id_attribute_group AND agl.id_lang = 1
+    ON a.id_attribute_group = agl.id_attribute_group AND agl.id_lang = %(lang_id)s
 WHERE p.reference IS NOT NULL AND p.reference != ''
 GROUP BY p.id_product, p.reference, pl.name
 HAVING combination_count >= %(min_combinations)s
@@ -40,7 +41,8 @@ LIMIT %(limit)s;
 class Command(BaseCommand):
     help = (
         "Query Prestashop MariaDB directly for products with many combinations "
-        "and multiple color attribute groups. Exports CSV or prints tabular output."
+        "and multiple color attribute groups. Exports CSV or prints tabular output. "
+        "Run from the VPS host where Docker is available."
     )
 
     def add_arguments(self, parser):
@@ -72,8 +74,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--container",
-            default="prod-mariadb",
-            help="MariaDB container name (default: prod-mariadb).",
+            default=None,
+            help="MariaDB container name (default: from MARIADB_HOST setting).",
         )
 
     def handle(self, *args, **options):
@@ -83,8 +85,8 @@ class Command(BaseCommand):
         output_path = options["output"]
         container = options["container"]
 
-        mariadb_env = getattr(settings, "MARIADB", None)
-        if not mariadb_env:
+        mariadb_cfg = getattr(settings, "MARIADB", None)
+        if not mariadb_cfg:
             self.stderr.write(
                 self.style.ERROR(
                     "MARIADB configuration not found in Django settings. "
@@ -93,29 +95,36 @@ class Command(BaseCommand):
             )
             return
 
+        container_name = container or mariadb_cfg.get("HOST", "prod-mariadb")
+        lang_id = getattr(settings, "PRESTASHOP_DEFAULT_LANGUAGE_ID", 1)
+
         query = MARIADB_QUERY % {
             "min_combinations": min_combinations,
             "min_color_groups": min_color_groups,
             "limit": limit,
+            "lang_id": lang_id,
         }
+
+        env = os.environ.copy()
+        env["MYSQL_PWD"] = mariadb_cfg["PASSWORD"]
 
         result = subprocess.run(
             [
                 "docker",
                 "exec",
                 "-i",
-                container,
+                container_name,
                 "mariadb",
                 "-u",
-                mariadb_env["USER"],
-                f"-p{mariadb_env['PASSWORD']}",
-                mariadb_env["DATABASE"],
+                mariadb_cfg["USER"],
+                mariadb_cfg["DATABASE"],
                 "-B",
                 "-e",
                 query,
             ],
             capture_output=True,
             text=True,
+            env=env,
         )
 
         if result.returncode != 0:
