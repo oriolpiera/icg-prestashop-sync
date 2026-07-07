@@ -414,12 +414,13 @@ class TestOrderExportTask:
         writer = Mock()
         writer.insert_order_rows.return_value = 1
 
-        result = export_order_to_icg(
-            42,
-            client=client,
-            writer=writer,
-            exported_at=_aware(2026, 6, 30, 12, 0, 0),
-        )
+        with patch("apps.sales.services._ensure_customer_in_icg"):
+            result = export_order_to_icg(
+                42,
+                client=client,
+                writer=writer,
+                exported_at=_aware(2026, 6, 30, 12, 0, 0),
+            )
 
         rows = writer.insert_order_rows.call_args.args[0]
         assert result == {"order_id": 42, "inserted_rows": 1}
