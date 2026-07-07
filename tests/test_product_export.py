@@ -414,6 +414,8 @@ class TestPrestashopClientProductExport:
         assert "<active>0</active>" in payload
         assert "<visibility>none</visibility>" in payload
         assert "<available_for_order>0</available_for_order>" in payload
+        assert "position_in_category" not in payload
+        assert "<position>" not in payload
 
     def test_upsert_product_only_updates_configured_language(self, settings):
         product = _make_product(name="Updated Product")
