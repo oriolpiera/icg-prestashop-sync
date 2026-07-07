@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
+import pyodbc
 import pytest
 import requests
 from django.utils import timezone
@@ -86,6 +87,33 @@ class TestClassifyError:
 
     def test_permanent_on_prestashop_error_without_status(self):
         exc = PrestashopError("no status")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
+    def test_transient_on_pyodbc_error(self):
+        exc = pyodbc.Error("sql server connection failed")
+        assert classify_error(exc) == SyncErrorType.TRANSIENT
+
+    def test_transient_on_pyodbc_operational_error(self):
+        exc = pyodbc.OperationalError(
+            "08S01",
+            "[08S01] [FreeTDS][SQL Server]Unable to connect: Adaptive Server is unavailable",
+        )
+        assert classify_error(exc) == SyncErrorType.TRANSIENT
+
+    def test_transient_on_pyodbc_interface_error(self):
+        exc = pyodbc.InterfaceError("driver connection failed")
+        assert classify_error(exc) == SyncErrorType.TRANSIENT
+
+    def test_permanent_on_pyodbc_programming_error(self):
+        exc = pyodbc.ProgrammingError("invalid column name")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
+    def test_permanent_on_pyodbc_integrity_error(self):
+        exc = pyodbc.IntegrityError("duplicate key value")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
+    def test_permanent_on_pyodbc_data_error(self):
+        exc = pyodbc.DataError("numeric value out of range")
         assert classify_error(exc) == SyncErrorType.PERMANENT
 
 
