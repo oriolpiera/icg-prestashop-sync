@@ -452,6 +452,32 @@ class TestRetryEntityTask:
         mock_export.assert_not_called()
         assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_PRODUCT).count() == 1
 
+    def test_retry_entity_skips_sales_export_when_icg_lock_is_held(self):
+        with patch(
+            "apps.sync.tasks._maybe_icg_sales_export_lock",
+            side_effect=LockAcquisitionError("lock held"),
+        ):
+            result = retry_entity("prestashop_customer", 42, "42")
+
+        assert result == {
+            "status": "skipped",
+            "reason": "lock_held",
+            "entity_type": "prestashop_customer",
+            "entity_id": 42,
+        }
+        job = SyncJob.objects.get(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+        )
+        assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 1
+        assert job.payload["icg_sales_export_lock_contention_count"] == 1
+        assert job.error_type == SyncErrorType.TRANSIENT
+        error = job.errors.order_by("-created_at").first()
+        assert error is not None
+        assert "icg_sales_export" in error.message
+
 
 # --- Retry failed jobs task ---
 
@@ -754,3 +780,106 @@ class TestRetryFailedJobs:
         export_mock.assert_called_once_with(77)
         job.refresh_from_db()
         assert job.status == SyncJobStatus.SUCCEEDED
+
+    def test_requeues_sales_job_when_icg_lock_is_held(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": 42, "customer_id": 42},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            error_type=SyncErrorType.TRANSIENT,
+            message="sql timeout",
+        )
+
+        with patch(
+            "apps.sync.tasks._maybe_icg_sales_export_lock",
+            side_effect=LockAcquisitionError("lock held"),
+        ):
+            result = retry_failed_jobs()
+
+        assert result["status"] == "success"
+        assert result["retried"] == 0
+        assert result["skipped"] == 1
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 1
+        assert job.started_at is None
+        assert job.available_at > timezone.now()
+        assert job.payload["icg_sales_export_lock_contention_count"] == 1
+
+    def test_clears_lock_contention_counter_when_retry_runs_export(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={
+                "entity_id": 42,
+                "customer_id": 42,
+                "icg_sales_export_lock_contention_count": 2,
+            },
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            error_type=SyncErrorType.TRANSIENT,
+            message="sql timeout",
+        )
+
+        with patch.dict(
+            "apps.sync.tasks._RETRYABLE_EXPORT_MAP",
+            {SyncJobType.EXPORT_CUSTOMER: Mock(return_value={"customer_id": 42, "inserted": True})},
+        ):
+            result = retry_failed_jobs()
+
+        assert result["status"] == "success"
+        assert result["retried"] == 1
+        assert result["skipped"] == 0
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.SUCCEEDED
+        assert "icg_sales_export_lock_contention_count" not in job.payload
+
+    def test_increments_lock_contention_counter_on_repeated_contention(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={
+                "entity_id": 42,
+                "customer_id": 42,
+                "icg_sales_export_lock_contention_count": 2,
+            },
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            error_type=SyncErrorType.TRANSIENT,
+            message="sql timeout",
+        )
+
+        with patch(
+            "apps.sync.tasks._maybe_icg_sales_export_lock",
+            side_effect=LockAcquisitionError("lock held"),
+        ):
+            result = retry_failed_jobs()
+
+        assert result["status"] == "success"
+        assert result["retried"] == 0
+        assert result["skipped"] == 1
+        job.refresh_from_db()
+        assert job.payload["icg_sales_export_lock_contention_count"] == 3

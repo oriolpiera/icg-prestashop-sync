@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, timedelta
 from typing import Any
 
@@ -34,6 +35,7 @@ from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
+    BACKOFF_SCHEDULE_SECONDS,
     MAX_SYNC_RETRIES,
     SyncCursorSource,
     SyncError,
@@ -45,6 +47,10 @@ from apps.sync.models import (
 
 logger = logging.getLogger(__name__)
 STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
+ICG_SALES_EXPORT_LOCK_KEY = "icg_sales_export"
+ICG_SALES_EXPORT_ENTITY_TYPES = {"prestashop_customer", "prestashop_order"}
+ICG_SALES_EXPORT_JOB_TYPES = {SyncJobType.EXPORT_CUSTOMER, SyncJobType.EXPORT_ORDER}
+ICG_SALES_EXPORT_LOCK_CONTENTION_KEY = "icg_sales_export_lock_contention_count"
 
 
 def _stale_running_threshold():
@@ -53,6 +59,46 @@ def _stale_running_threshold():
 
 def _resolve_job_errors(job: SyncJob) -> None:
     job.errors.filter(resolved=False).update(resolved=True, updated_at=timezone.now())
+
+
+@contextmanager
+def _maybe_icg_sales_export_lock(
+    *,
+    entity_type: str | None = None,
+    job_type: str | None = None,
+):
+    requires_lock = (
+        entity_type in ICG_SALES_EXPORT_ENTITY_TYPES or job_type in ICG_SALES_EXPORT_JOB_TYPES
+    )
+    if not requires_lock:
+        yield
+        return
+
+    with sync_lock(ICG_SALES_EXPORT_LOCK_KEY):
+        yield
+
+
+def _release_running_job_for_lock_contention(job: SyncJob) -> None:
+    contention_count = int(job.payload.get(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, 0)) + 1
+    delay_index = min(contention_count - 1, len(BACKOFF_SCHEDULE_SECONDS) - 1)
+    delay = BACKOFF_SCHEDULE_SECONDS[delay_index]
+    job.available_at = timezone.now() + timedelta(seconds=delay)
+    job.status = SyncJobStatus.PENDING
+    job.last_error = ""
+    job.started_at = None
+    job.finished_at = None
+    job.payload = {**job.payload, ICG_SALES_EXPORT_LOCK_CONTENTION_KEY: contention_count}
+    job.save(
+        update_fields=[
+            "available_at",
+            "status",
+            "last_error",
+            "started_at",
+            "finished_at",
+            "payload",
+            "updated_at",
+        ]
+    )
 
 
 def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
@@ -138,6 +184,20 @@ def _record_sync_error(
         )
 
     return error_message
+
+
+def _record_lock_contention(job: SyncJob) -> None:
+    message = f"ICG sales export lock '{ICG_SALES_EXPORT_LOCK_KEY}' is currently held"
+    SyncError.objects.create(
+        job=job,
+        entity_type=job.entity_type,
+        entity_key=job.entity_key,
+        error_type=SyncErrorType.TRANSIENT,
+        message=message,
+        details=job.payload,
+    )
+    job.last_error = message
+    job.save(update_fields=["last_error", "updated_at"])
 
 
 def _has_open_job_conflict(job_type: str, entity_type: str, entity_key: str) -> bool:
@@ -506,7 +566,7 @@ def export_new_customers_to_icg(limit: int = 100) -> dict:
         return {"status": "error", "detail": "See worker logs for details."}
 
     try:
-        with sync_lock("export_new_customers_to_icg"):
+        with sync_lock(ICG_SALES_EXPORT_LOCK_KEY):
             for customer in customers:
                 job = SyncJob.objects.create(
                     job_type=SyncJobType.EXPORT_CUSTOMER,
@@ -593,7 +653,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
         return {"status": "error", "detail": "See worker logs for details."}
 
     try:
-        with sync_lock("export_new_orders_to_icg"):
+        with sync_lock(ICG_SALES_EXPORT_LOCK_KEY):
             for order in orders:
                 job = SyncJob.objects.create(
                     job_type=SyncJobType.EXPORT_ORDER,
@@ -694,7 +754,17 @@ def retry_entity(entity_type: str, entity_id: int, entity_key: str = "") -> dict
     )
 
     try:
-        result = export_fn(entity_id)
+        with _maybe_icg_sales_export_lock(entity_type=entity_type, job_type=job_type):
+            result = export_fn(entity_id)
+    except LockAcquisitionError:
+        _record_lock_contention(job)
+        _release_running_job_for_lock_contention(job)
+        return {
+            "status": "skipped",
+            "reason": "lock_held",
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+        }
     except Exception as exc:
         error = _record_sync_error(job, exc)
         return {
@@ -792,7 +862,19 @@ def retry_failed_jobs() -> dict:
                 job.save(update_fields=["status", "started_at", "updated_at"])
 
                 try:
-                    result = export_fn(entity_id)
+                    with _maybe_icg_sales_export_lock(
+                        entity_type=job.entity_type,
+                        job_type=job.job_type,
+                    ):
+                        if ICG_SALES_EXPORT_LOCK_CONTENTION_KEY in job.payload:
+                            payload = dict(job.payload)
+                            payload.pop(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, None)
+                            job.payload = payload
+                            job.save(update_fields=["payload", "updated_at"])
+                        result = export_fn(entity_id)
+                except LockAcquisitionError:
+                    _release_running_job_for_lock_contention(job)
+                    skipped += 1
                 except Exception as exc:
                     _record_sync_error(job, exc)
                 else:
