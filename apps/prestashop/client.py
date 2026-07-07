@@ -943,7 +943,11 @@ class PrestashopClient:
         total_price_tax_incl = detail["total_price_tax_incl"]
         total_price_tax_excl = detail["total_price_tax_excl"]
         vat_rate = line.vat_rate
-        if vat_rate <= 0 and total_price_tax_incl is not None and total_price_tax_excl is not None:
+        if (
+            not line.vat_rate_present
+            and total_price_tax_incl is not None
+            and total_price_tax_excl is not None
+        ):
             vat_rate = self._normalize_supported_vat_rate(
                 self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
             )
