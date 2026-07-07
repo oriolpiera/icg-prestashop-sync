@@ -814,7 +814,7 @@ class TestEscape:
 
 @pytest.mark.django_db
 class TestCursorTimezoneNormalization:
-    def test_normalize_cursor_converts_aware_utc_to_naive(self):
+    def test_normalize_cursor_preserves_utc_wall_clock(self):
         from apps.icg.services import ICGCatalogReader
 
         reader = ICGCatalogReader()
@@ -824,9 +824,9 @@ class TestCursorTimezoneNormalization:
 
         assert result is not None
         assert result.tzinfo is None, "cursor should be naive for MSSQL"
-        assert result == datetime(2026, 7, 7, 18, 1, 44, 570000)
+        assert result == datetime(2026, 7, 7, 20, 1, 44, 570000)
 
-    def test_normalize_cursor_converts_aware_madrid_to_naive_utc(self):
+    def test_normalize_cursor_preserves_madrid_wall_clock(self):
         from zoneinfo import ZoneInfo
 
         from apps.icg.services import ICGCatalogReader
@@ -839,7 +839,7 @@ class TestCursorTimezoneNormalization:
 
         assert result is not None
         assert result.tzinfo is None
-        assert result == datetime(2026, 7, 7, 18, 1, 44, 570000)
+        assert result == datetime(2026, 7, 7, 20, 1, 44, 570000)
 
     def test_normalize_cursor_preserves_naive(self):
         from apps.icg.services import ICGCatalogReader

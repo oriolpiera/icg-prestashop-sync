@@ -2,7 +2,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
@@ -180,7 +180,7 @@ class ICGCatalogReader:
         if cursor_at is None:
             return None
         if timezone.is_aware(cursor_at):
-            return cursor_at.astimezone(UTC).replace(tzinfo=None)
+            return cursor_at.astimezone(timezone.get_current_timezone()).replace(tzinfo=None)
         return cursor_at
 
     def _fetch_rows(self, query: str, params: tuple = ()) -> list:
