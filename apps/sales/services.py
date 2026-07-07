@@ -131,6 +131,69 @@ def upsert_order_snapshot(
 ) -> PrestashopOrder:
     captured_at = captured_at or timezone.now()
     existing_order = PrestashopOrder.objects.filter(prestashop_id=snapshot.order_id).first()
+    existing_line_overrides: dict[int, int] = {}
+    legacy_line_overrides: dict[tuple[int, int], int] = {}
+    legacy_override_ids_by_identity: dict[tuple[int, int], deque[int]] = defaultdict(deque)
+    incoming_exact_match_identity_counts: Counter[tuple[int, int]] = Counter()
+    if existing_order is not None:
+        existing_lines = list(existing_order.lines.all())
+        incoming_line_keys = [(line.product_id, line.combination_id) for line in snapshot.lines]
+        incoming_line_counts = Counter(incoming_line_keys)
+        existing_line_exact_keys = {
+            _line_exact_key_from_model(line)
+            for line in existing_lines
+            if line.prestashop_order_detail_id is None
+        }
+        incoming_exact_match_identity_counts = Counter(
+            (line.product_id, line.combination_id)
+            for line in snapshot.lines
+            if _line_exact_key_from_snapshot(line) in existing_line_exact_keys
+        )
+        legacy_override_counts = Counter(
+            (line.prestashop_product_id, line.prestashop_combination_id)
+            for line in existing_lines
+            if line.override_combination_id and line.prestashop_order_detail_id is None
+        )
+        identified_override_counts = Counter(
+            (line.prestashop_product_id, line.prestashop_combination_id)
+            for line in existing_lines
+            if line.override_combination_id and line.prestashop_order_detail_id is not None
+        )
+        existing_line_overrides = {
+            line.prestashop_order_detail_id: line.override_combination_id
+            for line in existing_lines
+            if line.override_combination_id and line.prestashop_order_detail_id is not None
+        }
+        legacy_override_ids_by_identity = defaultdict(deque)
+        for line in existing_lines:
+            if (
+                line.override_combination_id
+                and line.prestashop_order_detail_id is None
+                and identified_override_counts[
+                    (line.prestashop_product_id, line.prestashop_combination_id)
+                ]
+                == 0
+            ):
+                legacy_override_ids_by_identity[
+                    (line.prestashop_product_id, line.prestashop_combination_id)
+                ].append(line.override_combination_id)
+        legacy_line_overrides = {
+            (
+                line.prestashop_product_id,
+                line.prestashop_combination_id,
+            ): line.override_combination_id
+            for line in existing_lines
+            if line.override_combination_id
+            and line.prestashop_order_detail_id is None
+            and legacy_override_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+            == 1
+            and identified_override_counts[
+                (line.prestashop_product_id, line.prestashop_combination_id)
+            ]
+            == 0
+            and incoming_line_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+            == 1
+        }
     export_state_stale = existing_order is not None and _order_export_state_stale(
         existing_order, snapshot, customer=customer
     )
@@ -166,6 +229,8 @@ def upsert_order_snapshot(
     existing_exact_line_keys: set[tuple] = set()
     existing_override_ids_by_identity: dict[tuple[int, int], deque[int]] = defaultdict(deque)
     for line in order.lines.all():
+        if line.prestashop_order_detail_id is not None:
+            continue
         existing_exact_line_keys.add(_line_exact_key_from_model(line))
         if line.override_combination_id is None:
             continue
@@ -175,21 +240,6 @@ def upsert_order_snapshot(
         )
         existing_override_ids_by_identity[identity].append(line.override_combination_id)
 
-    existing_line_identities = [
-        (line.prestashop_product_id, line.prestashop_combination_id) for line in order.lines.all()
-    ]
-    incoming_line_identities = [(line.product_id, line.combination_id) for line in snapshot.lines]
-    existing_identity_counts = Counter(existing_line_identities)
-    incoming_identity_counts = Counter(incoming_line_identities)
-    existing_override_by_line = {
-        (line.prestashop_product_id, line.prestashop_combination_id): line.override_combination_id
-        for line in order.lines.all()
-        if existing_identity_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
-        == 1
-        and incoming_identity_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
-        == 1
-    }
-
     order.lines.all().delete()
     order.discounts.all().delete()
     MirroredOrderLine.objects.bulk_create(
@@ -197,6 +247,7 @@ def upsert_order_snapshot(
             MirroredOrderLine(
                 order=order,
                 position=index,
+                prestashop_order_detail_id=line.order_detail_id,
                 prestashop_product_id=line.product_id,
                 prestashop_combination_id=line.combination_id,
                 description=line.description,
@@ -204,12 +255,18 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=_carry_forward_override_combination_id(
-                    line=line,
-                    existing_exact_line_keys=existing_exact_line_keys,
-                    exact_overrides=existing_exact_override_by_line,
-                    identity_overrides=existing_override_ids_by_identity,
-                    unique_identity_overrides=existing_override_by_line,
+                override_combination_id=(
+                    existing_line_overrides.get(line.order_detail_id)
+                    if line.order_detail_id is not None
+                    and existing_line_overrides.get(line.order_detail_id) is not None
+                    else _carry_forward_legacy_override_combination_id(
+                        line=line,
+                        existing_exact_line_keys=existing_exact_line_keys,
+                        exact_overrides=existing_exact_override_by_line,
+                        identity_overrides=legacy_override_ids_by_identity,
+                        exact_match_identity_counts=incoming_exact_match_identity_counts,
+                        unique_identity_overrides=legacy_line_overrides,
+                    )
                 ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
@@ -253,6 +310,7 @@ def _order_export_state_stale(
     existing_lines = list(
         order.lines.order_by("position").values_list(
             "position",
+            "prestashop_order_detail_id",
             "prestashop_product_id",
             "prestashop_combination_id",
             "description",
@@ -265,6 +323,7 @@ def _order_export_state_stale(
     incoming_lines = [
         (
             index,
+            line.order_detail_id,
             line.product_id,
             line.combination_id,
             line.description,
@@ -324,12 +383,13 @@ def _line_exact_key_from_snapshot(line: PrestashopOrderLine) -> tuple:
     )
 
 
-def _carry_forward_override_combination_id(
+def _carry_forward_legacy_override_combination_id(
     *,
     line: PrestashopOrderLine,
     existing_exact_line_keys: set[tuple],
     exact_overrides: dict[tuple, deque[int]],
     identity_overrides: dict[tuple[int, int], deque[int]],
+    exact_match_identity_counts: Counter[tuple[int, int]],
     unique_identity_overrides: dict[tuple[int, int], int],
 ) -> int | None:
     exact_key = _line_exact_key_from_snapshot(line)
@@ -344,7 +404,7 @@ def _carry_forward_override_combination_id(
         return None
 
     identity = (line.product_id, line.combination_id)
-    if identity_overrides[identity]:
+    if exact_match_identity_counts[identity] > 0 and identity_overrides[identity]:
         return identity_overrides[identity].popleft()
 
     return unique_identity_overrides.get(identity)
@@ -471,6 +531,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
         total_shipping_tax_excl=order.total_shipping_tax_excl,
         lines=[
             PrestashopOrderLine(
+                order_detail_id=line.prestashop_order_detail_id,
                 product_id=line.prestashop_product_id,
                 combination_id=line.prestashop_combination_id,
                 description=line.description,

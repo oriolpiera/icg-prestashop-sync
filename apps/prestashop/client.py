@@ -114,6 +114,7 @@ class PrestashopOrderLine:
     unit_price_tax_incl: Decimal
     total_price_tax_incl: Decimal
     vat_rate: Decimal
+    order_detail_id: int | None = None
     override_combination_id: int | None = None
 
 
@@ -869,6 +870,8 @@ class PrestashopClient:
                 )
             lines.append(
                 PrestashopOrderLine(
+                    order_detail_id=self._parse_int(row, "id")
+                    or self._parse_int(row, "id_order_detail"),
                     product_id=product_id,
                     combination_id=self._parse_int(row, "product_attribute_id") or 0,
                     description=(row.findtext("product_name") or "").strip(),

@@ -221,7 +221,7 @@ def test_map_snapshot_to_facturas_web_rejects_override_from_another_product():
         reference="MUG-001",
         name="Blue mug",
     )
-    other_product = Product.objects.create(
+    override_product = Product.objects.create(
         icg_id=5002,
         prestashop_id=102,
         reference="MUG-002",
@@ -235,7 +235,7 @@ def test_map_snapshot_to_facturas_web_rejects_override_from_another_product():
         ean13="1234567890123",
     )
     override_combination = Combination.objects.create(
-        product=other_product,
+        product=override_product,
         prestashop_id=303,
         icg_size="XL",
         icg_color="GREEN",
