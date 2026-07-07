@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 
 from django.db import transaction
@@ -161,13 +162,19 @@ def upsert_order_snapshot(
             ]
         )
 
+    existing_line_identities = [
+        (line.prestashop_product_id, line.prestashop_combination_id) for line in order.lines.all()
+    ]
+    incoming_line_identities = [(line.product_id, line.combination_id) for line in snapshot.lines]
+    existing_identity_counts = Counter(existing_line_identities)
+    incoming_identity_counts = Counter(incoming_line_identities)
     existing_override_by_line = {
-        (
-            line.position,
-            line.prestashop_product_id,
-            line.prestashop_combination_id,
-        ): line.override_combination_id
+        (line.prestashop_product_id, line.prestashop_combination_id): line.override_combination_id
         for line in order.lines.all()
+        if existing_identity_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+        == 1
+        and incoming_identity_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+        == 1
     }
 
     order.lines.all().delete()
@@ -185,11 +192,7 @@ def upsert_order_snapshot(
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
                 override_combination_id=existing_override_by_line.get(
-                    (
-                        index,
-                        line.product_id,
-                        line.combination_id,
-                    )
+                    (line.product_id, line.combination_id)
                 ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
