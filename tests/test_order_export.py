@@ -181,6 +181,40 @@ def test_map_snapshot_to_facturas_web_rejects_unsupported_payment(_catalog_mappi
 
 @pytest.mark.django_db
 def test_map_snapshot_to_facturas_web_uses_override_combination():
+    product = Product.objects.create(
+        icg_id=5001,
+        prestashop_id=101,
+        reference="MUG-001",
+        name="Blue mug",
+    )
+    Combination.objects.create(
+        product=product,
+        prestashop_id=202,
+        icg_size="UNI",
+        icg_color="BLUE",
+        ean13="1234567890123",
+    )
+    override_combination = Combination.objects.create(
+        product=product,
+        prestashop_id=304,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+
+    snapshot = _snapshot()
+    snapshot.lines[0].override_combination_id = override_combination.pk
+
+    rows = map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
+
+    assert rows[0].cod_articulo == 5001
+    assert rows[0].talla == "XL"
+    assert rows[0].color == "GREEN"
+    assert rows[0].cod_barras == "9876543210987"
+
+
+@pytest.mark.django_db
+def test_map_snapshot_to_facturas_web_rejects_override_from_another_product():
     original_product = Product.objects.create(
         icg_id=5001,
         prestashop_id=101,
@@ -211,12 +245,8 @@ def test_map_snapshot_to_facturas_web_uses_override_combination():
     snapshot = _snapshot()
     snapshot.lines[0].override_combination_id = override_combination.pk
 
-    rows = map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
-
-    assert rows[0].cod_articulo == 5002
-    assert rows[0].talla == "XL"
-    assert rows[0].color == "GREEN"
-    assert rows[0].cod_barras == "9876543210987"
+    with pytest.raises(PrestashopError, match="belongs to Prestashop product"):
+        map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
 
 
 def test_writer_insert_order_rows_inserts_when_missing():
@@ -314,6 +344,75 @@ class TestOrderExportTask:
 
         assert result == {"order_id": 42, "inserted_rows": 4}
         writer.insert_order_rows.assert_called_once()
+
+    def test_export_order_to_icg_prefers_local_mirror_when_present(self):
+        product = Product.objects.create(
+            icg_id=5001,
+            prestashop_id=101,
+            reference="MUG-001",
+            name="Blue mug",
+        )
+        original_combination = Combination.objects.create(
+            product=product,
+            prestashop_id=202,
+            icg_size="UNI",
+            icg_color="BLUE",
+            ean13="1234567890123",
+        )
+        override_combination = Combination.objects.create(
+            product=product,
+            prestashop_id=303,
+            icg_size="XL",
+            icg_color="GREEN",
+            ean13="9876543210987",
+        )
+        customer = PrestashopCustomer.objects.create(
+            prestashop_id=7,
+            firstname="Ada",
+            lastname="Lovelace",
+            email="ada@example.com",
+            date_add=_aware(2026, 6, 30, 9, 0, 0),
+            last_snapshot_at=_aware(2026, 6, 30, 10, 0, 0),
+        )
+        order = PrestashopOrder.objects.create(
+            prestashop_id=42,
+            customer=customer,
+            payment="Redsys Card",
+            date_add=_aware(2026, 6, 30, 10, 0, 0),
+            total_paid_tax_incl=Decimal("48.40"),
+            total_shipping_tax_incl=Decimal("0.00"),
+            total_shipping_tax_excl=Decimal("0.00"),
+            last_snapshot_at=_aware(2026, 6, 30, 11, 0, 0),
+            export_status=ExportStatus.NEVER,
+        )
+        order.lines.create(
+            position=1,
+            prestashop_product_id=101,
+            prestashop_combination_id=original_combination.prestashop_id,
+            description="Blue mug",
+            quantity=2,
+            unit_price_tax_incl=Decimal("24.20"),
+            total_price_tax_incl=Decimal("48.40"),
+            vat_rate=Decimal("21.00"),
+            override_combination=override_combination,
+        )
+
+        client = Mock()
+        writer = Mock()
+        writer.insert_order_rows.return_value = 1
+
+        result = export_order_to_icg(
+            42,
+            client=client,
+            writer=writer,
+            exported_at=_aware(2026, 6, 30, 12, 0, 0),
+        )
+
+        rows = writer.insert_order_rows.call_args.args[0]
+        assert result == {"order_id": 42, "inserted_rows": 1}
+        assert rows[0].talla == "XL"
+        assert rows[0].color == "GREEN"
+        client.get_order_snapshot.assert_not_called()
 
     def test_task_exports_orders_and_advances_cursor(self):
         orders = [

@@ -20,6 +20,10 @@ from apps.catalog.models import (
     TaxRuleMapping,
 )
 from apps.catalog.variants import effective_prestashop_variant_axes, is_placeholder_variant_axis
+from apps.prestashop.attribute_groups import (
+    expected_local_attribute_group_name,
+    resolve_remote_attribute_group_match,
+)
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.sync.locking import LOCK_TIMEOUT_MINUTES, LockAcquisitionError, sync_lock
 
@@ -450,25 +454,47 @@ def ensure_attribute_group(
     if icg_type == "color":
         if product is None:
             raise PrestashopError("Color attribute groups require a product reference.")
-        display_name = f"{product.reference}_color"
         is_color_group = True
         existing = AttributeGroup.objects.filter(icg_type="color", product=product).first()
+        product_specific = True
     else:
-        display_name = ATTRIBUTE_GROUP_NAMES.get(icg_type, icg_type.title())
         is_color_group = False
-        existing = AttributeGroup.objects.filter(icg_type=icg_type, product__isnull=True).first()
+        existing = None
+        if product is not None:
+            existing = AttributeGroup.objects.filter(icg_type=icg_type, product=product).first()
+        product_specific = False
 
     if existing is not None:
         return existing.prestashop_id
 
-    ps_id = client.find_attribute_group_id_by_name(display_name)
-    if ps_id is None:
-        ps_id = client.create_attribute_group(display_name, is_color_group=is_color_group)
+    display_name = expected_local_attribute_group_name(icg_type, product)
+    remote_groups = client.list_attribute_groups()
+    remote_match = resolve_remote_attribute_group_match(
+        remote_groups,
+        icg_type=icg_type,
+        product=product,
+    )
+
+    if icg_type != "color" and remote_match is None:
+        existing = AttributeGroup.objects.filter(icg_type=icg_type, product__isnull=True).first()
+        if existing is not None:
+            return existing.prestashop_id
+
+    if remote_match is not None:
+        ps_id = remote_match.prestashop_id
+        local_name = display_name if icg_type == "color" else remote_match.name
+        local_product = product if remote_match.product_specific else None
+    else:
+        ps_id = client.find_attribute_group_id_by_name(display_name)
+        if ps_id is None:
+            ps_id = client.create_attribute_group(display_name, is_color_group=is_color_group)
+        local_name = display_name
+        local_product = product if product_specific else None
 
     AttributeGroup.objects.update_or_create(
         icg_type=icg_type,
-        product=product,
-        defaults={"name": display_name, "prestashop_id": ps_id},
+        product=local_product,
+        defaults={"name": local_name, "prestashop_id": ps_id},
     )
     return ps_id
 
@@ -630,7 +656,9 @@ def export_combination(
         color_ps_ids = []
 
         if normalized_size:
-            size_group_ps_id = ensure_attribute_group("size", client=client)
+            size_group_ps_id = ensure_attribute_group(
+                "size", client=client, product=combination.product
+            )
             size_value_ps_id = ensure_attribute_value(
                 size_group_ps_id, normalized_size, client=client
             )
