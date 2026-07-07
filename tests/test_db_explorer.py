@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -13,6 +13,7 @@ from apps.db_explorer.db import FilterCondition, TableData, get_table_data
 class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
+        self.close = Mock()
 
     def cursor(self):
         return self._cursor
@@ -54,7 +55,7 @@ def test_get_table_data_builds_structured_filters_and_sort_sql():
         fetchone_results=[SimpleNamespace(row_count=2)],
     )
 
-    with patch.object(db_module.reader, "_connect", return_value=_FakeConnection(cursor)):
+    with patch.object(db_module.reader, "_connection", return_value=_FakeConnection(cursor)):
         data = get_table_data(
             "ClientesWeb",
             page=2,
@@ -94,7 +95,7 @@ def test_get_table_data_rejects_invalid_sort_column():
         fetchone_results=[],
     )
 
-    with patch.object(db_module.reader, "_connect", return_value=_FakeConnection(cursor)):
+    with patch.object(db_module.reader, "_connection", return_value=_FakeConnection(cursor)):
         with pytest.raises(ValueError, match="Invalid sort column"):
             get_table_data("ClientesWeb", sort_column="FechaExportacion")
 
@@ -108,7 +109,7 @@ def test_get_table_data_uses_resolved_schema_for_unfiltered_count():
         fetchone_results=[SimpleNamespace(row_count=1)],
     )
 
-    with patch.object(db_module.reader, "_connect", return_value=_FakeConnection(cursor)):
+    with patch.object(db_module.reader, "_connection", return_value=_FakeConnection(cursor)):
         get_table_data("ClientesWeb", schema="ventas")
 
     assert cursor.execute_calls[1] == (

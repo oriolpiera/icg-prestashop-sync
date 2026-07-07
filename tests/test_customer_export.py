@@ -60,6 +60,7 @@ class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.commit = Mock()
+        self.close = Mock()
 
     def cursor(self):
         return self._cursor
@@ -209,7 +210,7 @@ def test_writer_insert_customer_inserts_when_missing():
         fecha_insercion=_aware(2026, 6, 30, 10, 0, 0),
     )
 
-    with patch.object(reader, "_connect", return_value=connection):
+    with patch.object(reader, "_connection", return_value=connection):
         inserted = writer.insert_customer(row)
 
     assert inserted is True
@@ -242,7 +243,7 @@ def test_writer_insert_customer_skips_duplicate():
         fecha_insercion=_aware(2026, 6, 30, 10, 0, 0),
     )
 
-    with patch.object(reader, "_connect", return_value=connection):
+    with patch.object(reader, "_connection", return_value=connection):
         inserted = writer.insert_customer(row)
 
     assert inserted is False
