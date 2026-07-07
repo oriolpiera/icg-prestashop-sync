@@ -20,6 +20,7 @@ from apps.sync.models import (
     SyncLock,
 )
 from apps.sync.tasks import (
+    STALE_RUNNING_JOB_TIMEOUT,
     _record_sync_error,
     export_manufacturers,
     retry_entity,
@@ -451,6 +452,44 @@ class TestRetryEntityTask:
         assert result["reason"] == "job_already_open"
         mock_export.assert_not_called()
         assert SyncJob.objects.filter(job_type=SyncJobType.EXPORT_PRODUCT).count() == 1
+
+    def test_retry_entity_allows_stale_running_job(self):
+        product = Product.objects.create(
+            icg_id=1013,
+            reference="REF013",
+            name="Test Product 13",
+        )
+        stale_started_at = timezone.now() - STALE_RUNNING_JOB_TIMEOUT - timedelta(seconds=1)
+        stale_job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key=product.reference,
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=stale_started_at,
+            payload={"entity_id": product.pk},
+        )
+        stale_error = SyncError.objects.create(
+            job=stale_job,
+            entity_type="product",
+            entity_key=product.reference,
+            error_type=SyncErrorType.TRANSIENT,
+            message="stale timeout",
+        )
+
+        mock_export = Mock(return_value={"product_id": product.pk, "prestashop_id": 42})
+        with patch.dict(
+            "apps.sync.tasks._EXPORT_DISPATCH",
+            {"product": (SyncJobType.EXPORT_PRODUCT, mock_export)},
+        ):
+            result = retry_entity("product", product.pk, product.reference)
+
+        assert result["status"] == "succeeded"
+        mock_export.assert_called_once_with(product.pk)
+        stale_job.refresh_from_db()
+        stale_error.refresh_from_db()
+        assert stale_job.status == SyncJobStatus.SUCCEEDED
+        assert stale_error.resolved is True
 
     def test_retry_entity_skips_sales_export_when_icg_lock_is_held(self):
         with patch(
