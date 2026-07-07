@@ -114,6 +114,7 @@ class PrestashopOrderLine:
     unit_price_tax_incl: Decimal
     total_price_tax_incl: Decimal
     vat_rate: Decimal
+    override_combination_id: int | None = None
 
 
 @dataclass(slots=True)

@@ -435,3 +435,72 @@ def test_export_order_to_icg_from_mirror_updates_status():
     assert order.export_status == ExportStatus.SUCCEEDED
     assert order.inserted_rows == 3
     assert order.exported_to_icg_at == _aware(2026, 7, 1, 14)
+
+
+@pytest.mark.django_db
+def test_export_order_to_icg_from_mirror_uses_order_line_override_combination():
+    original_product = Product.objects.create(
+        icg_id=5001,
+        prestashop_id=101,
+        reference="MUG-001",
+        name="Blue mug",
+    )
+    override_product = Product.objects.create(
+        icg_id=5002,
+        prestashop_id=102,
+        reference="MUG-002",
+        name="Green mug",
+    )
+    original_combination = Combination.objects.create(
+        product=original_product,
+        prestashop_id=202,
+        icg_size="UNI",
+        icg_color="BLUE",
+        ean13="1234567890123",
+    )
+    override_combination = Combination.objects.create(
+        product=override_product,
+        prestashop_id=303,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=7,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        last_snapshot_at=_aware(2026, 7, 1, 12),
+    )
+    order = PrestashopOrder.objects.create(
+        prestashop_id=42,
+        customer=customer,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("48.40"),
+        total_shipping_tax_incl=Decimal("0.00"),
+        total_shipping_tax_excl=Decimal("0.00"),
+        last_snapshot_at=_aware(2026, 7, 1, 12),
+    )
+    order.lines.create(
+        position=1,
+        prestashop_product_id=101,
+        prestashop_combination_id=original_combination.prestashop_id,
+        description="Blue mug",
+        quantity=2,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("48.40"),
+        vat_rate=Decimal("21.00"),
+        override_combination=override_combination,
+    )
+    writer = Mock()
+    writer.insert_order_rows.return_value = 1
+
+    export_order_to_icg_from_mirror(42, writer=writer, exported_at=_aware(2026, 7, 1, 14))
+
+    inserted_rows = writer.insert_order_rows.call_args.args[0]
+    assert inserted_rows[0].cod_articulo == 5002
+    assert inserted_rows[0].talla == "XL"
+    assert inserted_rows[0].color == "GREEN"
+    assert inserted_rows[0].cod_barras == "9876543210987"

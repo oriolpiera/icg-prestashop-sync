@@ -392,6 +392,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
+                override_combination_id=line.override_combination_id,
             )
             for line in order.lines.all()
         ],
