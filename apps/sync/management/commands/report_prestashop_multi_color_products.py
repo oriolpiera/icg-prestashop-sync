@@ -2,6 +2,7 @@ import csv
 import io
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -14,11 +15,11 @@ SELECT
     pl.name AS product_name,
     COUNT(DISTINCT pa.id_product_attribute) AS combination_count,
     COUNT(DISTINCT CASE
-        WHEN agl.name REGEXP '(_|^)color(s|es)?$'
+        WHEN LOWER(TRIM(agl.name)) REGEXP '(_|^)color(s|es)?$'
         THEN agl.id_attribute_group
     END) AS color_group_count,
     GROUP_CONCAT(DISTINCT CASE
-        WHEN agl.name REGEXP '(_|^)color(s|es)?$'
+        WHEN LOWER(TRIM(agl.name)) REGEXP '(_|^)color(s|es)?$'
         THEN agl.name
     END SEPARATOR '|') AS color_groups
 FROM ps_product p
@@ -105,27 +106,43 @@ class Command(BaseCommand):
             "lang_id": lang_id,
         }
 
-        env = os.environ.copy()
-        env["MYSQL_PWD"] = mariadb_cfg["PASSWORD"]
+        db_host = mariadb_cfg.get("HOST", "localhost")
+        db_port = mariadb_cfg.get("PORT", 3306)
 
-        result = subprocess.run(
-            [
-                "docker",
-                "exec",
-                "-i",
-                container_name,
-                "mariadb",
-                "-u",
-                mariadb_cfg["USER"],
-                mariadb_cfg["DATABASE"],
-                "-B",
-                "-e",
-                query,
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as secret_file:
+            secret_file.write(f"[client]\npassword={mariadb_cfg['PASSWORD']}\n")
+            secret_path = secret_file.name
+        os.chmod(secret_path, 0o600)
+
+        mariadb_cmd = [
+            "docker",
+            "exec",
+            "-i",
+            container_name,
+            "mariadb",
+            f"--defaults-extra-file={secret_path}",
+            "-u",
+            mariadb_cfg["USER"],
+            "--database",
+            mariadb_cfg["DATABASE"],
+            "-B",
+            "-e",
+            query,
+        ]
+
+        if db_host not in ("localhost", "127.0.0.1"):
+            mariadb_cmd.extend(["--host", db_host])
+        if db_port != 3306:
+            mariadb_cmd.extend(["--port", str(db_port)])
+
+        try:
+            result = subprocess.run(
+                mariadb_cmd,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            os.unlink(secret_path)
 
         if result.returncode != 0:
             self.stderr.write(self.style.ERROR(f"MariaDB query failed: {result.stderr}"))
