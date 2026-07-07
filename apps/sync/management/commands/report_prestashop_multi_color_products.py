@@ -1,16 +1,76 @@
-import json
+import csv
+import io
+import re
+import subprocess
 from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from apps.prestashop.client import PrestashopClient
-from apps.sync.reconciliation import group_role
+MARIADB_QUERY = """
+SELECT
+    p.id_product AS prestashop_product_id,
+    p.reference,
+    pl.name AS product_name,
+    COUNT(DISTINCT pa.id_product_attribute) AS combination_count,
+    COUNT(DISTINCT CASE
+        WHEN LOWER(TRIM(agl.name)) REGEXP '(_|^)color(s|es)?$'
+        THEN agl.id_attribute_group
+    END) AS color_group_count,
+    GROUP_CONCAT(DISTINCT CASE
+        WHEN LOWER(TRIM(agl.name)) REGEXP '(_|^)color(s|es)?$'
+        THEN agl.name
+    END SEPARATOR '|') AS color_groups
+FROM ps_product p
+JOIN ps_product_lang pl ON p.id_product = pl.id_product AND pl.id_lang = %(lang_id)s
+JOIN ps_product_attribute pa ON p.id_product = pa.id_product
+JOIN ps_product_attribute_combination pac
+    ON pa.id_product_attribute = pac.id_product_attribute
+JOIN ps_attribute a ON pac.id_attribute = a.id_attribute
+JOIN ps_attribute_group_lang agl
+    ON a.id_attribute_group = agl.id_attribute_group AND agl.id_lang = %(lang_id)s
+WHERE p.reference IS NOT NULL AND p.reference != ''
+GROUP BY p.id_product, p.reference, pl.name
+HAVING combination_count >= %(min_combinations)s
+   AND color_group_count >= %(min_color_groups)s
+ORDER BY combination_count DESC, color_group_count DESC, p.id_product
+LIMIT %(limit)s;
+"""
+
+
+def _run_mariadb_in_container(
+    container: str,
+    user: str,
+    password: str,
+    database: str,
+    query: str,
+    lang_id: int,
+    db_host: str | None = None,
+    db_port: int | None = None,
+) -> subprocess.CompletedProcess:
+    secret_file = f"/tmp/mariauth_{re.sub(r'[^a-zA-Z0-9]', '', password)[:16]}.cnf"
+    shell_cmd = (
+        f"cat > {secret_file} << 'MARIASEcret'\n"
+        f"[client]\n"
+        f"password={password}\n"
+        f"MARIASEcret\n"
+        f"mariadb --defaults-extra-file={secret_file} "
+        f'-u {user} --database {database} -B -e "{query}" ; '
+        f"rm -f {secret_file}"
+    )
+    result = subprocess.run(
+        ["docker", "exec", "-i", container, "sh", "-c", shell_cmd],
+        capture_output=True,
+        text=True,
+    )
+    return result
 
 
 class Command(BaseCommand):
     help = (
-        "Build a report of PrestaShop products with many combinations and more than "
-        "one color attribute group."
+        "Query Prestashop MariaDB directly for products with many combinations "
+        "and multiple color attribute groups. Exports CSV or prints tabular output. "
+        "Run from the VPS host where Docker is available."
     )
 
     def add_arguments(self, parser):
@@ -18,130 +78,113 @@ class Command(BaseCommand):
             "--min-combinations",
             type=int,
             default=50,
-            help="Minimum number of combinations required to include a product.",
+            help="Minimum number of combinations required to include a product (default: 50).",
         )
         parser.add_argument(
             "--min-color-groups",
             type=int,
             default=2,
-            help="Minimum number of distinct color groups required to include a product.",
+            help=(
+                "Minimum number of distinct color groups required "
+                "to include a product (default: 2)."
+            ),
         )
         parser.add_argument(
-            "--limit-products",
+            "--limit",
             type=int,
-            default=0,
-            help="Optional maximum number of PrestaShop products to inspect (0 = all).",
+            default=100,
+            help="Maximum number of rows to return (default: 100).",
         )
         parser.add_argument(
             "--output",
-            help="Optional path to write the full JSON report.",
+            type=Path,
+            help="Path to write CSV output. If not provided, prints to stdout.",
+        )
+        parser.add_argument(
+            "--container",
+            default=None,
+            help="MariaDB container name (default: MARIADB_CONTAINER or prod-mariadb).",
         )
 
     def handle(self, *args, **options):
         min_combinations = options["min_combinations"]
         min_color_groups = options["min_color_groups"]
-        limit_products = options["limit_products"]
-        output = options.get("output")
+        limit = options["limit"]
+        output_path = options["output"]
+        container = options["container"]
 
-        client = PrestashopClient()
+        mariadb_cfg = getattr(settings, "MARIADB", None)
+        if not mariadb_cfg:
+            self.stderr.write(
+                self.style.ERROR(
+                    "MARIADB configuration not found in Django settings. "
+                    "This command requires MariaDB credentials."
+                )
+            )
+            return
 
-        self.stdout.write("Collecting PrestaShop products with multiple color groups...")
+        container_name = container or mariadb_cfg.get("CONTAINER", "prod-mariadb")
+        lang_id = getattr(settings, "PRESTASHOP_DEFAULT_LANGUAGE_ID", 1)
+        db_host = mariadb_cfg.get("HOST")
+        db_port = mariadb_cfg.get("PORT")
 
-        groups = client.list_attribute_groups()
-        group_index = {
-            int(group["ps_id"]): str(group["name"])
-            for group in groups
-            if isinstance(group.get("ps_id"), int)
+        query = MARIADB_QUERY % {
+            "min_combinations": min_combinations,
+            "min_color_groups": min_color_groups,
+            "limit": limit,
+            "lang_id": lang_id,
         }
 
-        value_index: dict[int, dict[str, str | int]] = {}
-        for group_id, group_name in group_index.items():
-            values = client.list_attribute_values(group_id)
-            for value in values:
-                value_id = value.get("ps_id")
-                if not isinstance(value_id, int):
-                    continue
-                value_index[value_id] = {
-                    "name": str(value.get("name") or ""),
-                    "group_name": group_name,
-                    "group_prestashop_id": group_id,
-                }
-
-        products = client.list_products(limit=limit_products)
-        matches: list[dict[str, object]] = []
-
-        for product in products:
-            combinations = client.list_combinations_for_product(product.product_id)
-            combination_count = len(combinations)
-            if combination_count <= min_combinations:
-                continue
-
-            color_groups: set[str] = set()
-            all_groups: set[str] = set()
-            unresolved_value_ids: set[int] = set()
-
-            for combination in combinations:
-                for value_id in combination.attribute_value_ids:
-                    value_data = value_index.get(value_id)
-                    if value_data is None:
-                        unresolved_value_ids.add(value_id)
-                        continue
-
-                    group_name = str(value_data["group_name"])
-                    all_groups.add(group_name)
-                    if group_role(group_name) == "color":
-                        color_groups.add(group_name)
-
-            if len(color_groups) < min_color_groups:
-                continue
-
-            matches.append(
-                {
-                    "prestashop_product_id": product.product_id,
-                    "reference": product.reference,
-                    "name": product.name,
-                    "combination_count": combination_count,
-                    "color_group_count": len(color_groups),
-                    "color_groups": sorted(color_groups),
-                    "attribute_groups": sorted(all_groups),
-                    "unresolved_value_ids": sorted(unresolved_value_ids),
-                }
-            )
-
-        matches.sort(
-            key=lambda item: (
-                -int(item["combination_count"]),
-                -int(item["color_group_count"]),
-                int(item["prestashop_product_id"]),
-            )
+        result = _run_mariadb_in_container(
+            container=container_name,
+            user=mariadb_cfg["USER"],
+            password=mariadb_cfg["PASSWORD"],
+            database=mariadb_cfg["DATABASE"],
+            query=query,
+            lang_id=lang_id,
+            db_host=db_host,
+            db_port=db_port,
         )
 
-        report = {
-            "summary": {
-                "product_count": len(matches),
-                "min_combinations": min_combinations,
-                "min_color_groups": min_color_groups,
-            },
-            "products": matches,
-        }
+        if result.returncode != 0:
+            self.stderr.write(self.style.ERROR(f"MariaDB query failed: {result.stderr}"))
+            return
 
-        if output:
-            output_path = Path(output)
-            output_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-            self.stdout.write(self.style.SUCCESS(f"Wrote JSON report to {output_path}"))
+        output = result.stdout
+        reader = csv.DictReader(io.StringIO(output), delimiter="\t")
+        rows = list(reader)
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                "Matching products: "
-                f"{report['summary']['product_count']} "
-                f"(min_combinations>{min_combinations}, min_color_groups>={min_color_groups})"
-            )
-        )
+        if not rows:
+            self.stdout.write(self.style.WARNING("No matching products found."))
+            return
 
-        for item in matches:
+        fieldnames = [
+            "prestashop_product_id",
+            "reference",
+            "product_name",
+            "combination_count",
+            "color_group_count",
+            "color_groups",
+        ]
+
+        if output_path:
+            with open(output_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({k: row.get(k, "") for k in fieldnames})
+            self.stdout.write(self.style.SUCCESS(f"Wrote {len(rows)} rows to {output_path}"))
+        else:
             self.stdout.write(
-                f"#{item['prestashop_product_id']} {item['reference']} | "
-                f"combinations={item['combination_count']} | "
-                f"color_groups={item['color_group_count']} | "
-                f"{', '.join(item['color_groups'])}"
+                self.style.SUCCESS(
+                    f"Found {len(rows)} products "
+                    f"(min_combinations>={min_combinations}, min_color_groups>={min_color_groups})"
+                )
             )
+            for row in rows:
+                self.stdout.write(
+                    f"#{row['prestashop_product_id']} {row['reference']} | "
+                    f"combinations={row['combination_count']} | "
+                    f"color_groups={row['color_group_count']} | "
+                    f"{row['color_groups']}"
+                )

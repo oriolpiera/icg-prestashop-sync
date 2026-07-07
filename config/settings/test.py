@@ -7,6 +7,15 @@ DATABASES = {
     }
 }
 
+MARIADB = {
+    "CONTAINER": "test-mariadb",
+    "HOST": "localhost",
+    "PORT": 3306,
+    "USER": "test_user",
+    "PASSWORD": "test_password",
+    "DATABASE": "test_prestashop",
+}
+
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
