@@ -1,6 +1,6 @@
 import logging
 import time
-from contextlib import closing
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -155,14 +155,20 @@ class ICGCatalogReader:
             )
             raise
 
+    @contextmanager
     def _connection(self):
         """Context manager that guarantees explicit close after use.
 
         pyodbc's ``Connection.__exit__`` commits but does **not** close the
-        connection.  Wrapping with ``contextlib.closing`` ensures the TCP
-        session is released immediately after each operation.
+        connection.  This wrapper ensures ``close()`` is called on every exit
+        path so the TCP session is released immediately.
         """
-        return closing(self._connect())
+        conn = self._connect()
+        try:
+            yield conn
+        finally:
+            logger.info("Closing ICG MSSQL connection")
+            conn.close()
 
     def _set_query_timeout(self, db_cursor) -> None:
         try:
