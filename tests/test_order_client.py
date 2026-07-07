@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 from django.utils import timezone
 
+from apps.catalog.models import TaxRuleMapping
 from apps.prestashop.client import PrestashopClient, PrestashopError
 
 
@@ -46,7 +47,12 @@ class TestPrestashopOrderClient:
             "filter[id]": "[11,]",
         }
 
+    @pytest.mark.django_db
     def test_get_order_snapshot_reads_lines_and_discounts(self, settings):
+        TaxRuleMapping.objects.update_or_create(
+            vat_rate=Decimal("21.00"),
+            defaults={"prestashop_tax_rules_group_id": 1},
+        )
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
         settings.PRESTASHOP_API_KEY = "secret"
         settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
@@ -68,7 +74,7 @@ class TestPrestashopOrderClient:
             ),
             _response(
                 "<prestashop><order_details>"
-                "<order_detail><id>901</id><id_order>42</id_order>"
+                "<order_detail><id>901</id><id_order>42</id_order><id_tax_rules_group>1</id_tax_rules_group>"
                 "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
                 "<total_price_tax_incl>48.40</total_price_tax_incl>"
                 "<total_price_tax_excl>40.00</total_price_tax_excl>"
@@ -106,6 +112,49 @@ class TestPrestashopOrderClient:
             "display": "full",
             "filter[id_order]": "42",
         }
+
+    @pytest.mark.django_db
+    def test_get_order_snapshot_uses_tax_rule_mapping_from_order_detail(self, settings):
+        TaxRuleMapping.objects.update_or_create(
+            vat_rate=Decimal("4.00"),
+            defaults={"prestashop_tax_rules_group_id": 3},
+        )
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<tax_rate>3.97</tax_rate>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_details>"
+                "<order_detail><id>901</id><id_order>42</id_order><id_tax_rules_group>3</id_tax_rules_group>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
+                "<total_price_tax_excl>46.54</total_price_tax_excl>"
+                "</order_detail>"
+                "</order_details></prestashop>"
+            ),
+            _response("<prestashop><order_cart_rules></order_cart_rules></prestashop>"),
+        ]
+        client = PrestashopClient(session=session)
+
+        snapshot = client.get_order_snapshot(42)
+
+        assert snapshot.lines[0].vat_rate == Decimal("4.00")
 
     def test_get_order_snapshot_retries_empty_order_response(self, settings):
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
@@ -488,6 +537,69 @@ class TestPrestashopOrderClient:
 
         assert snapshot.lines[0].total_price_tax_incl == Decimal("48.41")
         assert snapshot.lines[0].vat_rate == Decimal("21.00")
+
+    def test_get_order_snapshot_normalizes_raw_order_row_tax_rate_to_supported_bucket(
+        self, settings
+    ):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
+                "<tax_rate>20.29</tax_rate>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response("<prestashop><order_details></order_details></prestashop>"),
+            _response("<prestashop><order_cart_rules></order_cart_rules></prestashop>"),
+        ]
+        client = PrestashopClient(session=session)
+
+        snapshot = client.get_order_snapshot(42)
+
+        assert snapshot.lines[0].vat_rate == Decimal("21.00")
+
+    def test_get_order_snapshot_normalizes_discount_vat_rate_to_supported_bucket(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
+                "<associations><order_rows></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_cart_rules>"
+                "<order_cart_rule><name>Odd tax discount</name>"
+                "<value_tax_incl>119.94</value_tax_incl>"
+                "<value_tax_excl>100.00</value_tax_excl></order_cart_rule>"
+                "</order_cart_rules></prestashop>"
+            ),
+        ]
+        client = PrestashopClient(session=session)
+
+        snapshot = client.get_order_snapshot(42)
+
+        assert snapshot.discounts[0].vat_rate == Decimal("21.00")
 
     def test_get_latest_order_summary_uses_desc_sort(self, settings):
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
