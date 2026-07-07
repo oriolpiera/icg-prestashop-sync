@@ -100,6 +100,22 @@ class TestClassifyError:
         )
         assert classify_error(exc) == SyncErrorType.TRANSIENT
 
+    def test_transient_on_pyodbc_interface_error(self):
+        exc = pyodbc.InterfaceError("driver connection failed")
+        assert classify_error(exc) == SyncErrorType.TRANSIENT
+
+    def test_permanent_on_pyodbc_programming_error(self):
+        exc = pyodbc.ProgrammingError("invalid column name")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
+    def test_permanent_on_pyodbc_integrity_error(self):
+        exc = pyodbc.IntegrityError("duplicate key value")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
+    def test_permanent_on_pyodbc_data_error(self):
+        exc = pyodbc.DataError("numeric value out of range")
+        assert classify_error(exc) == SyncErrorType.PERMANENT
+
 
 # --- SyncError recording ---
 

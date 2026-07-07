@@ -12,6 +12,17 @@ from apps.sync.models import SyncErrorType
 
 logger = logging.getLogger(__name__)
 
+_TRANSIENT_PYODBC_SQLSTATE_PREFIXES = ("08", "HYT")
+_TRANSIENT_PYODBC_MESSAGE_SNIPPETS = (
+    "unable to connect",
+    "adaptive server is unavailable",
+    "login timeout expired",
+    "communication link failure",
+    "connection failed",
+    "timeout expired",
+    "exception set",
+)
+
 
 def classify_error(exc: Exception) -> str:
     if isinstance(exc, PrestashopError):
@@ -29,6 +40,24 @@ def classify_error(exc: Exception) -> str:
         return SyncErrorType.TRANSIENT
 
     if pyodbc is not None and isinstance(exc, pyodbc.Error):
-        return SyncErrorType.TRANSIENT
+        if _is_transient_pyodbc_error(exc):
+            return SyncErrorType.TRANSIENT
+        return SyncErrorType.PERMANENT
 
     return SyncErrorType.PERMANENT
+
+
+def _is_transient_pyodbc_error(exc: Exception) -> bool:
+    assert pyodbc is not None
+
+    if isinstance(exc, pyodbc.OperationalError | pyodbc.InterfaceError):
+        return True
+
+    args = getattr(exc, "args", ())
+    if args:
+        first = args[0]
+        if isinstance(first, str) and first.startswith(_TRANSIENT_PYODBC_SQLSTATE_PREFIXES):
+            return True
+
+    message = str(exc).lower()
+    return any(snippet in message for snippet in _TRANSIENT_PYODBC_MESSAGE_SNIPPETS)
