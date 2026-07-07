@@ -150,6 +150,7 @@ class PrestashopError(Exception):
 
 class PrestashopClient:
     _FILTER_RESERVED_CHARS = frozenset("[]|,")
+    _EMPTY_GET_RESPONSE_RETRIES = 2
 
     def __init__(self, session: Session | None = None) -> None:
         self.session = session or requests.Session()
@@ -196,30 +197,55 @@ class PrestashopClient:
         params: dict[str, str] | None = None,
         data: str | None = None,
     ) -> Response:
-        try:
-            response = self.session.request(
-                method,
-                self._api_url(resource, resource_id),
-                params=params,
-                data=data,
-                auth=self._auth(),
-                headers={
-                    "Content-Type": "application/xml",
-                    "Host": self.credentials().host,
-                },
-                timeout=30,
-                allow_redirects=False,
-            )
-        except requests.RequestException as exc:
-            raise PrestashopError(f"Prestashop request failed: {exc}") from exc
+        max_attempts = self._EMPTY_GET_RESPONSE_RETRIES + 1 if method.upper() == "GET" else 1
 
-        if response.status_code >= 400:
-            raise PrestashopError(
-                f"Prestashop returned HTTP {response.status_code} for {resource}.",
-                status_code=response.status_code,
-                body=response.text,
-            )
-        return response
+        for attempt in range(max_attempts):
+            try:
+                response = self.session.request(
+                    method,
+                    self._api_url(resource, resource_id),
+                    params=params,
+                    data=data,
+                    auth=self._auth(),
+                    headers={
+                        "Content-Type": "application/xml",
+                        "Host": self.credentials().host,
+                    },
+                    timeout=30,
+                    allow_redirects=False,
+                )
+            except requests.RequestException as exc:
+                raise PrestashopError(f"Prestashop request failed: {exc}") from exc
+
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("Location")
+                location_suffix = f" Redirected to {location}." if location else ""
+                raise PrestashopError(
+                    (
+                        f"Prestashop returned unexpected redirect HTTP {response.status_code} "
+                        f"for {resource}.{location_suffix}"
+                    ),
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+
+            if response.status_code >= 400:
+                raise PrestashopError(
+                    f"Prestashop returned HTTP {response.status_code} for {resource}.",
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+
+            if method.upper() != "GET" or response.text.strip() or attempt == max_attempts - 1:
+                if method.upper() == "GET" and not response.text.strip():
+                    raise PrestashopError(
+                        f"Prestashop returned an empty response for {resource}.",
+                        status_code=response.status_code,
+                        body=response.text,
+                    )
+                return response
+
+        raise PrestashopError(f"Prestashop returned an empty response for {resource}.")
 
     def find_manufacturer_id_by_name(self, name: str) -> int | None:
         self._validate_exact_filter_value(name, field_name="manufacturer name")
@@ -854,6 +880,7 @@ class PrestashopClient:
             if detail_id is None:
                 continue
             details[detail_id] = {
+                "id_tax_rules_group": self._parse_int(node, "id_tax_rules_group"),
                 "unit_price_tax_incl": self._parse_decimal_or_none(
                     node.findtext("unit_price_tax_incl")
                 ),
@@ -888,9 +915,11 @@ class PrestashopClient:
                     description=(node.findtext("name") or "Discount").strip() or "Discount",
                     amount_tax_incl=amount_tax_incl,
                     amount_tax_excl=amount_tax_excl,
-                    vat_rate=self._derive_vat_rate(
-                        amount_tax_incl,
-                        amount_tax_excl,
+                    vat_rate=self._normalize_supported_vat_rate(
+                        self._derive_vat_rate(
+                            amount_tax_incl,
+                            amount_tax_excl,
+                        )
                     ),
                 )
             )
@@ -923,7 +952,9 @@ class PrestashopClient:
                     if total_price_tax_incl is not None
                     else (unit_price_tax_incl * quantity).quantize(Decimal("0.01")),
                     total_price_tax_incl_present=total_price_tax_incl is not None,
-                    vat_rate=raw_vat_rate if raw_vat_rate is not None else Decimal("0"),
+                    vat_rate=self._normalize_supported_vat_rate(raw_vat_rate)
+                    if raw_vat_rate is not None
+                    else Decimal("0"),
                     vat_rate_present=raw_vat_rate is not None,
                 )
             )
@@ -941,6 +972,7 @@ class PrestashopClient:
         if detail is None:
             return line
 
+        tax_rules_group_id = detail["id_tax_rules_group"]
         unit_price_tax_incl = detail["unit_price_tax_incl"]
         total_price_tax_incl = detail["total_price_tax_incl"]
         total_price_tax_excl = detail["total_price_tax_excl"]
@@ -952,7 +984,9 @@ class PrestashopClient:
             )
 
         vat_rate = line.vat_rate
-        if (
+        if tax_rules_group_id is not None:
+            vat_rate = self._resolve_vat_rate_from_tax_rules_group(tax_rules_group_id)
+        elif (
             not line.vat_rate_present
             and total_price_tax_incl is not None
             and total_price_tax_excl is not None
@@ -984,7 +1018,9 @@ class PrestashopClient:
             total_price_tax_incl_present=line.total_price_tax_incl_present
             or total_price_tax_incl is not None,
             vat_rate=vat_rate,
-            vat_rate_present=line.vat_rate_present or vat_rate > 0,
+            vat_rate_present=(
+                line.vat_rate_present or tax_rules_group_id is not None or vat_rate > 0
+            ),
             override_combination_id=line.override_combination_id,
         )
 
@@ -1094,12 +1130,28 @@ class PrestashopClient:
         )
 
     def _normalize_supported_vat_rate(self, vat_rate: Decimal) -> Decimal:
-        supported_rates = (Decimal("0.00"), Decimal("10.00"), Decimal("21.00"))
+        supported_rates = (Decimal("0.00"), Decimal("4.00"), Decimal("10.00"), Decimal("21.00"))
         normalized = vat_rate.quantize(Decimal("0.01"))
         closest = min(supported_rates, key=lambda candidate: abs(candidate - normalized))
-        if abs(closest - normalized) <= Decimal("0.20"):
+        if abs(closest - normalized) <= Decimal("2.00"):
             return closest
         return normalized
+
+    def _resolve_vat_rate_from_tax_rules_group(self, tax_rules_group_id: int) -> Decimal:
+        from apps.catalog.models import TaxRuleMapping
+
+        mapping = TaxRuleMapping.objects.filter(
+            prestashop_tax_rules_group_id=tax_rules_group_id
+        ).first()
+        if mapping is None:
+            raise PrestashopError(
+                (
+                    "Prestashop order detail payload referenced unknown tax rules group "
+                    f"{tax_rules_group_id}."
+                ),
+                status_code=400,
+            )
+        return mapping.vat_rate.quantize(Decimal("0.01"))
 
     def _parse_int(self, node: ElementTree.Element, tag: str) -> int | None:
         value = node.attrib.get(tag) or node.findtext(tag)

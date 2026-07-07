@@ -238,6 +238,8 @@ def _map_tipo_iva(vat_rate: Decimal) -> int:
         return 1
     if normalized == Decimal("10.00"):
         return 2
+    if normalized == Decimal("4.00"):
+        return 3
     if normalized == Decimal("0.00"):
         return 0
     raise PrestashopError(f"Unsupported VAT rate for FacturasWeb: {normalized}", status_code=400)
