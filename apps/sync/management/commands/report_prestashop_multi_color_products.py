@@ -70,7 +70,8 @@ class Command(BaseCommand):
     help = (
         "Query Prestashop MariaDB directly for products with many combinations "
         "and multiple color attribute groups. Exports CSV or prints tabular output. "
-        "Run from the VPS host where Docker is available."
+        "IMPORTANT: Run this command on the VPS HOST (not inside a container). "
+        "The Docker CLI is required but not available inside the Django container."
     )
 
     def add_arguments(self, parser):
