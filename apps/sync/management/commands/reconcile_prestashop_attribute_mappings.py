@@ -4,15 +4,17 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.catalog.models import AttributeGroup, AttributeValue
+from apps.prestashop.attribute_groups import (
+    expected_local_attribute_group_name,
+    resolve_remote_attribute_group_match,
+)
 from apps.prestashop.client import PrestashopClient
 
 
 def _expected_group_name(group: AttributeGroup) -> str | None:
-    if group.icg_type == "color":
-        if group.product is None:
-            return None
-        return f"{group.product.reference}_color"
-    return "Size"
+    if group.icg_type == "color" and group.product is None:
+        return None
+    return expected_local_attribute_group_name(group.icg_type, group.product)
 
 
 def _reserve_temporary_ids(model, desired_ids: dict[int, int]) -> None:
@@ -73,31 +75,10 @@ class Command(BaseCommand):
         prune_missing_local = options["prune_missing_local"]
 
         remote_groups = client.list_attribute_groups()
-        remote_group_ids_by_name = {
-            str(group["name"]): int(group["ps_id"])
-            for group in remote_groups
-            if isinstance(group.get("ps_id"), int)
-        }
         groups = list(AttributeGroup.objects.select_related("product").all())
-        needed_group_names = {
-            group_name
-            for group in groups
-            if (group_name := _expected_group_name(group)) is not None
-        }
-        remote_values_by_group_and_name: dict[tuple[int, str], int] = {}
-        for group_name in needed_group_names:
-            group_ps_id = remote_group_ids_by_name.get(group_name)
-            if group_ps_id is None:
-                continue
-            for value in client.list_attribute_values(group_ps_id):
-                value_ps_id = value.get("ps_id")
-                if not isinstance(value_ps_id, int):
-                    continue
-                remote_values_by_group_and_name[(group_ps_id, str(value.get("name") or ""))] = (
-                    value_ps_id
-                )
 
         group_updates: dict[int, int] = {}
+        resolved_group_targets: dict[int, int] = {}
         missing_group_pks: list[int] = []
         missing_groups: list[str] = []
         group_conflicts: list[str] = []
@@ -108,13 +89,29 @@ class Command(BaseCommand):
                 missing_group_pks.append(group.pk)
                 missing_groups.append(f"invalid_color_group:pk={group.pk}")
                 continue
-            target_id = remote_group_ids_by_name.get(expected_name)
-            if target_id is None:
+            remote_match = resolve_remote_attribute_group_match(
+                remote_groups,
+                icg_type=group.icg_type,
+                product=group.product,
+            )
+            if remote_match is None:
                 missing_group_pks.append(group.pk)
                 missing_groups.append(expected_name)
                 continue
+            target_id = remote_match.prestashop_id
+            resolved_group_targets[group.pk] = target_id
             if target_id != group.prestashop_id:
                 group_updates[group.pk] = target_id
+
+        remote_values_by_group_and_name: dict[tuple[int, str], int] = {}
+        for group_ps_id in set(resolved_group_targets.values()):
+            for value in client.list_attribute_values(group_ps_id):
+                value_ps_id = value.get("ps_id")
+                if not isinstance(value_ps_id, int):
+                    continue
+                remote_values_by_group_and_name[(group_ps_id, str(value.get("name") or ""))] = (
+                    value_ps_id
+                )
 
         target_to_group_pk = {target_id: pk for pk, target_id in group_updates.items()}
         for group in groups:
@@ -151,9 +148,11 @@ class Command(BaseCommand):
                     f"invalid_color_group:pk={value.attribute_group.pk}::{value.icg_value}"
                 )
                 continue
-            target_group_id = group_updates.get(
-                value.attribute_group_id, value.attribute_group.prestashop_id
-            )
+            target_group_id = resolved_group_targets.get(value.attribute_group_id)
+            if target_group_id is None:
+                missing_value_pks.append(value.pk)
+                missing_values.append(f"{expected_group_name}::{value.icg_value}")
+                continue
             target_id = remote_values_by_group_and_name.get((target_group_id, value.icg_value))
             if target_id is None:
                 missing_value_pks.append(value.pk)

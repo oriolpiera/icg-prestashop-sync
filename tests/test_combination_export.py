@@ -154,7 +154,9 @@ class TestEnsureAttributeGroup:
 
     def test_color_group_creates_per_product(self):
         product = _make_product()
+        _make_product_prestashop_id(product, 2945)
         client = Mock()
+        client.list_attribute_groups.return_value = []
         client.find_attribute_group_id_by_name.return_value = None
         client.create_attribute_group.return_value = 20
 
@@ -178,6 +180,53 @@ class TestEnsureAttributeGroup:
 
         assert ps_id == 30
         client.find_attribute_group_id_by_name.assert_not_called()
+
+    def test_color_group_prefers_existing_prestashop_product_id_group(self):
+        product = _make_product(reference="2830001")
+        _make_product_prestashop_id(product, 2945)
+        client = Mock()
+        client.list_attribute_groups.return_value = [
+            {"ps_id": 77, "name": "2945_color"},
+            {"ps_id": 78, "name": "2830001_color"},
+        ]
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 77
+        ag = AttributeGroup.objects.get(icg_type="color", product=product)
+        assert ag.prestashop_id == 77
+        assert ag.name == f"{product.reference}_color"
+        client.create_attribute_group.assert_not_called()
+
+    def test_size_group_prefers_existing_product_specific_remote_group(self):
+        product = _make_product(reference="2830001")
+        _make_product_prestashop_id(product, 2945)
+        client = Mock()
+        client.list_attribute_groups.return_value = [
+            {"ps_id": 10, "name": "Size"},
+            {"ps_id": 11, "name": "2945_talla"},
+        ]
+
+        ps_id = ensure_attribute_group("size", client=client, product=product)
+
+        assert ps_id == 11
+        ag = AttributeGroup.objects.get(icg_type="size", product=product)
+        assert ag.prestashop_id == 11
+        assert ag.name == "2945_talla"
+        client.create_attribute_group.assert_not_called()
+
+    def test_size_group_falls_back_to_global_size_group_when_no_specific_remote_exists(self):
+        product = _make_product(reference="2830001")
+        _make_product_prestashop_id(product, 2945)
+        AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=42)
+        client = Mock()
+        client.list_attribute_groups.return_value = [{"ps_id": 42, "name": "Size"}]
+
+        ps_id = ensure_attribute_group("size", client=client, product=product)
+
+        assert ps_id == 42
+        assert AttributeGroup.objects.filter(icg_type="size", product=product).exists() is False
+        client.create_attribute_group.assert_not_called()
 
 
 @pytest.mark.django_db
