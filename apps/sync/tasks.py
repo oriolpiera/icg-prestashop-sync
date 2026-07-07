@@ -50,6 +50,7 @@ STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
 ICG_SALES_EXPORT_LOCK_KEY = "icg_sales_export"
 ICG_SALES_EXPORT_ENTITY_TYPES = {"prestashop_customer", "prestashop_order"}
 ICG_SALES_EXPORT_JOB_TYPES = {SyncJobType.EXPORT_CUSTOMER, SyncJobType.EXPORT_ORDER}
+ICG_SALES_EXPORT_LOCK_CONTENTION_KEY = "icg_sales_export_lock_contention_count"
 
 
 def _stale_running_threshold():
@@ -78,29 +79,23 @@ def _maybe_icg_sales_export_lock(
 
 
 def _release_running_job_for_lock_contention(job: SyncJob) -> None:
-    if job.attempts >= MAX_SYNC_RETRIES:
-        job.status = SyncJobStatus.FAILED
-        job.finished_at = timezone.now().astimezone(UTC)
-        job.started_at = None
-        job.save(update_fields=["status", "started_at", "finished_at", "updated_at"])
-        return
-
-    job.attempts += 1
-    delay_index = min(job.attempts - 2, len(BACKOFF_SCHEDULE_SECONDS) - 1)
+    contention_count = int(job.payload.get(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, 0)) + 1
+    delay_index = min(contention_count - 1, len(BACKOFF_SCHEDULE_SECONDS) - 1)
     delay = BACKOFF_SCHEDULE_SECONDS[delay_index]
     job.available_at = timezone.now() + timedelta(seconds=delay)
     job.status = SyncJobStatus.PENDING
     job.last_error = ""
     job.started_at = None
     job.finished_at = None
+    job.payload = {**job.payload, ICG_SALES_EXPORT_LOCK_CONTENTION_KEY: contention_count}
     job.save(
         update_fields=[
-            "attempts",
             "available_at",
             "status",
             "last_error",
             "started_at",
             "finished_at",
+            "payload",
             "updated_at",
         ]
     )
@@ -849,7 +844,13 @@ def retry_failed_jobs() -> dict:
 
                 job.status = SyncJobStatus.RUNNING
                 job.started_at = timezone.now()
-                job.save(update_fields=["status", "started_at", "updated_at"])
+                if ICG_SALES_EXPORT_LOCK_CONTENTION_KEY in job.payload:
+                    payload = dict(job.payload)
+                    payload.pop(ICG_SALES_EXPORT_LOCK_CONTENTION_KEY, None)
+                    job.payload = payload
+                    job.save(update_fields=["status", "started_at", "payload", "updated_at"])
+                else:
+                    job.save(update_fields=["status", "started_at", "updated_at"])
 
                 try:
                     with _maybe_icg_sales_export_lock(

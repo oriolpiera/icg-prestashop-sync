@@ -803,19 +803,24 @@ class TestRetryFailedJobs:
         assert result["skipped"] == 1
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
-        assert job.attempts == 2
+        assert job.attempts == 1
         assert job.started_at is None
         assert job.available_at > timezone.now()
+        assert job.payload["icg_sales_export_lock_contention_count"] == 1
 
-    def test_marks_sales_job_failed_when_lock_contention_exhausts_retries(self):
+    def test_clears_lock_contention_counter_when_retry_runs_export(self):
         job = SyncJob.objects.create(
             job_type=SyncJobType.EXPORT_CUSTOMER,
             entity_type="prestashop_customer",
             entity_key="42",
             status=SyncJobStatus.PENDING,
-            attempts=MAX_SYNC_RETRIES,
+            attempts=1,
             available_at=timezone.now() - timedelta(minutes=1),
-            payload={"entity_id": 42, "customer_id": 42},
+            payload={
+                "entity_id": 42,
+                "customer_id": 42,
+                "icg_sales_export_lock_contention_count": 2,
+            },
         )
         SyncError.objects.create(
             job=job,
@@ -825,16 +830,15 @@ class TestRetryFailedJobs:
             message="sql timeout",
         )
 
-        with patch(
-            "apps.sync.tasks._maybe_icg_sales_export_lock",
-            side_effect=LockAcquisitionError("lock held"),
+        with patch.dict(
+            "apps.sync.tasks._RETRYABLE_EXPORT_MAP",
+            {SyncJobType.EXPORT_CUSTOMER: Mock(return_value={"customer_id": 42, "inserted": True})},
         ):
             result = retry_failed_jobs()
 
         assert result["status"] == "success"
-        assert result["retried"] == 0
-        assert result["skipped"] == 1
+        assert result["retried"] == 1
+        assert result["skipped"] == 0
         job.refresh_from_db()
-        assert job.status == SyncJobStatus.FAILED
-        assert job.started_at is None
-        assert job.finished_at is not None
+        assert job.status == SyncJobStatus.SUCCEEDED
+        assert "icg_sales_export_lock_contention_count" not in job.payload
