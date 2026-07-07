@@ -2,7 +2,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import cast
 
@@ -176,6 +176,13 @@ class ICGCatalogReader:
         except AttributeError:
             logger.debug("ODBC cursor does not support timeout attribute; continuing without it")
 
+    def _normalize_cursor_for_mssql(self, cursor_at: datetime | None) -> datetime | None:
+        if cursor_at is None:
+            return None
+        if timezone.is_aware(cursor_at):
+            return cursor_at.astimezone(UTC).replace(tzinfo=None)
+        return cursor_at
+
     def _fetch_rows(self, query: str, params: tuple = ()) -> list:
         with self._connection() as conn:
             db_cursor = conn.cursor()
@@ -197,6 +204,7 @@ class ICGCatalogReader:
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
@@ -274,6 +282,7 @@ class ICGCatalogReader:
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
@@ -344,6 +353,7 @@ class ICGCatalogReader:
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
