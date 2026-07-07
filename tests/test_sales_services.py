@@ -580,3 +580,87 @@ def test_refresh_order_from_prestashop_preserves_override_combination_for_matchi
 
     line = refreshed.lines.get(position=1)
     assert line.override_combination_id == override_combination.pk
+
+
+@pytest.mark.django_db
+def test_refresh_order_from_prestashop_preserves_override_when_mutable_line_fields_change():
+    override_product = Product.objects.create(
+        icg_id=5002,
+        prestashop_id=102,
+        reference="MUG-002",
+        name="Green mug",
+    )
+    override_combination = Combination.objects.create(
+        product=override_product,
+        prestashop_id=303,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        last_snapshot_at=_aware(2026, 7, 1, 10),
+    )
+    order = PrestashopOrder.objects.create(
+        prestashop_id=77,
+        customer=customer,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("12.10"),
+        total_shipping_tax_excl=Decimal("10.00"),
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+    )
+    order.lines.create(
+        position=1,
+        prestashop_product_id=101,
+        prestashop_combination_id=202,
+        description="Blue mug",
+        quantity=2,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("48.40"),
+        vat_rate=Decimal("21.00"),
+        override_combination=override_combination,
+    )
+
+    client = Mock()
+    client.get_order_snapshot.return_value = PrestashopOrderSnapshot(
+        order_id=77,
+        customer_id=42,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("12.10"),
+        total_shipping_tax_excl=Decimal("10.00"),
+        lines=[
+            PrestashopOrderLine(
+                product_id=101,
+                combination_id=202,
+                description="Blue mug updated",
+                quantity=3,
+                unit_price_tax_incl=Decimal("25.00"),
+                total_price_tax_incl=Decimal("75.00"),
+                vat_rate=Decimal("21.00"),
+            )
+        ],
+        discounts=[],
+    )
+    client.get_customer_snapshot.return_value = PrestashopCustomerSnapshot(
+        customer_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        address=None,
+    )
+
+    refreshed = refresh_order_from_prestashop(77, client=client, captured_at=_aware(2026, 7, 1, 12))
+
+    line = refreshed.lines.get(position=1)
+    assert line.override_combination_id == override_combination.pk
+    assert line.description == "Blue mug updated"
+    assert line.quantity == 3

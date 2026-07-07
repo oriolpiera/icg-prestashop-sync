@@ -166,11 +166,6 @@ def upsert_order_snapshot(
             line.position,
             line.prestashop_product_id,
             line.prestashop_combination_id,
-            line.description,
-            line.quantity,
-            line.unit_price_tax_incl,
-            line.total_price_tax_incl,
-            line.vat_rate,
         ): line.override_combination_id
         for line in order.lines.all()
     }
@@ -194,11 +189,6 @@ def upsert_order_snapshot(
                         index,
                         line.product_id,
                         line.combination_id,
-                        line.description,
-                        line.quantity,
-                        line.unit_price_tax_incl,
-                        line.total_price_tax_incl,
-                        line.vat_rate,
                     )
                 ),
             )
