@@ -205,10 +205,11 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=(existing_line_overrides.get(line.order_detail_id))
-                if line.order_detail_id is not None
-                and existing_line_overrides.get(line.order_detail_id) is not None
-                else legacy_line_overrides.get((line.product_id, line.combination_id)),
+                override_combination_id=(
+                    existing_line_overrides.get(line.order_detail_id)
+                    if line.order_detail_id is not None
+                    else legacy_line_overrides.get((line.product_id, line.combination_id))
+                ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
         ]

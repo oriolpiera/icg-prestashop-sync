@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 from apps.catalog.models import Combination
 from apps.core.models import TimeStampedModel
@@ -129,6 +131,19 @@ class PrestashopOrderLine(models.Model):
 
     def __str__(self) -> str:
         return f"{self.order} line {self.position}"
+
+
+@receiver(pre_delete, sender=Combination)
+def invalidate_orders_when_override_combination_is_deleted(sender, instance, **kwargs):
+    affected_order_ids = PrestashopOrderLine.objects.filter(
+        override_combination=instance
+    ).values_list("order_id", flat=True)
+    PrestashopOrder.objects.filter(pk__in=affected_order_ids).update(
+        export_status=ExportStatus.NEVER,
+        exported_to_icg_at=None,
+        last_export_error="",
+        inserted_rows=0,
+    )
 
 
 class PrestashopOrderDiscountLine(models.Model):
