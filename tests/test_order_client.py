@@ -153,6 +153,21 @@ class TestPrestashopOrderClient:
         with pytest.raises(PrestashopError, match="empty response for orders"):
             client.get_order_snapshot(42)
 
+    def test_get_order_snapshot_raises_clear_error_on_redirect_response(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        redirect_response = _response("", status_code=302)
+        redirect_response.headers = {"Location": "https://shop.example.com/login"}
+
+        session = Mock()
+        session.request.return_value = redirect_response
+        client = PrestashopClient(session=session)
+
+        with pytest.raises(PrestashopError, match="unexpected redirect HTTP 302 for orders"):
+            client.get_order_snapshot(42)
+
     def test_get_order_snapshot_falls_back_to_order_rows_when_order_details_fail(self, settings):
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
         settings.PRESTASHOP_API_KEY = "secret"

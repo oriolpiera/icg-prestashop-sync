@@ -217,6 +217,18 @@ class PrestashopClient:
             except requests.RequestException as exc:
                 raise PrestashopError(f"Prestashop request failed: {exc}") from exc
 
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("Location")
+                location_suffix = f" Redirected to {location}." if location else ""
+                raise PrestashopError(
+                    (
+                        f"Prestashop returned unexpected redirect HTTP {response.status_code} "
+                        f"for {resource}.{location_suffix}"
+                    ),
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+
             if response.status_code >= 400:
                 raise PrestashopError(
                     f"Prestashop returned HTTP {response.status_code} for {resource}.",
