@@ -817,7 +817,12 @@ class PrestashopClient:
             raise PrestashopError(f"Prestashop order {order_id} payload did not include date_add.")
 
         lines = self._parse_order_lines(node, order_id)
-        detail_map = self.get_order_line_details(parsed_order_id) if lines else {}
+        detail_map: dict[int, dict[str, Decimal | None]] = {}
+        if lines:
+            try:
+                detail_map = self.get_order_line_details(parsed_order_id)
+            except PrestashopError:
+                detail_map = {}
         if detail_map:
             lines = [self._merge_order_line_with_detail(line, detail_map) for line in lines]
 
@@ -833,22 +838,28 @@ class PrestashopClient:
             discounts=self.get_order_discount_lines(parsed_order_id),
         )
 
-    def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal]]:
+    def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal | None]]:
         response = self._request(
             "GET",
             "order_details",
             params={"display": "full", "filter[id_order]": str(order_id)},
         )
         root = self._parse_xml(response.text)
-        details: dict[int, dict[str, Decimal]] = {}
+        details: dict[int, dict[str, Decimal | None]] = {}
         for node in root.findall("./order_details/order_detail"):
             detail_id = self._parse_int(node, "id")
             if detail_id is None:
                 continue
             details[detail_id] = {
-                "unit_price_tax_incl": self._parse_decimal(node.findtext("unit_price_tax_incl")),
-                "total_price_tax_incl": self._parse_decimal(node.findtext("total_price_tax_incl")),
-                "total_price_tax_excl": self._parse_decimal(node.findtext("total_price_tax_excl")),
+                "unit_price_tax_incl": self._parse_decimal_or_none(
+                    node.findtext("unit_price_tax_incl")
+                ),
+                "total_price_tax_incl": self._parse_decimal_or_none(
+                    node.findtext("total_price_tax_incl")
+                ),
+                "total_price_tax_excl": self._parse_decimal_or_none(
+                    node.findtext("total_price_tax_excl")
+                ),
             }
         return details
 
@@ -910,7 +921,7 @@ class PrestashopClient:
     def _merge_order_line_with_detail(
         self,
         line: PrestashopOrderLine,
-        detail_map: dict[int, dict[str, Decimal]],
+        detail_map: dict[int, dict[str, Decimal | None]],
     ) -> PrestashopOrderLine:
         if line.order_detail_id is None:
             return line
@@ -919,17 +930,26 @@ class PrestashopClient:
         if detail is None:
             return line
 
+        unit_price_tax_incl = detail["unit_price_tax_incl"]
         total_price_tax_incl = detail["total_price_tax_incl"]
         total_price_tax_excl = detail["total_price_tax_excl"]
+        vat_rate = line.vat_rate
+        if vat_rate <= 0 and total_price_tax_incl is not None and total_price_tax_excl is not None:
+            vat_rate = self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
+
         return PrestashopOrderLine(
             order_detail_id=line.order_detail_id,
             product_id=line.product_id,
             combination_id=line.combination_id,
             description=line.description,
             quantity=line.quantity,
-            unit_price_tax_incl=detail["unit_price_tax_incl"],
-            total_price_tax_incl=total_price_tax_incl,
-            vat_rate=self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl),
+            unit_price_tax_incl=unit_price_tax_incl
+            if unit_price_tax_incl is not None
+            else line.unit_price_tax_incl,
+            total_price_tax_incl=total_price_tax_incl
+            if total_price_tax_incl is not None
+            else line.total_price_tax_incl,
+            vat_rate=vat_rate,
             override_combination_id=line.override_combination_id,
         )
 
@@ -1018,6 +1038,14 @@ class PrestashopClient:
         cleaned = value.strip()
         if not cleaned:
             return Decimal("0")
+        return Decimal(cleaned)
+
+    def _parse_decimal_or_none(self, value: str | None) -> Decimal | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
         return Decimal(cleaned)
 
     def _derive_vat_rate(self, amount_tax_incl: Decimal, amount_tax_excl: Decimal) -> Decimal:
