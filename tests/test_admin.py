@@ -34,7 +34,7 @@ from apps.operations.admin import (
 from apps.operations.sites import admin_site
 from apps.sales.models import PrestashopCustomer, PrestashopOrder
 from apps.sync.models import SyncCursor, SyncCursorSource, SyncJob, SyncJobStatus, SyncJobType
-from apps.sync.tasks import retry_entity
+from apps.sync.tasks import STALE_RUNNING_JOB_TIMEOUT, retry_entity
 
 
 @pytest.fixture(autouse=True)
@@ -409,6 +409,32 @@ class TestAdminActions:
         expected = "Dispatched 0 customer(s) for export to ICG."
         expected += " Skipped 1 with an open export job."
         assert str(msgs[0]) == expected
+
+    def test_export_sales_to_icg_allows_customer_with_stale_running_job(self):
+        customer = _make_sales_customer(prestashop_id=25459)
+        SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key=str(customer.prestashop_id),
+            status=SyncJobStatus.RUNNING,
+            attempts=1,
+            started_at=timezone.now() - STALE_RUNNING_JOB_TIMEOUT - timedelta(seconds=1),
+            payload={"entity_id": customer.prestashop_id},
+        )
+        request = _request_with_messages()
+        model_admin = admin_site._registry[PrestashopCustomer]
+
+        with patch("apps.sync.tasks.retry_entity") as mock_retry:
+            mock_retry.delay.return_value = None
+            export_sales_to_icg(
+                model_admin,
+                request,
+                PrestashopCustomer.objects.filter(pk=customer.pk),
+            )
+
+        mock_retry.delay.assert_called_once_with(
+            "prestashop_customer", customer.prestashop_id, str(customer.prestashop_id)
+        )
 
     def test_set_sales_sync_cursor_for_customer_uses_selected_record(self):
         first = _make_sales_customer(

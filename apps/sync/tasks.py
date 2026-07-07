@@ -5,6 +5,7 @@ from datetime import UTC, timedelta
 from typing import Any
 
 from celery import shared_task
+from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -46,7 +47,9 @@ from apps.sync.models import (
 )
 
 logger = logging.getLogger(__name__)
-STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
+STALE_RUNNING_JOB_TIMEOUT = timedelta(
+    seconds=max(getattr(settings, "CELERY_TASK_TIME_LIMIT", 300), 0) + 60
+)
 ICG_SALES_EXPORT_LOCK_KEY = "icg_sales_export"
 ICG_SALES_EXPORT_ENTITY_TYPES = {"prestashop_customer", "prestashop_order"}
 ICG_SALES_EXPORT_JOB_TYPES = {SyncJobType.EXPORT_CUSTOMER, SyncJobType.EXPORT_ORDER}
@@ -822,13 +825,16 @@ def retry_failed_jobs() -> dict:
     logger.info("Celery task: retry_failed_jobs")
     retried = 0
     skipped = 0
+    non_retryable_pending = 0
 
     try:
         with sync_lock("retry_failed_jobs"):
+            due_pending_jobs = SyncJob.objects.filter(
+                status=SyncJobStatus.PENDING,
+                available_at__lte=timezone.now(),
+            )
             retryable_jobs = (
-                SyncJob.objects.filter(
-                    status=SyncJobStatus.PENDING,
-                    available_at__lte=timezone.now(),
+                due_pending_jobs.filter(
                     errors__resolved=False,
                     errors__error_type=SyncErrorType.TRANSIENT,
                 )
@@ -836,6 +842,10 @@ def retry_failed_jobs() -> dict:
                 .order_by("available_at")
                 .distinct()
             )
+            non_retryable_pending = due_pending_jobs.exclude(
+                errors__resolved=False,
+                errors__error_type=SyncErrorType.TRANSIENT,
+            ).count()
 
             for job in retryable_jobs:
                 latest_error_type = job.error_type
@@ -892,4 +902,5 @@ def retry_failed_jobs() -> dict:
         "status": "success",
         "retried": retried,
         "skipped": skipped,
+        "non_retryable_pending": non_retryable_pending,
     }

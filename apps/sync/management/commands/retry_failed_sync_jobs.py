@@ -21,6 +21,7 @@ class Command(BaseCommand):
         status = result.get("status", "unknown")
         retried = result.get("retried", 0)
         skipped = result.get("skipped", 0)
+        non_retryable_pending = result.get("non_retryable_pending", 0)
 
         if status == "skipped":
             self.stdout.write(
@@ -29,6 +30,11 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(self.style.SUCCESS(f"Done. retried={retried}, skipped={skipped}"))
+
+        if non_retryable_pending:
+            self.stdout.write(
+                self.style.WARNING(f"Pending non-retryable jobs still due: {non_retryable_pending}")
+            )
 
         if retried == 0 and skipped == 0:
             self.stdout.write("No pending retryable jobs found.")

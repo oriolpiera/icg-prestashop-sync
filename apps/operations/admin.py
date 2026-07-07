@@ -35,9 +35,9 @@ from apps.sync.models import (
     SyncJobStatus,
     SyncJobType,
 )
+from apps.sync.tasks import STALE_RUNNING_JOB_TIMEOUT
 
 logger = logging.getLogger(__name__)
-STALE_RUNNING_JOB_TIMEOUT = timedelta(minutes=30)
 
 
 def _has_open_export_job(job_type: str, entity_type: str, entity_key: str) -> bool:
