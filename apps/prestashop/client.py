@@ -484,16 +484,10 @@ class PrestashopClient:
         self._set_text(product_node, "available_for_order", "0" if product.discontinued else "1")
         self._set_text(product_node, "show_price", "1")
         self._set_text(product_node, "visibility", visibility)
+        self._remove_node(product_node, "position_in_category")
+        self._remove_node(product_node, "position")
         if is_create:
-            self._remove_node(product_node, "position_in_category")
-            self._remove_node(product_node, "position")
             self._set_text(product_node, "active", "0")
-        else:
-            self._set_text(
-                product_node,
-                "position_in_category",
-                product_node.findtext("position_in_category") or "1",
-            )
         self._set_text(
             product_node,
             "minimal_quantity",
