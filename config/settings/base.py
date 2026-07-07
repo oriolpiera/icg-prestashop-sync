@@ -172,3 +172,15 @@ ICG_MSSQL_DRIVER = os.getenv("ICG_MSSQL_DRIVER", "ODBC Driver 18 for SQL Server"
 ICG_MSSQL_LOGIN_TIMEOUT = int(os.getenv("ICG_MSSQL_LOGIN_TIMEOUT", "10"))
 ICG_MSSQL_QUERY_TIMEOUT = int(os.getenv("ICG_MSSQL_QUERY_TIMEOUT", "30"))
 ICG_MSSQL_TRUST_SERVER_CERTIFICATE = env_bool("ICG_MSSQL_TRUST_SERVER_CERTIFICATE", False)
+
+_infra_env = Path("/opt/icg-prestashop-sync-infra/compose/prod/.env")
+if _infra_env.exists():
+    load_dotenv(_infra_env)
+
+MARIADB = {
+    "HOST": os.getenv("MARIADB_HOST", "prod-mariadb"),
+    "PORT": int(os.getenv("MARIADB_PORT", "3306")),
+    "USER": os.getenv("MARIADB_USER", "prestashop"),
+    "PASSWORD": os.getenv("MARIADB_PASSWORD", ""),
+    "DATABASE": os.getenv("MARIADB_DATABASE", "prestashop"),
+}
