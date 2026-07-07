@@ -822,7 +822,8 @@ class PrestashopClient:
             try:
                 detail_map = self.get_order_line_details(parsed_order_id)
             except PrestashopError:
-                detail_map = {}
+                if any(self._line_requires_detail_enrichment(line) for line in lines):
+                    raise
         if detail_map:
             lines = [self._merge_order_line_with_detail(line, detail_map) for line in lines]
 
@@ -903,6 +904,9 @@ class PrestashopClient:
                 raise PrestashopError(
                     f"Prestashop order {order_id} line payload did not include product_id."
                 )
+            quantity = self._parse_int(row, "product_quantity") or 0
+            unit_price_tax_incl = self._parse_decimal(row.findtext("unit_price_tax_incl"))
+            total_price_tax_incl = self._parse_decimal_or_none(row.findtext("total_price_tax_incl"))
             lines.append(
                 PrestashopOrderLine(
                     order_detail_id=self._parse_int(row, "id")
@@ -910,9 +914,11 @@ class PrestashopClient:
                     product_id=product_id,
                     combination_id=self._parse_int(row, "product_attribute_id") or 0,
                     description=(row.findtext("product_name") or "").strip(),
-                    quantity=self._parse_int(row, "product_quantity") or 0,
-                    unit_price_tax_incl=self._parse_decimal(row.findtext("unit_price_tax_incl")),
-                    total_price_tax_incl=self._parse_decimal(row.findtext("total_price_tax_incl")),
+                    quantity=quantity,
+                    unit_price_tax_incl=unit_price_tax_incl,
+                    total_price_tax_incl=total_price_tax_incl
+                    if total_price_tax_incl is not None
+                    else (unit_price_tax_incl * quantity).quantize(Decimal("0.01")),
                     vat_rate=self._parse_decimal(row.findtext("tax_rate")),
                 )
             )
@@ -935,7 +941,9 @@ class PrestashopClient:
         total_price_tax_excl = detail["total_price_tax_excl"]
         vat_rate = line.vat_rate
         if vat_rate <= 0 and total_price_tax_incl is not None and total_price_tax_excl is not None:
-            vat_rate = self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
+            vat_rate = self._normalize_supported_vat_rate(
+                self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
+            )
 
         return PrestashopOrderLine(
             order_detail_id=line.order_detail_id,
@@ -952,6 +960,9 @@ class PrestashopClient:
             vat_rate=vat_rate,
             override_combination_id=line.override_combination_id,
         )
+
+    def _line_requires_detail_enrichment(self, line: PrestashopOrderLine) -> bool:
+        return line.vat_rate <= 0
 
     def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
         response = self._request(
@@ -1054,6 +1065,14 @@ class PrestashopClient:
         return ((amount_tax_incl - amount_tax_excl) / amount_tax_excl * Decimal("100")).quantize(
             Decimal("0.01")
         )
+
+    def _normalize_supported_vat_rate(self, vat_rate: Decimal) -> Decimal:
+        supported_rates = (Decimal("0.00"), Decimal("10.00"), Decimal("21.00"))
+        normalized = vat_rate.quantize(Decimal("0.01"))
+        closest = min(supported_rates, key=lambda candidate: abs(candidate - normalized))
+        if abs(closest - normalized) <= Decimal("0.20"):
+            return closest
+        return normalized
 
     def _parse_int(self, node: ElementTree.Element, tag: str) -> int | None:
         value = node.attrib.get(tag) or node.findtext(tag)
