@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from django.core.management.base import BaseCommand
 
 from apps.catalog.models import Product
@@ -54,20 +56,36 @@ class Command(BaseCommand):
 
         prestashop_products = client.list_products(limit=limit_products)
         django_products = Product.objects.filter(visible_web=True, discontinued=False)
-        django_products_by_reference: dict[str, Product] = {p.reference: p for p in django_products}
+        django_products_by_reference: dict[str, list[Product]] = defaultdict(list)
+        for p in django_products:
+            django_products_by_reference[p.reference].append(p)
 
         deleted = 0
         missing = 0
         skipped_inactive_product = 0
+        skipped_duplicate_reference = 0
+        skipped_multi_color = 0
         errors = 0
 
         for ps_product in prestashop_products:
-            django_product = django_products_by_reference.get(ps_product.reference)
-            if django_product is None:
+            candidates = django_products_by_reference.get(ps_product.reference, [])
+
+            if len(candidates) == 0:
                 skipped_inactive_product += 1
                 continue
 
-            if django_product.prestashop_id != ps_product.product_id:
+            django_product = None
+            if len(candidates) == 1:
+                django_product = candidates[0]
+            else:
+                matched = [p for p in candidates if p.prestashop_id == ps_product.product_id]
+                if len(matched) == 1:
+                    django_product = matched[0]
+                else:
+                    skipped_duplicate_reference += 1
+                    continue
+
+            if django_product is None or django_product.prestashop_id != ps_product.product_id:
                 skipped_inactive_product += 1
                 continue
 
@@ -83,6 +101,21 @@ class Command(BaseCommand):
                             f"Skipping PS combination #{ps_combination.combination_id}: "
                             f"unresolved values {resolved.unresolved_value_ids} or no "
                             f"resolved size/color."
+                        )
+                    )
+                    continue
+
+                color_groups_in_combination = {
+                    str(v["group_prestashop_id"])
+                    for v in resolved.resolved_values
+                    if v["role"] == "color"
+                }
+                if len(color_groups_in_combination) > 1:
+                    skipped_multi_color += 1
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"Skipping PS #{ps_combination.combination_id}: "
+                            f"multiple color groups {color_groups_in_combination}"
                         )
                     )
                     continue
@@ -123,6 +156,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"[{mode}] Orphan Prestashop combinations cleanup: "
                 f"deleted={deleted} missing_from_django={missing} "
-                f"skipped_inactive_product={skipped_inactive_product} errors={errors}"
+                f"skipped_inactive_product={skipped_inactive_product} "
+                f"skipped_duplicate_reference={skipped_duplicate_reference} "
+                f"skipped_multi_color={skipped_multi_color} errors={errors}"
             )
         )
