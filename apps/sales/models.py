@@ -107,6 +107,25 @@ class PrestashopOrderLine(models.Model):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        previous_override_combination_id = None
+        if self.pk:
+            previous_override_combination_id = (
+                PrestashopOrderLine.objects.filter(pk=self.pk)
+                .values_list("override_combination_id", flat=True)
+                .first()
+            )
+
+        super().save(*args, **kwargs)
+
+        if previous_override_combination_id != self.override_combination_id:
+            PrestashopOrder.objects.filter(pk=self.order_id).update(
+                export_status=ExportStatus.NEVER,
+                exported_to_icg_at=None,
+                last_export_error="",
+                inserted_rows=0,
+            )
+
     def __str__(self) -> str:
         return f"{self.order} line {self.position}"
 

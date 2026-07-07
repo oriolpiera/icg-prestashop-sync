@@ -130,6 +130,17 @@ def upsert_order_snapshot(
 ) -> PrestashopOrder:
     captured_at = captured_at or timezone.now()
     existing_order = PrestashopOrder.objects.filter(prestashop_id=snapshot.order_id).first()
+    existing_line_overrides: dict[tuple[int, int, int], int] = {}
+    if existing_order is not None:
+        existing_line_overrides = {
+            (
+                line.position,
+                line.prestashop_product_id,
+                line.prestashop_combination_id,
+            ): line.override_combination_id
+            for line in existing_order.lines.all()
+            if line.override_combination_id
+        }
     export_state_stale = existing_order is not None and _order_export_state_stale(
         existing_order, snapshot, customer=customer
     )
@@ -175,6 +186,9 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
+                override_combination_id=existing_line_overrides.get(
+                    (index, line.product_id, line.combination_id)
+                ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
         ]

@@ -350,6 +350,157 @@ def test_refresh_order_from_prestashop_resets_export_state_when_lines_change():
 
 
 @pytest.mark.django_db
+def test_refresh_order_from_prestashop_preserves_line_override_for_matching_line():
+    product = Product.objects.create(
+        icg_id=5001,
+        prestashop_id=101,
+        reference="MUG-001",
+        name="Blue mug",
+    )
+    override_combination = Combination.objects.create(
+        product=product,
+        prestashop_id=303,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        last_snapshot_at=_aware(2026, 7, 1, 10),
+    )
+    order = PrestashopOrder.objects.create(
+        prestashop_id=77,
+        customer=customer,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("0.00"),
+        total_shipping_tax_excl=Decimal("0.00"),
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+    )
+    order.lines.create(
+        position=1,
+        prestashop_product_id=101,
+        prestashop_combination_id=202,
+        description="Blue mug",
+        quantity=2,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("48.40"),
+        vat_rate=Decimal("21.00"),
+        override_combination=override_combination,
+    )
+    client = Mock()
+    client.get_order_snapshot.return_value = PrestashopOrderSnapshot(
+        order_id=77,
+        customer_id=42,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("0.00"),
+        total_shipping_tax_excl=Decimal("0.00"),
+        lines=[
+            PrestashopOrderLine(
+                product_id=101,
+                combination_id=202,
+                description="Blue mug updated",
+                quantity=3,
+                unit_price_tax_incl=Decimal("24.20"),
+                total_price_tax_incl=Decimal("72.60"),
+                vat_rate=Decimal("21.00"),
+            )
+        ],
+        discounts=[],
+    )
+    client.get_customer_snapshot.return_value = PrestashopCustomerSnapshot(
+        customer_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        address=None,
+    )
+
+    refreshed_order = refresh_order_from_prestashop(
+        77,
+        client=client,
+        captured_at=_aware(2026, 7, 1, 12),
+    )
+
+    refreshed_line = refreshed_order.lines.get(position=1)
+    assert refreshed_line.override_combination_id == override_combination.pk
+    assert refreshed_line.quantity == 3
+
+
+@pytest.mark.django_db
+def test_order_line_override_change_marks_order_for_reexport():
+    product = Product.objects.create(
+        icg_id=5001,
+        prestashop_id=101,
+        reference="MUG-001",
+        name="Blue mug",
+    )
+    original_combination = Combination.objects.create(
+        product=product,
+        prestashop_id=202,
+        icg_size="UNI",
+        icg_color="BLUE",
+        ean13="1234567890123",
+    )
+    override_combination = Combination.objects.create(
+        product=product,
+        prestashop_id=303,
+        icg_size="XL",
+        icg_color="GREEN",
+        ean13="9876543210987",
+    )
+    customer = PrestashopCustomer.objects.create(
+        prestashop_id=42,
+        firstname="Ada",
+        lastname="Lovelace",
+        email="ada@example.com",
+        date_add=_aware(2026, 7, 1, 9),
+        last_snapshot_at=_aware(2026, 7, 1, 10),
+    )
+    order = PrestashopOrder.objects.create(
+        prestashop_id=77,
+        customer=customer,
+        payment="Redsys Card",
+        date_add=_aware(2026, 7, 1, 10),
+        total_paid_tax_incl=Decimal("100.00"),
+        total_shipping_tax_incl=Decimal("0.00"),
+        total_shipping_tax_excl=Decimal("0.00"),
+        last_snapshot_at=_aware(2026, 7, 1, 11),
+        export_status=ExportStatus.SUCCEEDED,
+        exported_to_icg_at=_aware(2026, 7, 1, 12),
+        last_export_error="",
+        inserted_rows=1,
+    )
+    line = order.lines.create(
+        position=1,
+        prestashop_product_id=101,
+        prestashop_combination_id=original_combination.prestashop_id,
+        description="Blue mug",
+        quantity=2,
+        unit_price_tax_incl=Decimal("24.20"),
+        total_price_tax_incl=Decimal("48.40"),
+        vat_rate=Decimal("21.00"),
+    )
+
+    line.override_combination = override_combination
+    line.save()
+
+    order.refresh_from_db()
+    assert order.export_status == ExportStatus.NEVER
+    assert order.exported_to_icg_at is None
+    assert order.last_export_error == ""
+    assert order.inserted_rows == 0
+
+
+@pytest.mark.django_db
 def test_export_customer_to_icg_from_mirror_updates_status():
     customer = PrestashopCustomer.objects.create(
         prestashop_id=42,
