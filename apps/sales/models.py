@@ -79,6 +79,7 @@ class PrestashopOrderLine(models.Model):
         related_name="lines",
     )
     position = models.PositiveIntegerField()
+    prestashop_order_detail_id = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     prestashop_product_id = models.PositiveIntegerField()
     prestashop_combination_id = models.PositiveIntegerField(default=0)
     description = models.CharField(max_length=255, blank=True)

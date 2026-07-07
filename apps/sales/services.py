@@ -130,16 +130,12 @@ def upsert_order_snapshot(
 ) -> PrestashopOrder:
     captured_at = captured_at or timezone.now()
     existing_order = PrestashopOrder.objects.filter(prestashop_id=snapshot.order_id).first()
-    existing_line_overrides: dict[tuple[int, int, int], int] = {}
+    existing_line_overrides: dict[int, int] = {}
     if existing_order is not None:
         existing_line_overrides = {
-            (
-                line.position,
-                line.prestashop_product_id,
-                line.prestashop_combination_id,
-            ): line.override_combination_id
+            line.prestashop_order_detail_id: line.override_combination_id
             for line in existing_order.lines.all()
-            if line.override_combination_id
+            if line.override_combination_id and line.prestashop_order_detail_id is not None
         }
     export_state_stale = existing_order is not None and _order_export_state_stale(
         existing_order, snapshot, customer=customer
@@ -179,6 +175,7 @@ def upsert_order_snapshot(
             MirroredOrderLine(
                 order=order,
                 position=index,
+                prestashop_order_detail_id=line.order_detail_id,
                 prestashop_product_id=line.product_id,
                 prestashop_combination_id=line.combination_id,
                 description=line.description,
@@ -186,9 +183,9 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=existing_line_overrides.get(
-                    (index, line.product_id, line.combination_id)
-                ),
+                override_combination_id=existing_line_overrides.get(line.order_detail_id)
+                if line.order_detail_id is not None
+                else None,
             )
             for index, line in enumerate(snapshot.lines, start=1)
         ]
@@ -231,6 +228,7 @@ def _order_export_state_stale(
     existing_lines = list(
         order.lines.order_by("position").values_list(
             "position",
+            "prestashop_order_detail_id",
             "prestashop_product_id",
             "prestashop_combination_id",
             "description",
@@ -243,6 +241,7 @@ def _order_export_state_stale(
     incoming_lines = [
         (
             index,
+            line.order_detail_id,
             line.product_id,
             line.combination_id,
             line.description,
@@ -399,6 +398,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
         total_shipping_tax_excl=order.total_shipping_tax_excl,
         lines=[
             PrestashopOrderLine(
+                order_detail_id=line.prestashop_order_detail_id,
                 product_id=line.prestashop_product_id,
                 combination_id=line.prestashop_combination_id,
                 description=line.description,

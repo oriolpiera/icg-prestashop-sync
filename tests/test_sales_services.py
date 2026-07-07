@@ -312,6 +312,7 @@ def test_refresh_order_from_prestashop_resets_export_state_when_lines_change():
     )
     order.lines.create(
         position=1,
+        prestashop_order_detail_id=901,
         prestashop_product_id=101,
         prestashop_combination_id=202,
         description="Blue mug",
@@ -384,6 +385,7 @@ def test_refresh_order_from_prestashop_preserves_line_override_for_matching_line
     )
     order.lines.create(
         position=1,
+        prestashop_order_detail_id=901,
         prestashop_product_id=101,
         prestashop_combination_id=202,
         description="Blue mug",
@@ -404,6 +406,7 @@ def test_refresh_order_from_prestashop_preserves_line_override_for_matching_line
         total_shipping_tax_excl=Decimal("0.00"),
         lines=[
             PrestashopOrderLine(
+                order_detail_id=901,
                 product_id=101,
                 combination_id=202,
                 description="Blue mug updated",
@@ -431,6 +434,7 @@ def test_refresh_order_from_prestashop_preserves_line_override_for_matching_line
     )
 
     refreshed_line = refreshed_order.lines.get(position=1)
+    assert refreshed_line.prestashop_order_detail_id == 901
     assert refreshed_line.override_combination_id == override_combination.pk
     assert refreshed_line.quantity == 3
 
