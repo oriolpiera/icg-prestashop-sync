@@ -62,9 +62,17 @@ class TestPrestashopOrderClient:
                 "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
                 "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
                 "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
-                "<total_price_tax_incl>48.40</total_price_tax_incl><tax_rate>21.00</tax_rate>"
                 "</order_row></order_rows></associations>"
                 "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_details>"
+                "<order_detail><id>901</id><id_order>42</id_order>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
+                "<total_price_tax_excl>40.00</total_price_tax_excl>"
+                "</order_detail>"
+                "</order_details></prestashop>"
             ),
             _response(
                 "<prestashop><order_cart_rules>"
@@ -84,9 +92,16 @@ class TestPrestashopOrderClient:
         assert len(snapshot.lines) == 1
         assert snapshot.lines[0].order_detail_id == 901
         assert snapshot.lines[0].combination_id == 200
+        assert snapshot.lines[0].unit_price_tax_incl == Decimal("24.20")
+        assert snapshot.lines[0].total_price_tax_incl == Decimal("48.40")
+        assert snapshot.lines[0].vat_rate == Decimal("21.00")
         assert len(snapshot.discounts) == 1
         assert snapshot.discounts[0].vat_rate == Decimal("21.00")
         assert session.request.call_args_list[1].kwargs["params"] == {
+            "display": "full",
+            "filter[id_order]": "42",
+        }
+        assert session.request.call_args_list[2].kwargs["params"] == {
             "display": "full",
             "filter[id_order]": "42",
         }

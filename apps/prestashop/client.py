@@ -816,6 +816,11 @@ class PrestashopClient:
         if not date_add_text:
             raise PrestashopError(f"Prestashop order {order_id} payload did not include date_add.")
 
+        lines = self._parse_order_lines(node, order_id)
+        detail_map = self.get_order_line_details(parsed_order_id) if lines else {}
+        if detail_map:
+            lines = [self._merge_order_line_with_detail(line, detail_map) for line in lines]
+
         return PrestashopOrderSnapshot(
             order_id=parsed_order_id,
             customer_id=customer_id,
@@ -824,9 +829,28 @@ class PrestashopClient:
             total_paid_tax_incl=self._parse_decimal(node.findtext("total_paid_tax_incl")),
             total_shipping_tax_incl=self._parse_decimal(node.findtext("total_shipping_tax_incl")),
             total_shipping_tax_excl=self._parse_decimal(node.findtext("total_shipping_tax_excl")),
-            lines=self._parse_order_lines(node, order_id),
+            lines=lines,
             discounts=self.get_order_discount_lines(parsed_order_id),
         )
+
+    def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal]]:
+        response = self._request(
+            "GET",
+            "order_details",
+            params={"display": "full", "filter[id_order]": str(order_id)},
+        )
+        root = self._parse_xml(response.text)
+        details: dict[int, dict[str, Decimal]] = {}
+        for node in root.findall("./order_details/order_detail"):
+            detail_id = self._parse_int(node, "id")
+            if detail_id is None:
+                continue
+            details[detail_id] = {
+                "unit_price_tax_incl": self._parse_decimal(node.findtext("unit_price_tax_incl")),
+                "total_price_tax_incl": self._parse_decimal(node.findtext("total_price_tax_incl")),
+                "total_price_tax_excl": self._parse_decimal(node.findtext("total_price_tax_excl")),
+            }
+        return details
 
     def get_order_discount_lines(self, order_id: int) -> list[PrestashopOrderDiscountLine]:
         response = self._request(
@@ -882,6 +906,32 @@ class PrestashopClient:
                 )
             )
         return lines
+
+    def _merge_order_line_with_detail(
+        self,
+        line: PrestashopOrderLine,
+        detail_map: dict[int, dict[str, Decimal]],
+    ) -> PrestashopOrderLine:
+        if line.order_detail_id is None:
+            return line
+
+        detail = detail_map.get(line.order_detail_id)
+        if detail is None:
+            return line
+
+        total_price_tax_incl = detail["total_price_tax_incl"]
+        total_price_tax_excl = detail["total_price_tax_excl"]
+        return PrestashopOrderLine(
+            order_detail_id=line.order_detail_id,
+            product_id=line.product_id,
+            combination_id=line.combination_id,
+            description=line.description,
+            quantity=line.quantity,
+            unit_price_tax_incl=detail["unit_price_tax_incl"],
+            total_price_tax_incl=total_price_tax_incl,
+            vat_rate=self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl),
+            override_combination_id=line.override_combination_id,
+        )
 
     def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
         response = self._request(
