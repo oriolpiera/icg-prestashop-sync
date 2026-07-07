@@ -114,6 +114,7 @@ class PrestashopOrderLine:
     unit_price_tax_incl: Decimal
     total_price_tax_incl: Decimal
     vat_rate: Decimal
+    vat_rate_present: bool = True
     order_detail_id: int | None = None
     override_combination_id: int | None = None
 
@@ -907,6 +908,7 @@ class PrestashopClient:
             quantity = self._parse_int(row, "product_quantity") or 0
             unit_price_tax_incl = self._parse_decimal(row.findtext("unit_price_tax_incl"))
             total_price_tax_incl = self._parse_decimal_or_none(row.findtext("total_price_tax_incl"))
+            raw_vat_rate = self._parse_decimal_or_none(row.findtext("tax_rate"))
             lines.append(
                 PrestashopOrderLine(
                     order_detail_id=self._parse_int(row, "id")
@@ -919,7 +921,8 @@ class PrestashopClient:
                     total_price_tax_incl=total_price_tax_incl
                     if total_price_tax_incl is not None
                     else (unit_price_tax_incl * quantity).quantize(Decimal("0.01")),
-                    vat_rate=self._parse_decimal(row.findtext("tax_rate")),
+                    vat_rate=raw_vat_rate if raw_vat_rate is not None else Decimal("0"),
+                    vat_rate_present=raw_vat_rate is not None,
                 )
             )
         return lines
@@ -958,11 +961,12 @@ class PrestashopClient:
             if total_price_tax_incl is not None
             else line.total_price_tax_incl,
             vat_rate=vat_rate,
+            vat_rate_present=line.vat_rate_present or vat_rate > 0,
             override_combination_id=line.override_combination_id,
         )
 
     def _line_requires_detail_enrichment(self, line: PrestashopOrderLine) -> bool:
-        return line.vat_rate <= 0
+        return not line.vat_rate_present
 
     def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
         response = self._request(

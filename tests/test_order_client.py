@@ -172,6 +172,37 @@ class TestPrestashopOrderClient:
         with pytest.raises(PrestashopError):
             client.get_order_snapshot(42)
 
+    def test_get_order_snapshot_allows_explicit_zero_vat_without_order_details(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>0.00</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>0.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<tax_rate>0.00</tax_rate>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response("<errors></errors>", status_code=403),
+            _response("<prestashop><order_cart_rules></order_cart_rules></prestashop>"),
+        ]
+        client = PrestashopClient(session=session)
+
+        snapshot = client.get_order_snapshot(42)
+
+        assert snapshot.lines[0].vat_rate == Decimal("0.00")
+        assert snapshot.lines[0].total_price_tax_incl == Decimal("48.40")
+
     def test_get_order_snapshot_preserves_order_row_values_when_detail_fields_are_missing(
         self, settings
     ):
