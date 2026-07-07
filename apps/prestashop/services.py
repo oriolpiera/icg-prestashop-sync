@@ -652,6 +652,43 @@ def export_combination(
                 "prestashop_combination_id": combination.prestashop_id,
             }
 
+        if not combination.prestashop_id and size_placeholder and color_placeholder:
+            size_group_ps_id = ensure_attribute_group(
+                "size", client=client, product=combination.product
+            )
+            size_value_ps_id = ensure_attribute_value(size_group_ps_id, "***", client=client)
+            attribute_value_ps_ids = [size_value_ps_id]
+            prestashop_combination_id = None
+            price_obj = getattr(combination, "price", None)
+            combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
+            ean13_clean = combination.ean13 and barcodenumber.check_code("ean13", combination.ean13)
+            ean13 = combination.ean13 if ean13_clean else ""
+            prestashop_combination_id = client.upsert_combination(
+                product_ps_id,
+                ean13,
+                combination.active,
+                attribute_value_ps_ids,
+                prestashop_id=prestashop_combination_id,
+                price=combination_price,
+            )
+            combination.prestashop_id = prestashop_combination_id
+            combination.sync_required = False
+            combination.last_sync_error = ""
+            combination.last_synced_at = timezone.now().astimezone(UTC)
+            combination.save(
+                update_fields=[
+                    "prestashop_id",
+                    "sync_required",
+                    "last_sync_error",
+                    "last_synced_at",
+                    "updated_at",
+                ]
+            )
+            return {
+                "combination_id": combination.pk,
+                "prestashop_combination_id": prestashop_combination_id,
+            }
+
         size_ps_ids = []
         color_ps_ids = []
 

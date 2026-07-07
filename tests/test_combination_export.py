@@ -426,6 +426,42 @@ class TestCombinationExport:
         combination.refresh_from_db()
         assert combination.sync_required is False
 
+    def test_export_creates_asterisk_size_combination_when_both_axes_are_placeholders(
+        self,
+    ):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(
+            icg_type="size", name="Size", prestashop_id=50, product=None
+        )
+
+        combination = _make_combination(product=product, icg_size="***", icg_color="***")
+
+        client = Mock()
+        client.find_attribute_value_id.return_value = None
+        client.create_attribute_value.return_value = 300
+        client.upsert_combination.return_value = 100
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result["prestashop_combination_id"] == 100
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "",
+            True,
+            [300],
+            prestashop_id=None,
+            price="0",
+        )
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 100
+        assert combination.sync_required is False
+
+        unique_av = AttributeValue.objects.filter(attribute_group=size_ag, icg_value="***").first()
+        assert unique_av is not None
+        assert unique_av.prestashop_id == 300
+
     def test_export_cleans_single_placeholder_axis_even_when_mapped(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
