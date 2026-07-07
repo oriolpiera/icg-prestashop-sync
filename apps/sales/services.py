@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 
 from django.db import transaction
@@ -131,11 +132,32 @@ def upsert_order_snapshot(
     captured_at = captured_at or timezone.now()
     existing_order = PrestashopOrder.objects.filter(prestashop_id=snapshot.order_id).first()
     existing_line_overrides: dict[int, int] = {}
+    legacy_line_overrides: dict[tuple[int, int], int] = {}
     if existing_order is not None:
+        incoming_line_keys = [(line.product_id, line.combination_id) for line in snapshot.lines]
+        incoming_line_counts = Counter(incoming_line_keys)
+        legacy_override_counts = Counter(
+            (line.prestashop_product_id, line.prestashop_combination_id)
+            for line in existing_order.lines.all()
+            if line.override_combination_id and line.prestashop_order_detail_id is None
+        )
         existing_line_overrides = {
             line.prestashop_order_detail_id: line.override_combination_id
             for line in existing_order.lines.all()
             if line.override_combination_id and line.prestashop_order_detail_id is not None
+        }
+        legacy_line_overrides = {
+            (
+                line.prestashop_product_id,
+                line.prestashop_combination_id,
+            ): line.override_combination_id
+            for line in existing_order.lines.all()
+            if line.override_combination_id
+            and line.prestashop_order_detail_id is None
+            and legacy_override_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+            == 1
+            and incoming_line_counts[(line.prestashop_product_id, line.prestashop_combination_id)]
+            == 1
         }
     export_state_stale = existing_order is not None and _order_export_state_stale(
         existing_order, snapshot, customer=customer
@@ -183,9 +205,10 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=existing_line_overrides.get(line.order_detail_id)
+                override_combination_id=(existing_line_overrides.get(line.order_detail_id))
                 if line.order_detail_id is not None
-                else None,
+                and existing_line_overrides.get(line.order_detail_id) is not None
+                else legacy_line_overrides.get((line.product_id, line.combination_id)),
             )
             for index, line in enumerate(snapshot.lines, start=1)
         ]
