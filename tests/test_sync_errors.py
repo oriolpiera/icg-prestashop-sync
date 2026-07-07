@@ -602,7 +602,8 @@ class TestRetryFailedJobs:
 
         result = retry_failed_jobs()
 
-        assert result["skipped"] >= 1
+        assert result["skipped"] == 0
+        assert result["retried"] == 0
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
 
@@ -632,6 +633,60 @@ class TestRetryFailedJobs:
         result = retry_failed_jobs()
 
         assert result["retried"] == 0
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.PENDING
+
+    def test_ignores_pending_jobs_without_errors(self):
+        product = Product.objects.create(
+            icg_id=10031,
+            reference="REF031",
+            name="Test Product 31",
+        )
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.IMPORT_PRODUCTS,
+            entity_type="combination",
+            entity_key="10031/M/RED",
+            status=SyncJobStatus.PENDING,
+            attempts=0,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": product.pk},
+        )
+
+        result = retry_failed_jobs()
+
+        assert result["retried"] == 0
+        assert result["skipped"] == 0
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.PENDING
+
+    def test_ignores_jobs_with_only_resolved_transient_errors(self):
+        product = Product.objects.create(
+            icg_id=10032,
+            reference="REF032",
+            name="Test Product 32",
+        )
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_PRODUCT,
+            entity_type="product",
+            entity_key="REF032",
+            status=SyncJobStatus.PENDING,
+            attempts=1,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": product.pk},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="product",
+            entity_key="REF032",
+            error_type=SyncErrorType.TRANSIENT,
+            message="old transient",
+            resolved=True,
+        )
+
+        result = retry_failed_jobs()
+
+        assert result["retried"] == 0
+        assert result["skipped"] == 0
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
 
