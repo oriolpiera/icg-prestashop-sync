@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from datetime import datetime
 
 from django.db import transaction
@@ -162,6 +162,22 @@ def upsert_order_snapshot(
             ]
         )
 
+    existing_exact_override_by_line: dict[tuple, deque[int]] = defaultdict(deque)
+    for line in order.lines.all():
+        if line.override_combination_id is None:
+            continue
+        existing_exact_override_by_line[
+            (
+                line.prestashop_product_id,
+                line.prestashop_combination_id,
+                line.description,
+                line.quantity,
+                line.unit_price_tax_incl,
+                line.total_price_tax_incl,
+                line.vat_rate,
+            )
+        ].append(line.override_combination_id)
+
     existing_line_identities = [
         (line.prestashop_product_id, line.prestashop_combination_id) for line in order.lines.all()
     ]
@@ -191,8 +207,30 @@ def upsert_order_snapshot(
                 unit_price_tax_incl=line.unit_price_tax_incl,
                 total_price_tax_incl=line.total_price_tax_incl,
                 vat_rate=line.vat_rate,
-                override_combination_id=existing_override_by_line.get(
-                    (line.product_id, line.combination_id)
+                override_combination_id=(
+                    existing_exact_override_by_line[
+                        (
+                            line.product_id,
+                            line.combination_id,
+                            line.description,
+                            line.quantity,
+                            line.unit_price_tax_incl,
+                            line.total_price_tax_incl,
+                            line.vat_rate,
+                        )
+                    ].popleft()
+                    if existing_exact_override_by_line[
+                        (
+                            line.product_id,
+                            line.combination_id,
+                            line.description,
+                            line.quantity,
+                            line.unit_price_tax_incl,
+                            line.total_price_tax_incl,
+                            line.vat_rate,
+                        )
+                    ]
+                    else existing_override_by_line.get((line.product_id, line.combination_id))
                 ),
             )
             for index, line in enumerate(snapshot.lines, start=1)
