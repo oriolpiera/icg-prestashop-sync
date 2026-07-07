@@ -65,7 +65,7 @@ def test_upsert_customer_snapshot_persists_address_data():
 
 
 @pytest.mark.django_db
-def test_upsert_customer_snapshot_resets_stale_export_state():
+def test_upsert_customer_snapshot_preserves_export_state():
     customer = PrestashopCustomer.objects.create(
         prestashop_id=42,
         firstname="Ada",
@@ -93,10 +93,10 @@ def test_upsert_customer_snapshot_resets_stale_export_state():
 
     customer.refresh_from_db()
     assert refreshed.pk == customer.pk
-    assert customer.export_status == ExportStatus.NEVER
-    assert customer.exported_to_icg_at is None
-    assert customer.last_export_error == ""
-    assert customer.last_export_inserted is None
+    assert customer.export_status == ExportStatus.FAILED
+    assert customer.exported_to_icg_at == _aware(2026, 7, 1, 12)
+    assert customer.last_export_error == "old error"
+    assert customer.last_export_inserted is False
 
 
 @pytest.mark.django_db
@@ -163,7 +163,7 @@ def test_refresh_order_from_prestashop_replaces_lines_and_discounts():
 
 
 @pytest.mark.django_db
-def test_refresh_order_from_prestashop_resets_stale_export_state():
+def test_refresh_order_from_prestashop_preserves_export_state():
     customer = PrestashopCustomer.objects.create(
         prestashop_id=42,
         firstname="Ada",
@@ -209,10 +209,10 @@ def test_refresh_order_from_prestashop_resets_stale_export_state():
 
     order = refresh_order_from_prestashop(77, client=client, captured_at=_aware(2026, 7, 1, 13))
 
-    assert order.export_status == ExportStatus.NEVER
-    assert order.exported_to_icg_at is None
-    assert order.last_export_error == ""
-    assert order.inserted_rows == 0
+    assert order.export_status == ExportStatus.FAILED
+    assert order.exported_to_icg_at == _aware(2026, 7, 1, 12)
+    assert order.last_export_error == "old error"
+    assert order.inserted_rows == 3
 
 
 @pytest.mark.django_db
