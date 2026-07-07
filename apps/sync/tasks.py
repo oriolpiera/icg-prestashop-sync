@@ -825,13 +825,16 @@ def retry_failed_jobs() -> dict:
     logger.info("Celery task: retry_failed_jobs")
     retried = 0
     skipped = 0
+    non_retryable_pending = 0
 
     try:
         with sync_lock("retry_failed_jobs"):
+            due_pending_jobs = SyncJob.objects.filter(
+                status=SyncJobStatus.PENDING,
+                available_at__lte=timezone.now(),
+            )
             retryable_jobs = (
-                SyncJob.objects.filter(
-                    status=SyncJobStatus.PENDING,
-                    available_at__lte=timezone.now(),
+                due_pending_jobs.filter(
                     errors__resolved=False,
                     errors__error_type=SyncErrorType.TRANSIENT,
                 )
@@ -839,6 +842,10 @@ def retry_failed_jobs() -> dict:
                 .order_by("available_at")
                 .distinct()
             )
+            non_retryable_pending = due_pending_jobs.exclude(
+                errors__resolved=False,
+                errors__error_type=SyncErrorType.TRANSIENT,
+            ).count()
 
             for job in retryable_jobs:
                 latest_error_type = job.error_type
@@ -895,4 +902,5 @@ def retry_failed_jobs() -> dict:
         "status": "success",
         "retried": retried,
         "skipped": skipped,
+        "non_retryable_pending": non_retryable_pending,
     }

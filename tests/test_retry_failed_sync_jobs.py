@@ -20,6 +20,22 @@ class TestRetryFailedSyncJobs:
         assert "retried=3" in output
         assert "skipped=1" in output
 
+    def test_reports_non_retryable_pending_jobs(self):
+        out = StringIO()
+        with patch(
+            "apps.sync.management.commands.retry_failed_sync_jobs.retry_failed_jobs",
+            return_value={
+                "status": "success",
+                "retried": 0,
+                "skipped": 0,
+                "non_retryable_pending": 5,
+            },
+        ):
+            call_command("retry_failed_sync_jobs", stdout=out)
+
+        output = out.getvalue()
+        assert "Pending non-retryable jobs still due: 5" in output
+
     def test_lock_skipped(self):
         out = StringIO()
         with patch(
