@@ -961,7 +961,9 @@ class PrestashopClient:
                 self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
             )
 
-        if not line.vat_rate_present and vat_rate <= 0:
+        if not line.vat_rate_present and (
+            total_price_tax_incl is None or total_price_tax_excl is None
+        ):
             raise PrestashopError(
                 "Prestashop order detail payload did not include enough tax data.",
                 status_code=400,
