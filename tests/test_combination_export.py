@@ -414,9 +414,7 @@ class TestCombinationExport:
         product = _make_product()
         _make_product_prestashop_id(product, 22)
 
-        size_ag = AttributeGroup.objects.create(
-            icg_type="size", name="Size", prestashop_id=50, product=None
-        )
+        AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=50, product=None)
 
         combination = _make_combination(product=product, icg_size="***", icg_color="***")
         combination.prestashop_id = 55
