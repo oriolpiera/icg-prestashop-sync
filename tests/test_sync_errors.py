@@ -803,5 +803,38 @@ class TestRetryFailedJobs:
         assert result["skipped"] == 1
         job.refresh_from_db()
         assert job.status == SyncJobStatus.PENDING
+        assert job.attempts == 2
         assert job.started_at is None
         assert job.available_at > timezone.now()
+
+    def test_marks_sales_job_failed_when_lock_contention_exhausts_retries(self):
+        job = SyncJob.objects.create(
+            job_type=SyncJobType.EXPORT_CUSTOMER,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            status=SyncJobStatus.PENDING,
+            attempts=MAX_SYNC_RETRIES,
+            available_at=timezone.now() - timedelta(minutes=1),
+            payload={"entity_id": 42, "customer_id": 42},
+        )
+        SyncError.objects.create(
+            job=job,
+            entity_type="prestashop_customer",
+            entity_key="42",
+            error_type=SyncErrorType.TRANSIENT,
+            message="sql timeout",
+        )
+
+        with patch(
+            "apps.sync.tasks._maybe_icg_sales_export_lock",
+            side_effect=LockAcquisitionError("lock held"),
+        ):
+            result = retry_failed_jobs()
+
+        assert result["status"] == "success"
+        assert result["retried"] == 0
+        assert result["skipped"] == 1
+        job.refresh_from_db()
+        assert job.status == SyncJobStatus.FAILED
+        assert job.started_at is None
+        assert job.finished_at is not None

@@ -35,6 +35,7 @@ from apps.sync.cursor_service import advance_cursor, get_or_create_cursor
 from apps.sync.errors import classify_error
 from apps.sync.locking import LockAcquisitionError, sync_lock
 from apps.sync.models import (
+    BACKOFF_SCHEDULE_SECONDS,
     MAX_SYNC_RETRIES,
     SyncCursorSource,
     SyncError,
@@ -77,11 +78,32 @@ def _maybe_icg_sales_export_lock(
 
 
 def _release_running_job_for_lock_contention(job: SyncJob) -> None:
+    if job.attempts >= MAX_SYNC_RETRIES:
+        job.status = SyncJobStatus.FAILED
+        job.finished_at = timezone.now().astimezone(UTC)
+        job.started_at = None
+        job.save(update_fields=["status", "started_at", "finished_at", "updated_at"])
+        return
+
+    job.attempts += 1
+    delay_index = min(job.attempts - 2, len(BACKOFF_SCHEDULE_SECONDS) - 1)
+    delay = BACKOFF_SCHEDULE_SECONDS[delay_index]
+    job.available_at = timezone.now() + timedelta(seconds=delay)
     job.status = SyncJobStatus.PENDING
+    job.last_error = ""
     job.started_at = None
     job.finished_at = None
-    job.available_at = timezone.now() + timedelta(seconds=30)
-    job.save(update_fields=["status", "started_at", "finished_at", "available_at", "updated_at"])
+    job.save(
+        update_fields=[
+            "attempts",
+            "available_at",
+            "status",
+            "last_error",
+            "started_at",
+            "finished_at",
+            "updated_at",
+        ]
+    )
 
 
 def _resolve_superseded_jobs(job: SyncJob, *, finished_at) -> None:
