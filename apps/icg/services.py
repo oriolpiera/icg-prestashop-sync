@@ -176,6 +176,13 @@ class ICGCatalogReader:
         except AttributeError:
             logger.debug("ODBC cursor does not support timeout attribute; continuing without it")
 
+    def _normalize_cursor_for_mssql(self, cursor_at: datetime | None) -> datetime | None:
+        if cursor_at is None:
+            return None
+        if timezone.is_aware(cursor_at):
+            return cursor_at.astimezone(timezone.get_current_timezone()).replace(tzinfo=None)
+        return cursor_at
+
     def _fetch_rows(self, query: str, params: tuple = ()) -> list:
         with self._connection() as conn:
             db_cursor = conn.cursor()
@@ -197,6 +204,7 @@ class ICGCatalogReader:
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
@@ -210,7 +218,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado >= ? "
+                    "SELECT * FROM view_imp_articles WHERE Fecha_Modificado > ? "
                     "ORDER BY Fecha_Modificado ASC, CAST(CODARTICULO AS INT) ASC",
                     cursor_at,
                 )
@@ -274,6 +282,7 @@ class ICGCatalogReader:
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
@@ -287,7 +296,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado >= ? "
+                    "SELECT * FROM view_imp_preus WHERE Fecha_modificado > ? "
                     "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
@@ -344,6 +353,7 @@ class ICGCatalogReader:
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
+        cursor_at = self._normalize_cursor_for_mssql(cursor_at)
         with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
@@ -357,7 +367,7 @@ class ICGCatalogReader:
                 )
             elif cursor_at is not None:
                 db_cursor.execute(
-                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado >= ? "
+                    "SELECT * FROM view_imp_stocks WHERE Fecha_Modificado > ? "
                     "ORDER BY Fecha_Modificado ASC, CAST(Codarticulo AS INT) ASC",
                     cursor_at,
                 )
