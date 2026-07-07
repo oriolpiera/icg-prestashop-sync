@@ -1,5 +1,6 @@
 import logging
 import time
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -154,6 +155,15 @@ class ICGCatalogReader:
             )
             raise
 
+    def _connection(self):
+        """Context manager that guarantees explicit close after use.
+
+        pyodbc's ``Connection.__exit__`` commits but does **not** close the
+        connection.  Wrapping with ``contextlib.closing`` ensures the TCP
+        session is released immediately after each operation.
+        """
+        return closing(self._connect())
+
     def _set_query_timeout(self, db_cursor) -> None:
         try:
             db_cursor.timeout = self.connection_settings().query_timeout
@@ -161,7 +171,7 @@ class ICGCatalogReader:
             logger.debug("ODBC cursor does not support timeout attribute; continuing without it")
 
     def _fetch_rows(self, query: str, params: tuple = ()) -> list:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             t0 = time.monotonic()
@@ -181,7 +191,7 @@ class ICGCatalogReader:
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
@@ -234,7 +244,7 @@ class ICGCatalogReader:
         )
 
     def fetch_product_rows_by_reference(self, reference: str) -> list:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             t0 = time.monotonic()
@@ -258,7 +268,7 @@ class ICGCatalogReader:
     def fetch_prices_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
@@ -303,7 +313,7 @@ class ICGCatalogReader:
         )
 
     def fetch_price_rows_for_combination(self, icg_id: int, talla: str, color: str) -> list:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             t0 = time.monotonic()
@@ -328,7 +338,7 @@ class ICGCatalogReader:
     def fetch_stock_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             if cursor_at is not None and last_source_key:
@@ -380,7 +390,7 @@ class ICGCatalogReader:
         *,
         warehouse_code: str = "01",
     ) -> list:
-        with self._connect() as conn:
+        with self._connection() as conn:
             db_cursor = conn.cursor()
             self._set_query_timeout(db_cursor)
             t0 = time.monotonic()
@@ -410,7 +420,7 @@ class ICGClientesWebWriter:
         self.reader = reader or ICGCatalogReader()
 
     def insert_customer(self, row: ClientesWebRow) -> bool:
-        with self.reader._connect() as conn:
+        with self.reader._connection() as conn:
             cursor = conn.cursor()
             self.reader._set_query_timeout(cursor)
             t0 = time.monotonic()
@@ -481,8 +491,9 @@ class ICGFacturasWebWriter:
             return 0
 
         inserted = 0
+
         t_start = time.monotonic()
-        with self.reader._connect() as conn:
+        with self.reader._connection() as conn:
             cursor = conn.cursor()
             self.reader._set_query_timeout(cursor)
 

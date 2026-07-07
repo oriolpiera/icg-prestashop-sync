@@ -146,7 +146,7 @@ def _build_order_by_clause(columns: list[str], sort_column: str | None, sort_des
 
 def get_tables() -> list[TableInfo]:
     """Return all tables and views in the database."""
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(QUERY_TABLES)
@@ -172,7 +172,7 @@ def get_tables() -> list[TableInfo]:
 
 
 def _get_row_count(table_name: str) -> int:
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(query_table_row_count(table_name))
@@ -182,7 +182,7 @@ def _get_row_count(table_name: str) -> int:
 
 def get_columns(table_name: str, schema: str = "dbo") -> list[ColumnInfo]:
     """Return column metadata for a table."""
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(QUERY_COLUMNS, (schema, table_name, schema, table_name))
@@ -204,7 +204,7 @@ def get_columns(table_name: str, schema: str = "dbo") -> list[ColumnInfo]:
 
 def get_indexes(table_name: str) -> list[IndexInfo]:
     """Return index metadata for a table (SQL Server 2008 compatible)."""
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(QUERY_INDEXES_2008, (table_name,))
@@ -222,7 +222,7 @@ def get_indexes(table_name: str) -> list[IndexInfo]:
 
 def get_foreign_keys_for_table(table_name: str) -> list[ForeignKeyInfo]:
     """Return foreign keys where this table is the child."""
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(QUERY_TABLE_FOREIGN_KEYS, (table_name,))
@@ -240,7 +240,7 @@ def get_foreign_keys_for_table(table_name: str) -> list[ForeignKeyInfo]:
 
 def get_all_foreign_keys() -> list[ForeignKeyInfo]:
     """Return all foreign key relationships in the database."""
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(QUERY_FOREIGN_KEYS)
@@ -294,7 +294,7 @@ def get_table_data(
             FilterCondition(column=filter_column, operator="eq", value=filter_value)
         )
 
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
 
@@ -346,7 +346,7 @@ def get_table_schema_by_name(table_name: str) -> dict | None:
     """Look up a table's schema by name from metadata, return dict or None."""
     if not validate_table_name(table_name):
         return None
-    with reader._connect() as conn:
+    with reader._connection() as conn:
         cursor = conn.cursor()
         _set_query_timeout(cursor)
         cursor.execute(

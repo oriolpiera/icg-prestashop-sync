@@ -102,6 +102,7 @@ class _FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.commit = Mock()
+        self.close = Mock()
 
     def cursor(self):
         return self._cursor
@@ -211,7 +212,7 @@ def test_writer_insert_order_rows_inserts_when_missing():
         )
     ]
 
-    with patch.object(reader, "_connect", return_value=connection):
+    with patch.object(reader, "_connection", return_value=connection):
         inserted = writer.insert_order_rows(rows)
 
     assert inserted == 1
@@ -253,7 +254,7 @@ def test_writer_insert_order_rows_skips_duplicates():
         )
     ]
 
-    with patch.object(reader, "_connect", return_value=connection):
+    with patch.object(reader, "_connection", return_value=connection):
         inserted = writer.insert_order_rows(rows)
 
     assert inserted == 0

@@ -1,3 +1,5 @@
+from unittest.mock import Mock, patch
+
 from django.test import override_settings
 
 from apps.icg.services import ICGCatalogReader
@@ -61,3 +63,54 @@ def test_mssql_reader_keeps_microsoft_odbc_encryption_settings():
         "TrustServerCertificate=yes;"
         "Login Timeout=10;"
     )
+
+
+class _FakeConnection:
+    def __init__(self):
+        self.close = Mock()
+        self.commit = Mock()
+
+    def cursor(self):
+        return Mock()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+@override_settings(
+    ICG_ODBC_CONNECTION_STRING="DRIVER=FreeTDS;SERVERNAME=x;DATABASE=x;UID=x;PWD=x;",
+    ICG_MSSQL_SERVER="",
+    ICG_MSSQL_SERVERNAME="x",
+)
+def test_connection_closes_on_success():
+    reader = ICGCatalogReader()
+    fake_conn = _FakeConnection()
+
+    with patch.object(reader, "_connect", return_value=fake_conn):
+        with reader._connection() as conn:
+            conn.cursor().execute("SELECT 1")
+
+    fake_conn.close.assert_called_once()
+
+
+@override_settings(
+    ICG_ODBC_CONNECTION_STRING="DRIVER=FreeTDS;SERVERNAME=x;DATABASE=x;UID=x;PWD=x;",
+    ICG_MSSQL_SERVER="",
+    ICG_MSSQL_SERVERNAME="x",
+)
+def test_connection_closes_on_exception():
+    reader = ICGCatalogReader()
+    fake_conn = _FakeConnection()
+
+    with patch.object(reader, "_connect", return_value=fake_conn):
+        try:
+            with reader._connection() as conn:
+                conn.cursor().execute("SELECT 1")
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+
+    fake_conn.close.assert_called_once()
