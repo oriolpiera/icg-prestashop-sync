@@ -150,6 +150,7 @@ class PrestashopError(Exception):
 
 class PrestashopClient:
     _FILTER_RESERVED_CHARS = frozenset("[]|,")
+    _EMPTY_GET_RESPONSE_RETRIES = 2
 
     def __init__(self, session: Session | None = None) -> None:
         self.session = session or requests.Session()
@@ -196,30 +197,43 @@ class PrestashopClient:
         params: dict[str, str] | None = None,
         data: str | None = None,
     ) -> Response:
-        try:
-            response = self.session.request(
-                method,
-                self._api_url(resource, resource_id),
-                params=params,
-                data=data,
-                auth=self._auth(),
-                headers={
-                    "Content-Type": "application/xml",
-                    "Host": self.credentials().host,
-                },
-                timeout=30,
-                allow_redirects=False,
-            )
-        except requests.RequestException as exc:
-            raise PrestashopError(f"Prestashop request failed: {exc}") from exc
+        max_attempts = self._EMPTY_GET_RESPONSE_RETRIES + 1 if method.upper() == "GET" else 1
 
-        if response.status_code >= 400:
-            raise PrestashopError(
-                f"Prestashop returned HTTP {response.status_code} for {resource}.",
-                status_code=response.status_code,
-                body=response.text,
-            )
-        return response
+        for attempt in range(max_attempts):
+            try:
+                response = self.session.request(
+                    method,
+                    self._api_url(resource, resource_id),
+                    params=params,
+                    data=data,
+                    auth=self._auth(),
+                    headers={
+                        "Content-Type": "application/xml",
+                        "Host": self.credentials().host,
+                    },
+                    timeout=30,
+                    allow_redirects=False,
+                )
+            except requests.RequestException as exc:
+                raise PrestashopError(f"Prestashop request failed: {exc}") from exc
+
+            if response.status_code >= 400:
+                raise PrestashopError(
+                    f"Prestashop returned HTTP {response.status_code} for {resource}.",
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+
+            if method.upper() != "GET" or response.text.strip() or attempt == max_attempts - 1:
+                if method.upper() == "GET" and not response.text.strip():
+                    raise PrestashopError(
+                        f"Prestashop returned an empty response for {resource}.",
+                        status_code=response.status_code,
+                        body=response.text,
+                    )
+                return response
+
+        raise PrestashopError(f"Prestashop returned an empty response for {resource}.")
 
     def find_manufacturer_id_by_name(self, name: str) -> int | None:
         self._validate_exact_filter_value(name, field_name="manufacturer name")
