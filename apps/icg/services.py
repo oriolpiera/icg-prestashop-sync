@@ -1,6 +1,6 @@
 import logging
-from contextlib import closing
 import time
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -494,7 +494,6 @@ class ICGFacturasWebWriter:
 
         t_start = time.monotonic()
         with self.reader._connection() as conn:
-
             cursor = conn.cursor()
             self.reader._set_query_timeout(cursor)
 
