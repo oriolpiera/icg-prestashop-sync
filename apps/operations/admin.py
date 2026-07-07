@@ -832,6 +832,7 @@ class PrestashopOrderLineInline(admin.TabularInline):
         "total_price_tax_incl",
         "vat_rate",
     )
+    raw_id_fields = ("override_combination",)
 
 
 class PrestashopOrderDiscountLineInline(admin.TabularInline):

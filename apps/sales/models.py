@@ -1,5 +1,6 @@
 from django.db import models
 
+from apps.catalog.models import Combination
 from apps.core.models import TimeStampedModel
 
 
@@ -85,6 +86,17 @@ class PrestashopOrderLine(models.Model):
     unit_price_tax_incl = models.DecimalField(max_digits=12, decimal_places=2)
     total_price_tax_incl = models.DecimalField(max_digits=12, decimal_places=2)
     vat_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    override_combination = models.ForeignKey(
+        Combination,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text=(
+            "Manually map this order line to a catalog combination "
+            "when the Prestashop combination is missing from the catalog."
+        ),
+    )
 
     class Meta:
         ordering = ["order", "position"]
