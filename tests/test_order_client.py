@@ -189,6 +189,7 @@ class TestPrestashopOrderClient:
                 "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
                 "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
                 "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
                 "<tax_rate>0.00</tax_rate>"
                 "</order_row></order_rows></associations>"
                 "</order></prestashop>"
@@ -240,6 +241,75 @@ class TestPrestashopOrderClient:
         assert snapshot.lines[0].unit_price_tax_incl == Decimal("24.20")
         assert snapshot.lines[0].total_price_tax_incl == Decimal("48.40")
         assert snapshot.lines[0].vat_rate == Decimal("21.00")
+
+    def test_get_order_snapshot_raises_when_missing_total_requires_order_details(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<tax_rate>21.00</tax_rate>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_details>"
+                "<order_detail><id>901</id><id_order>42</id_order>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "</order_detail>"
+                "</order_details></prestashop>"
+            ),
+        ]
+        client = PrestashopClient(session=session)
+
+        with pytest.raises(PrestashopError, match="total_price_tax_incl"):
+            client.get_order_snapshot(42)
+
+    def test_get_order_snapshot_raises_when_missing_tax_requires_order_details(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>100.00</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>12.10</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>10.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Blue mug</product_name><product_quantity>2</product_quantity>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_details>"
+                "<order_detail><id>901</id><id_order>42</id_order>"
+                "<unit_price_tax_incl>24.20</unit_price_tax_incl>"
+                "<total_price_tax_incl>48.40</total_price_tax_incl>"
+                "</order_detail>"
+                "</order_details></prestashop>"
+            ),
+        ]
+        client = PrestashopClient(session=session)
+
+        with pytest.raises(PrestashopError, match="enough tax data"):
+            client.get_order_snapshot(42)
 
     def test_get_order_snapshot_preserves_explicit_order_row_tax_rate_over_derived_rounded_value(
         self, settings

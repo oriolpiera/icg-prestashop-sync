@@ -115,6 +115,7 @@ class PrestashopOrderLine:
     total_price_tax_incl: Decimal
     vat_rate: Decimal
     vat_rate_present: bool = True
+    total_price_tax_incl_present: bool = True
     order_detail_id: int | None = None
     override_combination_id: int | None = None
 
@@ -921,6 +922,7 @@ class PrestashopClient:
                     total_price_tax_incl=total_price_tax_incl
                     if total_price_tax_incl is not None
                     else (unit_price_tax_incl * quantity).quantize(Decimal("0.01")),
+                    total_price_tax_incl_present=total_price_tax_incl is not None,
                     vat_rate=raw_vat_rate if raw_vat_rate is not None else Decimal("0"),
                     vat_rate_present=raw_vat_rate is not None,
                 )
@@ -942,6 +944,13 @@ class PrestashopClient:
         unit_price_tax_incl = detail["unit_price_tax_incl"]
         total_price_tax_incl = detail["total_price_tax_incl"]
         total_price_tax_excl = detail["total_price_tax_excl"]
+
+        if not line.total_price_tax_incl_present and total_price_tax_incl is None:
+            raise PrestashopError(
+                "Prestashop order detail payload did not include total_price_tax_incl.",
+                status_code=400,
+            )
+
         vat_rate = line.vat_rate
         if (
             not line.vat_rate_present
@@ -950,6 +959,12 @@ class PrestashopClient:
         ):
             vat_rate = self._normalize_supported_vat_rate(
                 self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
+            )
+
+        if not line.vat_rate_present and vat_rate <= 0:
+            raise PrestashopError(
+                "Prestashop order detail payload did not include enough tax data.",
+                status_code=400,
             )
 
         return PrestashopOrderLine(
@@ -964,13 +979,15 @@ class PrestashopClient:
             total_price_tax_incl=total_price_tax_incl
             if total_price_tax_incl is not None
             else line.total_price_tax_incl,
+            total_price_tax_incl_present=line.total_price_tax_incl_present
+            or total_price_tax_incl is not None,
             vat_rate=vat_rate,
             vat_rate_present=line.vat_rate_present or vat_rate > 0,
             override_combination_id=line.override_combination_id,
         )
 
     def _line_requires_detail_enrichment(self, line: PrestashopOrderLine) -> bool:
-        return not line.vat_rate_present
+        return not line.vat_rate_present or not line.total_price_tax_incl_present
 
     def get_customer_address(self, customer_id: int) -> PrestashopAddress | None:
         response = self._request(
