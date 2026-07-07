@@ -829,9 +829,12 @@ def retry_failed_jobs() -> dict:
                 SyncJob.objects.filter(
                     status=SyncJobStatus.PENDING,
                     available_at__lte=timezone.now(),
+                    errors__resolved=False,
+                    errors__error_type=SyncErrorType.TRANSIENT,
                 )
                 .prefetch_related("errors")
                 .order_by("available_at")
+                .distinct()
             )
 
             for job in retryable_jobs:
