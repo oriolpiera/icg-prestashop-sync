@@ -446,7 +446,7 @@ class ManufacturerAdmin(admin.ModelAdmin):
         "sync_required",
         FailedSyncFilter,
     )
-    search_fields = ("name", "icg_code", "prestashop_id")
+    search_fields = ("name", "icg_code")
     actions = (mark_for_resync, retry_entity_sync)
 
 
@@ -522,7 +522,7 @@ class ProductAdmin(admin.ModelAdmin):
         SpecificPriceFilter,
         FailedSyncFilter,
     )
-    search_fields = ("reference", "name", "icg_id", "prestashop_id")
+    search_fields = ("reference", "name", "icg_id")
     filter_horizontal = ("categories",)
     actions = (mark_for_resync, retry_entity_sync, retry_discount_sync, update_from_icg)
     inlines = [CombinationInline]
@@ -571,7 +571,7 @@ class CombinationAdmin(admin.ModelAdmin):
         PrestashopIdFilter,
         FailedSyncFilter,
     )
-    search_fields = ("product__reference", "icg_size", "icg_color", "ean13", "prestashop_id")
+    search_fields = ("product__reference", "icg_size", "icg_color", "ean13")
     actions = (mark_for_resync, retry_entity_sync, update_from_icg)
 
 
@@ -731,7 +731,7 @@ class StockAdmin(admin.ModelAdmin):
 @register(AttributeGroup, site=admin_site)
 class AttributeGroupAdmin(admin.ModelAdmin):
     list_display = ("name", "icg_type", "product", "prestashop_id", "updated_at")
-    search_fields = ("name", "icg_type", "product__reference", "prestashop_id")
+    search_fields = ("name", "icg_type", "product__reference")
     list_filter = ("icg_type",)
 
 
@@ -746,7 +746,7 @@ class AttributeValueAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("attribute_group__icg_type", "texture_synced")
-    search_fields = ("icg_value", "name", "attribute_group__product__reference", "prestashop_id")
+    search_fields = ("icg_value", "name", "attribute_group__product__reference")
     readonly_fields = ("texture_synced",)
 
 
