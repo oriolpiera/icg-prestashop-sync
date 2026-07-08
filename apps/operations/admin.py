@@ -428,8 +428,26 @@ def _sync_error_display(obj):
 _sync_error_display.short_description = "last error"  # type: ignore[attr-defined]
 
 
+class _CaseSensitiveSearchMixin:
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+        if not search_term:
+            return queryset, use_distinct
+        if search_term.startswith('"') and search_term.endswith('"'):
+            term = search_term[1:-1]
+            lookup = "contains"
+        else:
+            term = search_term
+            lookup = "icontains"
+        filters = models.Q()
+        for field in self.search_fields:
+            filters |= models.Q(**{f"{field}__{lookup}": term})
+        queryset = queryset.filter(filters)
+        return queryset, use_distinct
+
+
 @register(Manufacturer, site=admin_site)
-class ManufacturerAdmin(admin.ModelAdmin):
+class ManufacturerAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "icg_code",
@@ -495,7 +513,7 @@ class CombinationInline(admin.TabularInline):
 
 
 @register(Product, site=admin_site)
-class ProductAdmin(admin.ModelAdmin):
+class ProductAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "reference",
         "name",
@@ -545,7 +563,7 @@ _product_discontinued.short_description = "Product discontinued"  # type: ignore
 
 
 @register(Combination, site=admin_site)
-class CombinationAdmin(admin.ModelAdmin):
+class CombinationAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "product",
         "prestashop_id",
@@ -729,14 +747,14 @@ class StockAdmin(admin.ModelAdmin):
 
 
 @register(AttributeGroup, site=admin_site)
-class AttributeGroupAdmin(admin.ModelAdmin):
+class AttributeGroupAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = ("name", "icg_type", "product", "prestashop_id", "updated_at")
     search_fields = ("name", "icg_type", "product__reference", "prestashop_id")
     list_filter = ("icg_type",)
 
 
 @register(AttributeValue, site=admin_site)
-class AttributeValueAdmin(admin.ModelAdmin):
+class AttributeValueAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "attribute_group",
         "icg_value",
