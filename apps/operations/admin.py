@@ -428,8 +428,30 @@ def _sync_error_display(obj):
 _sync_error_display.short_description = "last error"  # type: ignore[attr-defined]
 
 
+class _CaseSensitiveSearchMixin:
+    def get_search_results(self, request, queryset, search_term):
+        if not search_term:
+            return super().get_search_results(request, queryset, search_term)
+        if search_term.startswith('"') and search_term.endswith('"'):
+            term = search_term[1:-1]
+            text_lookup = "contains"
+        else:
+            term = search_term
+            text_lookup = "icontains"
+        is_numeric = term.isdecimal()
+        filters = models.Q()
+        for field in self.search_fields:
+            if field == "prestashop_id":
+                if is_numeric:
+                    filters |= models.Q(**{f"{field}__exact": term})
+            else:
+                filters |= models.Q(**{f"{field}__{text_lookup}": term})
+        queryset = queryset.filter(filters)
+        return queryset, False
+
+
 @register(Manufacturer, site=admin_site)
-class ManufacturerAdmin(admin.ModelAdmin):
+class ManufacturerAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "icg_code",
@@ -446,7 +468,7 @@ class ManufacturerAdmin(admin.ModelAdmin):
         "sync_required",
         FailedSyncFilter,
     )
-    search_fields = ("name", "icg_code")
+    search_fields = ("name", "icg_code", "prestashop_id")
     actions = (mark_for_resync, retry_entity_sync)
 
 
@@ -495,7 +517,7 @@ class CombinationInline(admin.TabularInline):
 
 
 @register(Product, site=admin_site)
-class ProductAdmin(admin.ModelAdmin):
+class ProductAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "reference",
         "name",
@@ -522,7 +544,7 @@ class ProductAdmin(admin.ModelAdmin):
         SpecificPriceFilter,
         FailedSyncFilter,
     )
-    search_fields = ("reference", "name", "icg_id")
+    search_fields = ("reference", "name", "icg_id", "prestashop_id")
     filter_horizontal = ("categories",)
     actions = (mark_for_resync, retry_entity_sync, retry_discount_sync, update_from_icg)
     inlines = [CombinationInline]
@@ -545,7 +567,7 @@ _product_discontinued.short_description = "Product discontinued"  # type: ignore
 
 
 @register(Combination, site=admin_site)
-class CombinationAdmin(admin.ModelAdmin):
+class CombinationAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "product",
         "prestashop_id",
@@ -571,7 +593,7 @@ class CombinationAdmin(admin.ModelAdmin):
         PrestashopIdFilter,
         FailedSyncFilter,
     )
-    search_fields = ("product__reference", "icg_size", "icg_color", "ean13")
+    search_fields = ("product__reference", "icg_size", "icg_color", "ean13", "prestashop_id")
     actions = (mark_for_resync, retry_entity_sync, update_from_icg)
 
 
@@ -729,14 +751,14 @@ class StockAdmin(admin.ModelAdmin):
 
 
 @register(AttributeGroup, site=admin_site)
-class AttributeGroupAdmin(admin.ModelAdmin):
+class AttributeGroupAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = ("name", "icg_type", "product", "prestashop_id", "updated_at")
-    search_fields = ("name", "icg_type", "product__reference")
+    search_fields = ("name", "icg_type", "product__reference", "prestashop_id")
     list_filter = ("icg_type",)
 
 
 @register(AttributeValue, site=admin_site)
-class AttributeValueAdmin(admin.ModelAdmin):
+class AttributeValueAdmin(_CaseSensitiveSearchMixin, admin.ModelAdmin):
     list_display = (
         "attribute_group",
         "icg_value",
@@ -746,7 +768,7 @@ class AttributeValueAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("attribute_group__icg_type", "texture_synced")
-    search_fields = ("icg_value", "name", "attribute_group__product__reference")
+    search_fields = ("icg_value", "name", "attribute_group__product__reference", "prestashop_id")
     readonly_fields = ("texture_synced",)
 
 
