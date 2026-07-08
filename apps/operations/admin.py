@@ -430,20 +430,22 @@ _sync_error_display.short_description = "last error"  # type: ignore[attr-define
 
 class _CaseSensitiveSearchMixin:
     def get_search_results(self, request, queryset, search_term):
-        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
         if not search_term:
-            return queryset, use_distinct
+            return super().get_search_results(request, queryset, search_term)
         if search_term.startswith('"') and search_term.endswith('"'):
             term = search_term[1:-1]
-            lookup = "contains"
+            text_lookup = "contains"
         else:
             term = search_term
-            lookup = "icontains"
+            text_lookup = "icontains"
         filters = models.Q()
         for field in self.search_fields:
-            filters |= models.Q(**{f"{field}__{lookup}": term})
+            if field == "prestashop_id":
+                filters |= models.Q(**{f"{field}__exact": term})
+            else:
+                filters |= models.Q(**{f"{field}__{text_lookup}": term})
         queryset = queryset.filter(filters)
-        return queryset, use_distinct
+        return queryset, False
 
 
 @register(Manufacturer, site=admin_site)
