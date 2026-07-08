@@ -64,7 +64,6 @@ def resolve_remote_attribute_group_match(
         return None
 
     if product is not None and getattr(product, "prestashop_id", None):
-        prefix = f"{product.prestashop_id}_"
         preferred_names = (
             f"{product.prestashop_id}_talla",
             f"{product.prestashop_id}_size",
@@ -78,22 +77,6 @@ def resolve_remote_attribute_group_match(
             ps_id = remote_by_name.get(candidate_name)
             if isinstance(ps_id, int):
                 return RemoteAttributeGroupMatch(ps_id, candidate_name, True)
-
-        product_specific_groups = []
-        for remote_group in remote_groups:
-            group_name = str(remote_group.get("name") or "")
-            ps_id = remote_group.get("ps_id")
-            if not isinstance(ps_id, int):
-                continue
-            if not group_name.startswith(prefix):
-                continue
-            if attribute_group_role(group_name) != "size":
-                continue
-            product_specific_groups.append((group_name, ps_id))
-
-        if product_specific_groups:
-            group_name, ps_id = sorted(product_specific_groups)[0]
-            return RemoteAttributeGroupMatch(ps_id, group_name, True)
 
     for remote_group in remote_groups:
         group_name = str(remote_group.get("name") or "")
