@@ -438,10 +438,12 @@ class _CaseSensitiveSearchMixin:
         else:
             term = search_term
             text_lookup = "icontains"
+        is_numeric = term.isdecimal()
         filters = models.Q()
         for field in self.search_fields:
             if field == "prestashop_id":
-                filters |= models.Q(**{f"{field}__exact": term})
+                if is_numeric:
+                    filters |= models.Q(**{f"{field}__exact": term})
             else:
                 filters |= models.Q(**{f"{field}__{text_lookup}": term})
         queryset = queryset.filter(filters)
