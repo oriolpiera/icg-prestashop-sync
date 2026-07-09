@@ -195,7 +195,7 @@ def _persist_price_row(row) -> tuple[str | None, datetime, str | None]:
     icg_size = _escape(str(row[2]))
     icg_color = _escape(str(row[3]))
     vat_rate = row[8]
-    amount_ex_vat = row[10]
+    amount_ex_vat = row[9]
     discount_percent = row[5]
 
     if not icg_id:

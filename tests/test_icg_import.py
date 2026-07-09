@@ -441,7 +441,7 @@ class TestPriceImport:
         assert result["processed"] == 1
         assert Price.objects.count() == 1
         price = Price.objects.get(combination=comb)
-        assert price.amount_ex_vat == 90.00
+        assert price.amount_ex_vat == 100.00
         assert price.vat_rate == 21
         _assert_local_naive_dt(price.last_icg_modified_date, datetime(2026, 1, 20, 12, 0, 0))
         assert SyncJob.objects.filter(job_type=SyncJobType.IMPORT_PRICES).count() == 1
@@ -474,7 +474,7 @@ class TestPriceImport:
             import_prices()
 
         price = Price.objects.get(combination=comb)
-        assert price.amount_ex_vat == 85.00
+        assert price.amount_ex_vat == 100.00
 
     def test_price_import_updates_last_icg_modified_date_without_new_sync_job(self):
         man = _make_manufacturer()
@@ -760,7 +760,7 @@ class TestTargetedRefresh:
 
         assert result["status"] == "updated"
         price.refresh_from_db()
-        assert price.amount_ex_vat == 90.00
+        assert price.amount_ex_vat == 100.00
 
     def test_refresh_stock_from_icg_updates_stock(self):
         man = _make_manufacturer()
