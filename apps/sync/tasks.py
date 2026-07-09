@@ -377,6 +377,8 @@ def export_products(limit: int = 100) -> dict:
 
 @shared_task
 def export_combinations(limit: int = 1000) -> dict:
+    client = PrestashopClient()
+
     Combination.objects.filter(
         sync_required=True,
         product__discontinued=True,
@@ -403,7 +405,7 @@ def export_combinations(limit: int = 1000) -> dict:
         job_type=SyncJobType.EXPORT_COMBINATION,
         entity_type="combination",
         entity_key_fn=lambda c: f"{c.product.reference}/{c.icg_size}/{c.icg_color}",
-        export_fn=export_combination,
+        export_fn=lambda combination_id: export_combination(combination_id, client=client),
         payload_fn=lambda c: {
             "entity_id": c.pk,
             "combination_id": c.pk,
@@ -417,6 +419,8 @@ def export_combinations(limit: int = 1000) -> dict:
 
 @shared_task
 def export_prices(limit: int = 1000) -> dict:
+    client = PrestashopClient()
+
     Price.objects.filter(
         sync_required=True,
         combination__active=False,
@@ -453,7 +457,7 @@ def export_prices(limit: int = 1000) -> dict:
             f"{p.combination.product.reference}/{p.combination.icg_size}/"
             f"{p.combination.icg_color}"
         ),
-        export_fn=export_price,
+        export_fn=lambda price_id: export_price(price_id, client=client),
         payload_fn=lambda p: {
             "entity_id": p.pk,
             "price_id": p.pk,

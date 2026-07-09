@@ -589,7 +589,7 @@ class TestPriceExportTask:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        def fake_export_price(price_id):
+        def fake_export_price(price_id, client=None):
             p = Price.objects.get(pk=price_id)
             p.sync_required = False
             p.last_sync_error = ""
@@ -611,13 +611,46 @@ class TestPriceExportTask:
         price.refresh_from_db()
         assert price.sync_required is False
 
+    def test_task_reuses_same_prestashop_client_for_batch(self, monkeypatch):
+        _make_tax_mapping(vat_rate=21, ps_group_id=1)
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination_a = _make_combination(product=product, icg_size="M", icg_color="Red")
+        combination_b = _make_combination(product=product, icg_size="L", icg_color="Blue")
+        _make_price(combination_a, amount_ex_vat=90.00, vat_rate=21)
+        _make_price(combination_b, amount_ex_vat=95.00, vat_rate=21)
+
+        client_ids: list[int] = []
+
+        def fake_export_price(price_id, client=None):
+            assert client is not None
+            client_ids.append(id(client))
+            p = Price.objects.get(pk=price_id)
+            p.sync_required = False
+            p.last_sync_error = ""
+            p.last_synced_at = p.updated_at
+            p.save()
+            return {
+                "price_id": price_id,
+                "product_prestashop_id": 22,
+                "combination_prestashop_id": 55,
+            }
+
+        monkeypatch.setattr("apps.sync.tasks.export_price", fake_export_price)
+
+        result = export_prices()
+
+        assert result == {"status": "success", "processed": 2, "failed": 0}
+        assert len(client_ids) == 2
+        assert len(set(client_ids)) == 1
+
     def test_task_marks_job_failed_when_export_raises(self, monkeypatch):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
         price = _make_price(combination)
 
-        def fake_export_price(price_id):
+        def fake_export_price(price_id, client=None):
             p = Price.objects.get(pk=price_id)
             p.last_sync_error = format_sync_error(PrestashopError("boom", status_code=503))
             p.save(update_fields=["last_sync_error", "updated_at"])
@@ -661,3 +694,35 @@ class TestPriceExportTask:
         assert SyncJob.objects.count() == 0
         price.refresh_from_db()
         assert price.sync_required is False
+
+
+@pytest.mark.django_db
+class TestPrestashopClientCaching:
+    def test_list_attribute_groups_uses_client_cache(self, monkeypatch, settings):
+        settings.PRESTASHOP_BASE_URL = "http://prestashop.test"
+        settings.PRESTASHOP_API_KEY = "key"
+        settings.PRESTASHOP_HOST = "prestashop.test"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=Mock())
+        response = _response(
+            "<prestashop><product_options>"
+            "<product_option><id>10</id><name>"
+            "<language id='1'>Size</language>"
+            "</name></product_option>"
+            "</product_options></prestashop>"
+        )
+        request_calls = []
+
+        def fake_request(*args, **kwargs):
+            request_calls.append((args, kwargs))
+            return response
+
+        monkeypatch.setattr(client, "_request", fake_request)
+
+        first = client.list_attribute_groups()
+        second = client.list_attribute_groups()
+
+        assert first == [{"ps_id": 10, "name": "Size"}]
+        assert second == first
+        assert len(request_calls) == 1
