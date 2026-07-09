@@ -496,10 +496,16 @@ def ensure_attribute_group(
                 except IntegrityError:
                     existing.refresh_from_db(fields=["prestashop_id", "name"])
                     logger.warning(
-                        "Cannot remap color group for %s to PS #%d — "
-                        "prestashop_id already claimed. Keeping cached value.",
+                        "Cannot remap color group for %s to PS #%d (%s) — "
+                        "prestashop_id already claimed by another group. "
+                        "Combination will use cached group %s (PS #%d). "
+                        "Run 'manage.py import_missing_color_groups --apply' "
+                        "to resolve stale mappings in bulk.",
                         product.reference,
                         remote_match.prestashop_id,
+                        expected_name,
+                        existing.name,
+                        existing.prestashop_id,
                     )
             return existing.prestashop_id
         return existing.prestashop_id
