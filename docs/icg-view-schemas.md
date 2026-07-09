@@ -80,7 +80,7 @@ Tarifa;Codarticulo;Talla;Color;Pbruto_iva;Dto_porc;Pneto_iva;Dto_impote_iva;Iva;
 | 3         | `Combination.icg_color` (lookup)  |
 | 5         | `Product.discount_percent`        |
 | 8         | `Price.vat_rate`                  |
-| 10        | `Price.amount_ex_vat`             |
+| 9         | `Price.amount_ex_vat`             |
 | 12        | `modified_at` (cursor)            |
 
 ---
@@ -123,4 +123,4 @@ Codarticulo;Talla;Color;Codalmacen;Nombre_alm;Stock_real;Stock_Aservir;Stock_dis
 - All three views are queried with `SELECT *` and cursor-based pagination on `Fecha_Modificado` / `Fecha_modificado`.
 - The `***` value in Talla/Color means "no value" (default combination).
 - `Dto_porc` (discount %) is an integer in ICG (e.g. `30` = 30%).
-- `amount_ex_vat` in the importer maps to `Pneto_s_iva` (net price excl. VAT), despite the field name suggesting gross.
+- `amount_ex_vat` in the importer maps to `Pbruto_s_iva` (gross price excl. VAT), which is the correct base price before discount. The discount is applied separately by Prestashop via `specific_price`.
