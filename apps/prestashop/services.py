@@ -479,7 +479,7 @@ def ensure_attribute_group(
         product_specific = False
 
     if existing is not None:
-        if _should_revalidate_local_color_group(existing, product):
+        if icg_type == "color" and _should_revalidate_local_color_group(existing, product):
             remote_groups = client.list_attribute_groups()
             remote_match = resolve_remote_attribute_group_match(
                 remote_groups,
@@ -488,6 +488,7 @@ def ensure_attribute_group(
             )
             expected_name = _preferred_color_group_name(product)
             if remote_match is not None and remote_match.name == expected_name:
+                old_ps_id = existing.prestashop_id
                 try:
                     with transaction.atomic():
                         existing.prestashop_id = remote_match.prestashop_id
@@ -507,6 +508,17 @@ def ensure_attribute_group(
                         existing.name,
                         existing.prestashop_id,
                     )
+                else:
+                    if old_ps_id != remote_match.prestashop_id:
+                        cleared = existing.values.all().delete()[0]
+                        logger.info(
+                            "Remapped color group for %s from PS #%d to #%d. "
+                            "Cleared %d stale attribute value cache(s).",
+                            product.reference,
+                            old_ps_id,
+                            remote_match.prestashop_id,
+                            cleared,
+                        )
             return existing.prestashop_id
         return existing.prestashop_id
 

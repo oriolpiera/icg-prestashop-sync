@@ -245,11 +245,17 @@ class TestEnsureAttributeGroup:
     def test_color_group_revalidates_cached_mismatched_name(self):
         product = _make_product(reference="0110026")
         _make_product_prestashop_id(product, 2574)
-        AttributeGroup.objects.create(
+        stale_ag = AttributeGroup.objects.create(
             icg_type="color",
             name="0110026_color",
             prestashop_id=30,
             product=product,
+        )
+        AttributeValue.objects.create(
+            attribute_group=stale_ag,
+            icg_value="Azul",
+            name="Azul",
+            prestashop_id=999,
         )
         client = Mock()
         client.list_attribute_groups.return_value = [
@@ -263,6 +269,7 @@ class TestEnsureAttributeGroup:
         ag = AttributeGroup.objects.get(icg_type="color", product=product)
         assert ag.prestashop_id == 77
         assert ag.name == "2574_color"
+        assert not AttributeValue.objects.filter(attribute_group=ag).exists()
 
     def test_color_group_keeps_cached_when_preferred_remote_not_found(self):
         product = _make_product(reference="0110026")
@@ -332,6 +339,22 @@ class TestEnsureAttributeGroup:
         ag = AttributeGroup.objects.get(icg_type="color", product=product_b)
         assert ag.prestashop_id == 30
         assert ag.name == "REF_B_color"
+
+    def test_size_group_never_triggers_color_revalidation(self):
+        product = _make_product(reference="REF001")
+        _make_product_prestashop_id(product, 2574)
+        AttributeGroup.objects.create(
+            icg_type="size",
+            name="2574_talla",
+            prestashop_id=50,
+            product=product,
+        )
+        client = Mock()
+
+        ps_id = ensure_attribute_group("size", client=client, product=product)
+
+        assert ps_id == 50
+        client.list_attribute_groups.assert_not_called()
 
 
 @pytest.mark.django_db
