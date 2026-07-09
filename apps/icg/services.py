@@ -201,6 +201,13 @@ class ICGCatalogReader:
             )
             return rows
 
+    def fetch_all_price_rows(self) -> list:
+        return self._fetch_rows(
+            "SELECT Codarticulo, Talla, Color, Iva, Pbruto_s_iva "
+            "FROM view_imp_preus "
+            "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC"
+        )
+
     def fetch_products_after(
         self, cursor_at: datetime | None = None, last_source_key: str = "", limit: int = 0
     ) -> tuple[list, bool]:

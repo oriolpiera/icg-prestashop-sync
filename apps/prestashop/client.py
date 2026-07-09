@@ -1257,7 +1257,7 @@ class PrestashopClient:
     def list_attribute_groups(self) -> list[dict[str, str | int]]:
         """Return all attribute groups with default-language name and PS ID."""
         if self._attribute_groups_cache is not None:
-            return self._attribute_groups_cache
+            return list(self._attribute_groups_cache)
 
         response = self._request("GET", "product_options", params={"display": "full"})
         root = self._parse_xml(response.text)
@@ -1274,7 +1274,7 @@ class PrestashopClient:
                     break
             result.append({"ps_id": int(gid), "name": name_in_default_lang})
         self._attribute_groups_cache = result
-        return result
+        return list(result)
 
     def _has_reserved_filter_chars(self, value: str) -> bool:
         return bool({char for char in value if char in self._FILTER_RESERVED_CHARS})

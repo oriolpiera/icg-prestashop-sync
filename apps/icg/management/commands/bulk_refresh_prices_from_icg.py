@@ -44,10 +44,7 @@ class Command(BaseCommand):
         reader = ICGCatalogReader()
 
         try:
-            rows = reader._fetch_rows(
-                "SELECT * FROM view_imp_preus "
-                "ORDER BY Fecha_modificado ASC, CAST(Codarticulo AS INT) ASC",
-            )
+            rows = reader.fetch_all_price_rows()
         except Exception as e:
             logger.error(f"Error fetching prices from ICG: {e}")
             self.stderr.write(self.style.ERROR(f"Failed to fetch prices: {e}"))
@@ -61,13 +58,13 @@ class Command(BaseCommand):
 
         for row in rows:
             total += 1
-            icg_id = int(row[1])
+            icg_id = int(row[0])
 
             if icg_id not in visible_icg_ids:
                 continue
 
-            size = str(row[2]).strip()
-            color = str(row[3]).strip()
+            size = str(row[1]).strip()
+            color = str(row[2]).strip()
             key = (icg_id, size, color)
 
             combo = combo_map.get(key)
@@ -80,8 +77,8 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            new_amount = row[9]
-            new_vat = row[8]
+            new_vat = row[3]
+            new_amount = row[4]
 
             if dry_run:
                 old_amount = price_obj.amount_ex_vat
@@ -90,7 +87,7 @@ class Command(BaseCommand):
                         f"  Would update {icg_id}/{size}/{color}: amount "
                         f"{old_amount} -> {new_amount}, vat {price_obj.vat_rate} -> {new_vat}"
                     )
-                updated += 1
+                    updated += 1
             else:
                 changed = False
                 if price_obj.amount_ex_vat != new_amount:
