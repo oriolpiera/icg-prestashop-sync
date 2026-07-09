@@ -301,6 +301,38 @@ class TestEnsureAttributeGroup:
         assert ps_id == 77
         client.list_attribute_groups.assert_not_called()
 
+    def test_color_group_keeps_cached_when_preferred_ps_id_conflicts(self):
+        mfr_a = _make_manufacturer(icg_code="M-2001", prestashop_id=201)
+        product_a = _make_product(reference="REF_A", icg_id=2001, manufacturer=mfr_a)
+        _make_product_prestashop_id(product_a, 100)
+        mfr_b = _make_manufacturer(icg_code="M-2002", prestashop_id=202)
+        product_b = _make_product(reference="REF_B", icg_id=2002, manufacturer=mfr_b)
+        _make_product_prestashop_id(product_b, 200)
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="100_color",
+            prestashop_id=77,
+            product=product_a,
+        )
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="REF_B_color",
+            prestashop_id=30,
+            product=product_b,
+        )
+        client = Mock()
+        client.list_attribute_groups.return_value = [
+            {"ps_id": 77, "name": "200_color"},
+            {"ps_id": 78, "name": "REF_B_color"},
+        ]
+
+        ps_id = ensure_attribute_group("color", client=client, product=product_b)
+
+        assert ps_id == 30
+        ag = AttributeGroup.objects.get(icg_type="color", product=product_b)
+        assert ag.prestashop_id == 30
+        assert ag.name == "REF_B_color"
+
 
 @pytest.mark.django_db
 class TestEnsureAttributeValue:

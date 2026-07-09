@@ -5,6 +5,7 @@ import time as time_module
 from datetime import UTC
 
 import barcodenumber
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -487,9 +488,19 @@ def ensure_attribute_group(
             )
             expected_name = _preferred_color_group_name(product)
             if remote_match is not None and remote_match.name == expected_name:
-                existing.prestashop_id = remote_match.prestashop_id
-                existing.name = expected_name
-                existing.save(update_fields=["prestashop_id", "name", "updated_at"])
+                try:
+                    with transaction.atomic():
+                        existing.prestashop_id = remote_match.prestashop_id
+                        existing.name = expected_name
+                        existing.save(update_fields=["prestashop_id", "name", "updated_at"])
+                except IntegrityError:
+                    existing.refresh_from_db(fields=["prestashop_id", "name"])
+                    logger.warning(
+                        "Cannot remap color group for %s to PS #%d — "
+                        "prestashop_id already claimed. Keeping cached value.",
+                        product.reference,
+                        remote_match.prestashop_id,
+                    )
             return existing.prestashop_id
         return existing.prestashop_id
 
