@@ -330,3 +330,46 @@ class TestImportMissingColorGroupsCommand:
         ag_b = AttributeGroup.objects.get(icg_type="color", product=product_b)
         assert ag_b.prestashop_id == 88
         assert ag_b.name == "200_color"
+
+    def test_resolve_conflicts_swaps_stale_pairs(self):
+        product_a = _make_product(reference="REF_A", prestashop_id=100, icg_id=2001)
+        product_b = _make_product(reference="REF_B", prestashop_id=200, icg_id=2002)
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="REF_A_color",
+            prestashop_id=77,
+            product=product_a,
+        )
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="REF_B_color",
+            prestashop_id=88,
+            product=product_b,
+        )
+
+        with patch(
+            "apps.sync.management.commands.import_missing_color_groups.PrestashopClient"
+        ) as mock_client_cls:
+            client = mock_client_cls.return_value
+            client.list_attribute_groups.return_value = [
+                {"ps_id": 77, "name": "200_color"},
+                {"ps_id": 88, "name": "100_color"},
+            ]
+
+            out = StringIO()
+            call_command(
+                "import_missing_color_groups",
+                "--apply",
+                "--resolve-conflicts",
+                stdout=out,
+            )
+
+        assert "Resolved (swapped stale pairs): 1" in out.getvalue()
+        assert "Updated (stale name): 2" in out.getvalue()
+        assert "Conflicts: 0" in out.getvalue()
+        ag_a = AttributeGroup.objects.get(icg_type="color", product=product_a)
+        assert ag_a.prestashop_id == 88
+        assert ag_a.name == "100_color"
+        ag_b = AttributeGroup.objects.get(icg_type="color", product=product_b)
+        assert ag_b.prestashop_id == 77
+        assert ag_b.name == "200_color"
