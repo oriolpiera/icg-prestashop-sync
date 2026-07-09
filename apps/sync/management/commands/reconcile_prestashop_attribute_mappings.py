@@ -68,17 +68,51 @@ class Command(BaseCommand):
                 "group or value no longer exists remotely."
             ),
         )
+        parser.add_argument(
+            "--group",
+            help=(
+                "Limit reconciliation to a single group. "
+                "Accepts a product reference (e.g. 0490065), a group name "
+                "(e.g. 6027_color), or a group primary key."
+            ),
+        )
+
+    @staticmethod
+    def _filter_groups(groups, term):
+        if term.isdigit():
+            by_pk = [g for g in groups if str(g.pk) == term]
+            if by_pk:
+                return by_pk
+        by_name = [g for g in groups if g.name == term]
+        if by_name:
+            return by_name
+        by_ref = [g for g in groups if g.product and g.product.reference == term]
+        if by_ref:
+            return by_ref
+        return []
 
     def handle(self, *args, **options):
         client = PrestashopClient()
         apply = options["apply"]
         prune_missing_local = options["prune_missing_local"]
+        group_filter = options.get("group")
 
         remote_groups = client.list_attribute_groups()
         remote_group_ids = {
             int(group["ps_id"]) for group in remote_groups if isinstance(group.get("ps_id"), int)
         }
         groups = list(AttributeGroup.objects.select_related("product").all())
+
+        if group_filter:
+            groups = self._filter_groups(groups, group_filter)
+            if not groups:
+                self.stderr.write(self.style.WARNING(f"No groups matched filter: {group_filter}"))
+                return
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Filtered to {len(groups)} group(s): " + ", ".join(str(g) for g in groups)
+                )
+            )
 
         group_updates: dict[int, int] = {}
         resolved_group_targets: dict[int, int] = {}
