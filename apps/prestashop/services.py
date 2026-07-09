@@ -489,11 +489,14 @@ def ensure_attribute_group(
             expected_name = _preferred_color_group_name(product)
             if remote_match is not None and remote_match.name == expected_name:
                 old_ps_id = existing.prestashop_id
+                clearing_values = old_ps_id != remote_match.prestashop_id
                 try:
                     with transaction.atomic():
                         existing.prestashop_id = remote_match.prestashop_id
                         existing.name = expected_name
                         existing.save(update_fields=["prestashop_id", "name", "updated_at"])
+                        if clearing_values:
+                            cleared = existing.values.all().delete()[0]
                 except IntegrityError:
                     existing.refresh_from_db(fields=["prestashop_id", "name"])
                     logger.warning(
@@ -509,8 +512,7 @@ def ensure_attribute_group(
                         existing.prestashop_id,
                     )
                 else:
-                    if old_ps_id != remote_match.prestashop_id:
-                        cleared = existing.values.all().delete()[0]
+                    if clearing_values:
                         logger.info(
                             "Remapped color group for %s from PS #%d to #%d. "
                             "Cleared %d stale attribute value cache(s).",

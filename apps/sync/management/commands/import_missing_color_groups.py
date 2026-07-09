@@ -111,8 +111,10 @@ class Command(BaseCommand):
                                     existing.save(
                                         update_fields=["prestashop_id", "name", "updated_at"]
                                     )
+                                    existing.values.all().delete()
                                     holder.prestashop_id = stale_ps_id
                                     holder.save(update_fields=["prestashop_id", "updated_at"])
+                                    holder.values.all().delete()
                                 resolved += 1
                                 holder_ref = holder.product.reference if holder.product else "?"
                                 self.stdout.write(
