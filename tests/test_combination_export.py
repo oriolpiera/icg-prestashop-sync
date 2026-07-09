@@ -731,7 +731,7 @@ class TestCombinationExportTask:
         _make_combination(product=product, icg_size="M", icg_color="Red", ean13="111")
         _make_combination(product=product, icg_size="M", icg_color="Blue", ean13="222")
 
-        def fake_export(combination_id):
+        def fake_export(combination_id, client=None):
             c = Combination.objects.get(pk=combination_id)
             c.prestashop_id = c.pk + 100
             c.sync_required = False
@@ -753,7 +753,7 @@ class TestCombinationExportTask:
         _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
 
-        def fake_export(combination_id):
+        def fake_export(combination_id, client=None):
             c = Combination.objects.get(pk=combination_id)
             c.last_sync_error = format_sync_error(PrestashopError("boom", status_code=503))
             c.save(update_fields=["last_sync_error", "updated_at"])
@@ -776,7 +776,7 @@ class TestCombinationExportTask:
         first = _make_combination(product=product, icg_size="M", icg_color="Red")
         second = _make_combination(product=product, icg_size="L", icg_color="Blue")
 
-        def fake_export(combination_id):
+        def fake_export(combination_id, client=None):
             combination = Combination.objects.get(pk=combination_id)
             combination.last_sync_error = format_sync_error(
                 PrestashopError("boom", status_code=503)

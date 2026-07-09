@@ -154,6 +154,7 @@ class PrestashopClient:
 
     def __init__(self, session: Session | None = None) -> None:
         self.session = session or requests.Session()
+        self._attribute_groups_cache: list[dict[str, str | int]] | None = None
 
     def credentials(self) -> PrestashopCredentials:
         typed_settings = cast(PrestashopSettings, settings)
@@ -1223,7 +1224,10 @@ class PrestashopClient:
             raise PrestashopError(
                 "Prestashop create attribute group response did not include an id."
             )
-        return int(group_id)
+        created_group_id = int(group_id)
+        if self._attribute_groups_cache is not None:
+            self._attribute_groups_cache.append({"ps_id": created_group_id, "name": name})
+        return created_group_id
 
     def list_attribute_values(self, group_ps_id: int) -> list[dict[str, str | int]]:
         """Return all attribute values for a group, with default-language name and PS ID."""
@@ -1252,6 +1256,9 @@ class PrestashopClient:
 
     def list_attribute_groups(self) -> list[dict[str, str | int]]:
         """Return all attribute groups with default-language name and PS ID."""
+        if self._attribute_groups_cache is not None:
+            return list(self._attribute_groups_cache)
+
         response = self._request("GET", "product_options", params={"display": "full"})
         root = self._parse_xml(response.text)
         default_lang = str(self.credentials().default_language_id)
@@ -1266,7 +1273,8 @@ class PrestashopClient:
                     name_in_default_lang = lang.text or ""
                     break
             result.append({"ps_id": int(gid), "name": name_in_default_lang})
-        return result
+        self._attribute_groups_cache = result
+        return list(result)
 
     def _has_reserved_filter_chars(self, value: str) -> bool:
         return bool({char for char in value if char in self._FILTER_RESERVED_CHARS})
