@@ -35,6 +35,8 @@ def expected_local_attribute_group_name(icg_type: str, product=None) -> str:
     if icg_type == "color":
         if product is None:
             raise ValueError("Color attribute groups require a product.")
+        if getattr(product, "prestashop_id", None):
+            return f"{product.prestashop_id}_color"
         return f"{product.reference}_color"
     return "Size"
 

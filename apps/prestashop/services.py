@@ -443,6 +443,19 @@ ATTRIBUTE_GROUP_NAMES = {
 }
 
 
+def _preferred_color_group_name(product) -> str | None:
+    if not getattr(product, "prestashop_id", None):
+        return None
+    return f"{product.prestashop_id}_color"
+
+
+def _should_revalidate_local_color_group(existing, product) -> bool:
+    if not getattr(product, "prestashop_id", None):
+        return False
+    preferred = _preferred_color_group_name(product)
+    return existing.name != preferred
+
+
 def ensure_attribute_group(
     icg_type: str,
     *,
@@ -465,6 +478,19 @@ def ensure_attribute_group(
         product_specific = False
 
     if existing is not None:
+        if _should_revalidate_local_color_group(existing, product):
+            remote_groups = client.list_attribute_groups()
+            remote_match = resolve_remote_attribute_group_match(
+                remote_groups,
+                icg_type="color",
+                product=product,
+            )
+            expected_name = _preferred_color_group_name(product)
+            if remote_match is not None and remote_match.name == expected_name:
+                existing.prestashop_id = remote_match.prestashop_id
+                existing.name = expected_name
+                existing.save(update_fields=["prestashop_id", "name", "updated_at"])
+            return existing.prestashop_id
         return existing.prestashop_id
 
     display_name = expected_local_attribute_group_name(icg_type, product)

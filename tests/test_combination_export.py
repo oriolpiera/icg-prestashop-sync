@@ -10,6 +10,7 @@ from apps.catalog.models import (
     Manufacturer,
     Product,
 )
+from apps.prestashop.attribute_groups import expected_local_attribute_group_name
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.prestashop.services import (
     ensure_attribute_group,
@@ -164,10 +165,8 @@ class TestEnsureAttributeGroup:
 
         assert ps_id == 20
         ag = AttributeGroup.objects.get(icg_type="color", product=product)
-        assert ag.name == f"{product.reference}_color"
-        client.create_attribute_group.assert_called_once_with(
-            f"{product.reference}_color", is_color_group=True
-        )
+        assert ag.name == "2945_color"
+        client.create_attribute_group.assert_called_once_with("2945_color", is_color_group=True)
 
     def test_color_group_reuses_existing_db_group(self):
         product = _make_product()
@@ -195,7 +194,7 @@ class TestEnsureAttributeGroup:
         assert ps_id == 77
         ag = AttributeGroup.objects.get(icg_type="color", product=product)
         assert ag.prestashop_id == 77
-        assert ag.name == f"{product.reference}_color"
+        assert ag.name == "2945_color"
         client.create_attribute_group.assert_not_called()
 
     def test_size_group_prefers_existing_product_specific_remote_group(self):
@@ -227,6 +226,80 @@ class TestEnsureAttributeGroup:
         assert ps_id == 42
         assert AttributeGroup.objects.filter(icg_type="size", product=product).exists() is False
         client.create_attribute_group.assert_not_called()
+
+    def test_expected_local_color_group_name_prefers_prestashop_id(self):
+        product = _make_product(reference="0110026")
+        _make_product_prestashop_id(product, 2574)
+
+        name = expected_local_attribute_group_name("color", product)
+
+        assert name == "2574_color"
+
+    def test_expected_local_color_group_name_falls_back_to_reference(self):
+        product = _make_product(reference="0110026")
+
+        name = expected_local_attribute_group_name("color", product)
+
+        assert name == "0110026_color"
+
+    def test_color_group_revalidates_cached_mismatched_name(self):
+        product = _make_product(reference="0110026")
+        _make_product_prestashop_id(product, 2574)
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="0110026_color",
+            prestashop_id=30,
+            product=product,
+        )
+        client = Mock()
+        client.list_attribute_groups.return_value = [
+            {"ps_id": 77, "name": "2574_color"},
+            {"ps_id": 78, "name": "0110026_color"},
+        ]
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 77
+        ag = AttributeGroup.objects.get(icg_type="color", product=product)
+        assert ag.prestashop_id == 77
+        assert ag.name == "2574_color"
+
+    def test_color_group_keeps_cached_when_preferred_remote_not_found(self):
+        product = _make_product(reference="0110026")
+        _make_product_prestashop_id(product, 2574)
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="0110026_color",
+            prestashop_id=30,
+            product=product,
+        )
+        client = Mock()
+        client.list_attribute_groups.return_value = [
+            {"ps_id": 78, "name": "0110026_color"},
+        ]
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 30
+        ag = AttributeGroup.objects.get(icg_type="color", product=product)
+        assert ag.prestashop_id == 30
+        assert ag.name == "0110026_color"
+
+    def test_color_group_skips_revalidation_when_name_already_matches(self):
+        product = _make_product(reference="0110026")
+        _make_product_prestashop_id(product, 2574)
+        AttributeGroup.objects.create(
+            icg_type="color",
+            name="2574_color",
+            prestashop_id=77,
+            product=product,
+        )
+        client = Mock()
+
+        ps_id = ensure_attribute_group("color", client=client, product=product)
+
+        assert ps_id == 77
+        client.list_attribute_groups.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -559,7 +632,7 @@ class TestCombinationExport:
         size_ag = AttributeGroup.objects.get(icg_type="size", product__isnull=True)
         color_ag = AttributeGroup.objects.get(icg_type="color", product=product)
         assert size_ag.name == "Size"
-        assert color_ag.name == f"{product.reference}_color"
+        assert color_ag.name == "22_color"
 
     def test_export_requires_product_mapping(self):
         product = _make_product()
