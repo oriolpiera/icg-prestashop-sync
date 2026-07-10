@@ -529,16 +529,17 @@ class PrestashopClient:
             product_node, "link_rewrite", self._slug(product), fill_all_languages=is_create
         )
 
-        effective_default = (
-            str(category_default_id)
-            if category_default_id is not None
-            else product_node.findtext("id_category_default")
-            or str(self.credentials().default_category_id)
-        )
-        self._set_text(product_node, "id_category_default", effective_default)
+        if is_create:
+            effective_default = (
+                str(category_default_id)
+                if category_default_id is not None
+                else product_node.findtext("id_category_default")
+                or str(self.credentials().default_category_id)
+            )
+            self._set_text(product_node, "id_category_default", effective_default)
 
-        effective_categories = category_ids or [int(effective_default)]
-        self._set_category_association(product_node, effective_categories)
+            effective_categories = category_ids or [int(effective_default)]
+            self._set_category_association(product_node, effective_categories)
 
     def _set_category_association(
         self, product_node: ElementTree.Element, category_ids: list[int]
