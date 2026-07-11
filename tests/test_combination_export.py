@@ -608,6 +608,42 @@ class TestCombinationExport:
         assert unique_av is not None
         assert unique_av.prestashop_id == 300
 
+    def test_export_maps_both_placeholders_to_existing_combination(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        AttributeGroup.objects.create(
+            icg_type="size", name="Size", prestashop_id=50, product=None
+        )
+
+        combination = _make_combination(product=product, icg_size="***", icg_color="***")
+        assert combination.prestashop_id is None
+
+        existing_ps_combination = Mock()
+        existing_ps_combination.combination_id = 77
+        existing_ps_combination.attribute_value_ids = [300]
+
+        client = _make_mock_client()
+        client.find_attribute_value_id.return_value = None
+        client.create_attribute_value.return_value = 300
+        client.list_combinations_for_product.return_value = [existing_ps_combination]
+        client.upsert_combination.return_value = 77
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result["prestashop_combination_id"] == 77
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "",
+            True,
+            [300],
+            prestashop_id=77,
+            price="0",
+        )
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 77
+        assert combination.sync_required is False
+
     def test_export_cleans_single_placeholder_axis_even_when_mapped(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
