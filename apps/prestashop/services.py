@@ -693,6 +693,12 @@ def _find_value_in_duplicate_groups(
         )
         try:
             client.move_attribute_value_to_group(found, canonical_ps_id)
+
+            stale_av = AttributeValue.objects.filter(prestashop_id=found).first()
+            if stale_av is not None and stale_av.attribute_group_id != ag.pk:
+                stale_av.attribute_group = ag
+                stale_av.save(update_fields=["attribute_group", "updated_at"])
+
             # Also trigger merge of anything left in that orphan
             _merge_duplicate_remote_groups(canonical_ps_id, remote_groups, client)
         except PrestashopError as exc:
