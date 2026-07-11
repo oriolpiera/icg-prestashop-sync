@@ -114,6 +114,7 @@ def _response(payload: str, status_code: int = 200):
 def _make_mock_client(**overrides):
     client = Mock(**overrides)
     client.list_combinations_for_product.return_value = []
+    client.list_attribute_groups.return_value = []
     return client
 
 

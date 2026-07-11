@@ -1695,6 +1695,30 @@ class PrestashopClient:
     def delete_attribute_value(self, value_ps_id: int) -> None:
         self._request("DELETE", "product_option_values", resource_id=value_ps_id)
 
+    def move_attribute_value_to_group(self, value_ps_id: int, new_group_ps_id: int) -> None:
+        response = self._request("GET", "product_option_values", resource_id=value_ps_id)
+        value_root = self._parse_xml(response.text)
+        value_node = value_root.find("./product_option_value")
+        if value_node is None:
+            raise PrestashopError(
+                "Prestashop product option value payload did not include a "
+                "product_option_value node."
+            )
+        self._set_text(value_node, "id_attribute_group", str(new_group_ps_id))
+        self._request(
+            "PUT",
+            "product_option_values",
+            resource_id=value_ps_id,
+            data=ElementTree.tostring(value_root, encoding="unicode"),
+        )
+        # Clear group caches so the next list_attribute_values reflects the move.
+        self._attribute_groups_cache = None
+        self._combinations_cache.clear()
+
+    def delete_attribute_group(self, group_id: int) -> None:
+        self._request("DELETE", "product_options", resource_id=group_id)
+        self._attribute_groups_cache = None
+
     def delete_specific_price(self, specific_price_id: int) -> None:
         self._request("DELETE", "specific_prices", resource_id=specific_price_id)
 

@@ -521,6 +521,7 @@ def ensure_attribute_group(
                             remote_match.prestashop_id,
                             cleared,
                         )
+                _merge_duplicate_remote_groups(existing.prestashop_id, remote_groups, client)
             return existing.prestashop_id
         return existing.prestashop_id
 
@@ -553,7 +554,169 @@ def ensure_attribute_group(
         product=local_product,
         defaults={"name": local_name, "prestashop_id": ps_id},
     )
+    _merge_duplicate_remote_groups(ps_id, remote_groups, client)
     return ps_id
+
+
+def _merge_duplicate_remote_groups(
+    canonical_ps_id: int,
+    remote_groups: list[dict[str, str | int]],
+    client: PrestashopClient,
+) -> None:
+    """Detect and merge any remote groups that share the same name as the canonical group.
+
+    When the canonical group was matched by name, other groups with the identical
+    name may exist (left behind by previous sync runs).  Their values are moved into
+    the canonical group and the orphan groups are deleted.
+    """
+    canonical_name = None
+    for g in remote_groups:
+        if g.get("ps_id") == canonical_ps_id:
+            canonical_name = str(g.get("name", ""))
+            break
+
+    if not canonical_name:
+        return
+
+    orphan_ids = []
+    for g in remote_groups:
+        if g.get("ps_id") != canonical_ps_id and g.get("name") == canonical_name:
+            gid = g.get("ps_id")
+            if isinstance(gid, int):
+                orphan_ids.append(gid)
+
+    if not orphan_ids:
+        return
+
+    logger.info(
+        "Merging %d duplicate remote group(s) for %r into PS %d.",
+        len(orphan_ids),
+        canonical_name,
+        canonical_ps_id,
+    )
+
+    for orphan_id in orphan_ids:
+        try:
+            orphan_values = client.list_attribute_values(orphan_id)
+        except PrestashopError:
+            logger.warning("Cannot list values for orphan group PS %d — skipping.", orphan_id)
+            continue
+
+        try:
+            canonical_values = client.list_attribute_values(canonical_ps_id)
+        except PrestashopError:
+            logger.warning(
+                "Cannot list values for canonical group PS %d — skipping orphan PS %d.",
+                canonical_ps_id,
+                orphan_id,
+            )
+            continue
+        canonical_names = {str(v.get("name", "")) for v in canonical_values}
+
+        for ov in orphan_values:
+            value_name = str(ov.get("name", ""))
+            value_ps_id = int(ov["ps_id"])
+
+            if value_name in canonical_names:
+                try:
+                    client.delete_attribute_value(value_ps_id)
+                except PrestashopError as exc:
+                    logger.error(
+                        "Failed to delete duplicate value '%s' (PS %d): %s",
+                        value_name,
+                        value_ps_id,
+                        exc,
+                    )
+                else:
+                    AttributeValue.objects.filter(prestashop_id=value_ps_id).delete()
+            else:
+                try:
+                    client.move_attribute_value_to_group(value_ps_id, canonical_ps_id)
+                    canonical_names.add(value_name)
+                except PrestashopError as exc:
+                    logger.error(
+                        "Failed to move value '%s' (PS %d) to group PS %d: %s",
+                        value_name,
+                        value_ps_id,
+                        canonical_ps_id,
+                        exc,
+                    )
+                    continue
+
+                canonical_ag = AttributeGroup.objects.filter(prestashop_id=canonical_ps_id).first()
+                if canonical_ag is not None:
+                    django_av = AttributeValue.objects.filter(prestashop_id=value_ps_id).first()
+                    if django_av is not None:
+                        django_av.attribute_group = canonical_ag
+                        django_av.save(update_fields=["attribute_group", "updated_at"])
+
+        try:
+            remaining = client.list_attribute_values(orphan_id)
+            if not remaining:
+                client.delete_attribute_group(orphan_id)
+                logger.info("Deleted orphan group PS %d.", orphan_id)
+            else:
+                logger.warning(
+                    "Orphan group PS %d still has %d value(s) — kept.",
+                    orphan_id,
+                    len(remaining),
+                )
+        except PrestashopError as exc:
+            logger.error("Failed to delete orphan group PS %d: %s", orphan_id, exc)
+
+
+def _find_value_in_duplicate_groups(
+    value_name: str,
+    canonical_ps_id: int,
+    client: PrestashopClient,
+) -> int | None:
+    """Search for *value_name* in remote groups sharing the canonical group's name.
+
+    Returns the value PS ID after moving it into the canonical group, or
+    ``None`` if not found.  Does **not** trigger a full merge — that is the
+    responsibility of ``_merge_duplicate_remote_groups`` called from
+    ``ensure_attribute_group``.
+    """
+    ag = AttributeGroup.objects.filter(prestashop_id=canonical_ps_id).first()
+    if ag is None:
+        return None
+
+    remote_groups = client.list_attribute_groups()
+    if not isinstance(remote_groups, list):
+        return None
+    canonical_name = ag.name
+
+    for g in remote_groups:
+        if g.get("ps_id") == canonical_ps_id or g.get("name") != canonical_name:
+            continue
+        gid = g.get("ps_id")
+        if not isinstance(gid, int):
+            continue
+
+        found = client.find_attribute_value_id(value_name, gid)
+        if found is None:
+            continue
+
+        logger.info(
+            "Found value '%s' in duplicate group PS %d — moving to PS %d.",
+            value_name,
+            gid,
+            canonical_ps_id,
+        )
+        try:
+            client.move_attribute_value_to_group(found, canonical_ps_id)
+
+            stale_av = AttributeValue.objects.filter(prestashop_id=found).first()
+            if stale_av is not None and stale_av.attribute_group_id != ag.pk:
+                stale_av.attribute_group = ag
+                stale_av.save(update_fields=["attribute_group", "updated_at"])
+
+            return found
+        except PrestashopError as exc:
+            logger.error("Failed to move value '%s' (PS %d): %s", value_name, found, exc)
+            return None
+
+    return None
 
 
 def _attr_val_lock_key(group_ps_id: int, value_name: str) -> str:
@@ -608,6 +771,8 @@ def ensure_attribute_value(
                     return existing.prestashop_id
 
                 ps_id = client.find_attribute_value_id(value_name, group_ps_id)
+                if ps_id is None:
+                    ps_id = _find_value_in_duplicate_groups(value_name, group_ps_id, client)
                 if ps_id is None:
                     ps_id = client.create_attribute_value(value_name, group_ps_id)
 
