@@ -89,12 +89,21 @@ class Command(BaseCommand):
 
             # 2. Otherwise: group with more values → lower PS ID tie-break
             if canonical_ps_id is None:
-                groups_by_value_count = sorted(
-                    [(g["ps_id"], len(client.list_attribute_values(g["ps_id"]))) for g in groups],
-                    key=lambda x: (-x[1], x[0]),
-                )
-                canonical_ps_id = groups_by_value_count[0][0]
-                reason = "most values"
+                value_counts: list[tuple[int, int]] = []
+                for g in groups:
+                    try:
+                        count = len(client.list_attribute_values(g["ps_id"]))
+                        value_counts.append((g["ps_id"], count))
+                    except PrestashopError as exc:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"  Cannot list values for PS {g['ps_id']}: {exc} — skipping."
+                            )
+                        )
+                if value_counts:
+                    value_counts.sort(key=lambda x: (-x[1], x[0]))
+                    canonical_ps_id = value_counts[0][0]
+                    reason = "most values"
 
             orphan_ps_ids = [pid for pid in ps_ids if pid != canonical_ps_id]
 
@@ -103,15 +112,29 @@ class Command(BaseCommand):
 
             # ---- move values from orphans into canonical ----
             for orphan_id in orphan_ps_ids:
-                orphan_values = client.list_attribute_values(orphan_id)
+                try:
+                    orphan_values = client.list_attribute_values(orphan_id)
+                except PrestashopError as exc:
+                    self.stdout.write(
+                        self.style.ERROR(f"  Cannot list values for orphan PS {orphan_id}: {exc}")
+                    )
+                    continue
                 self.stdout.write(f"  Moving {len(orphan_values)} value(s) from PS {orphan_id}:")
+
+                try:
+                    canonical_values = client.list_attribute_values(canonical_ps_id)
+                except PrestashopError as exc:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"  Cannot list canonical values for PS {canonical_ps_id}: {exc}"
+                        )
+                    )
+                    continue
+                canonical_names = {str(v.get("name", "")) for v in canonical_values}
 
                 for ov in orphan_values:
                     value_name = str(ov.get("name", ""))
                     value_ps_id = int(ov["ps_id"])
-
-                    canonical_values = client.list_attribute_values(canonical_ps_id)
-                    canonical_names = {str(v.get("name", "")) for v in canonical_values}
 
                     if value_name in canonical_names:
                         # Duplicate value — the canonical already has it.
