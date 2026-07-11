@@ -602,7 +602,15 @@ def _merge_duplicate_remote_groups(
             logger.warning("Cannot list values for orphan group PS %d — skipping.", orphan_id)
             continue
 
-        canonical_values = client.list_attribute_values(canonical_ps_id)
+        try:
+            canonical_values = client.list_attribute_values(canonical_ps_id)
+        except PrestashopError:
+            logger.warning(
+                "Cannot list values for canonical group PS %d — skipping orphan PS %d.",
+                canonical_ps_id,
+                orphan_id,
+            )
+            continue
         canonical_names = {str(v.get("name", "")) for v in canonical_values}
 
         for ov in orphan_values:
