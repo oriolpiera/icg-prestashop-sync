@@ -131,6 +131,7 @@ class Command(BaseCommand):
                                         f"    Failed to delete PS {value_ps_id}: {exc}"
                                     )
                                 )
+                                continue
                     else:
                         self.stdout.write(
                             f"    Value '{value_name}' (PS {value_ps_id}): "
@@ -140,6 +141,7 @@ class Command(BaseCommand):
                             try:
                                 client.move_attribute_value_to_group(value_ps_id, canonical_ps_id)
                                 total_merged += 1
+                                canonical_names.add(value_name)
                             except PrestashopError as exc:
                                 self.stdout.write(
                                     self.style.ERROR(f"    Failed to move PS {value_ps_id}: {exc}")

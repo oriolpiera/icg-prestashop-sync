@@ -622,6 +622,7 @@ def _merge_duplicate_remote_groups(
             else:
                 try:
                     client.move_attribute_value_to_group(value_ps_id, canonical_ps_id)
+                    canonical_names.add(value_name)
                 except PrestashopError as exc:
                     logger.error(
                         "Failed to move value '%s' (PS %d) to group PS %d: %s",
