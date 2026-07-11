@@ -105,6 +105,14 @@ class Command(BaseCommand):
                     canonical_ps_id = value_counts[0][0]
                     reason = "most values"
 
+            if canonical_ps_id is None:
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"  Cannot resolve canonical group — all API calls failed. Skipping {name}."
+                    )
+                )
+                continue
+
             orphan_ps_ids = [pid for pid in ps_ids if pid != canonical_ps_id]
 
             self.stdout.write(f"  Canonical: PS {canonical_ps_id} ({reason})")
