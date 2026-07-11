@@ -114,7 +114,7 @@ def _existing_combination_xml(psid=55):
 @pytest.mark.django_db
 class TestEnsureAttributeGroup:
     def test_creates_group_when_not_in_db(self):
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_group_id_by_name.return_value = None
         client.create_attribute_group.return_value = 10
 
@@ -128,7 +128,7 @@ class TestEnsureAttributeGroup:
 
     def test_reuses_existing_db_group(self):
         AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=42)
-        client = Mock()
+        client = _make_mock_client()
 
         ps_id = ensure_attribute_group("size", client=client)
 
@@ -137,7 +137,7 @@ class TestEnsureAttributeGroup:
         client.create_attribute_group.assert_not_called()
 
     def test_reuses_existing_ps_group_not_in_db(self):
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_group_id_by_name.return_value = 99
 
         ps_id = ensure_attribute_group("size", client=client)
@@ -148,7 +148,7 @@ class TestEnsureAttributeGroup:
         assert ag.prestashop_id == 99
 
     def test_color_group_requires_product(self):
-        client = Mock()
+        client = _make_mock_client()
 
         with pytest.raises(PrestashopError, match="require a product"):
             ensure_attribute_group("color", client=client)
@@ -156,7 +156,7 @@ class TestEnsureAttributeGroup:
     def test_color_group_creates_per_product(self):
         product = _make_product()
         _make_product_prestashop_id(product, 2945)
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = []
         client.find_attribute_group_id_by_name.return_value = None
         client.create_attribute_group.return_value = 20
@@ -173,7 +173,7 @@ class TestEnsureAttributeGroup:
         AttributeGroup.objects.create(
             icg_type="color", name=f"{product.reference}_color", prestashop_id=30, product=product
         )
-        client = Mock()
+        client = _make_mock_client()
 
         ps_id = ensure_attribute_group("color", client=client, product=product)
 
@@ -183,7 +183,7 @@ class TestEnsureAttributeGroup:
     def test_color_group_prefers_existing_prestashop_product_id_group(self):
         product = _make_product(reference="2830001")
         _make_product_prestashop_id(product, 2945)
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [
             {"ps_id": 77, "name": "2945_color"},
             {"ps_id": 78, "name": "2830001_color"},
@@ -200,7 +200,7 @@ class TestEnsureAttributeGroup:
     def test_size_group_prefers_existing_product_specific_remote_group(self):
         product = _make_product(reference="2830001")
         _make_product_prestashop_id(product, 2945)
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [
             {"ps_id": 10, "name": "Size"},
             {"ps_id": 11, "name": "2945_talla"},
@@ -218,7 +218,7 @@ class TestEnsureAttributeGroup:
         product = _make_product(reference="2830001")
         _make_product_prestashop_id(product, 2945)
         AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=42)
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [{"ps_id": 42, "name": "Size"}]
 
         ps_id = ensure_attribute_group("size", client=client, product=product)
@@ -257,7 +257,7 @@ class TestEnsureAttributeGroup:
             name="Azul",
             prestashop_id=999,
         )
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [
             {"ps_id": 77, "name": "2574_color"},
             {"ps_id": 78, "name": "0110026_color"},
@@ -280,7 +280,7 @@ class TestEnsureAttributeGroup:
             prestashop_id=30,
             product=product,
         )
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [
             {"ps_id": 78, "name": "0110026_color"},
         ]
@@ -301,7 +301,7 @@ class TestEnsureAttributeGroup:
             prestashop_id=77,
             product=product,
         )
-        client = Mock()
+        client = _make_mock_client()
 
         ps_id = ensure_attribute_group("color", client=client, product=product)
 
@@ -327,7 +327,7 @@ class TestEnsureAttributeGroup:
             prestashop_id=30,
             product=product_b,
         )
-        client = Mock()
+        client = _make_mock_client()
         client.list_attribute_groups.return_value = [
             {"ps_id": 77, "name": "200_color"},
             {"ps_id": 78, "name": "REF_B_color"},
@@ -349,7 +349,7 @@ class TestEnsureAttributeGroup:
             prestashop_id=50,
             product=product,
         )
-        client = Mock()
+        client = _make_mock_client()
 
         ps_id = ensure_attribute_group("size", client=client, product=product)
 
@@ -361,7 +361,7 @@ class TestEnsureAttributeGroup:
 class TestEnsureAttributeValue:
     def test_creates_value_when_not_in_db(self):
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_value_id.return_value = None
         client.create_attribute_value.return_value = 100
 
@@ -374,7 +374,7 @@ class TestEnsureAttributeValue:
     def test_reuses_existing_db_value(self):
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
         AttributeValue.objects.create(attribute_group=ag, icg_value="M", name="M", prestashop_id=55)
-        client = Mock()
+        client = _make_mock_client()
 
         ps_id = ensure_attribute_value(10, "M", client=client)
 
@@ -383,7 +383,7 @@ class TestEnsureAttributeValue:
 
     def test_reuses_existing_ps_value_not_in_db(self):
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_value_id.return_value = 77
 
         ps_id = ensure_attribute_value(10, "L", client=client)
@@ -395,7 +395,7 @@ class TestEnsureAttributeValue:
 
     def test_idempotent_consecutive_calls_only_create_once(self):
         ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_value_id.return_value = None
         client.create_attribute_value.return_value = 55
 
@@ -435,6 +435,12 @@ class TestEnsureAttributeValue:
 # ─── Combination export service ─────────────────────────────────────
 
 
+def _make_mock_client(**overrides):
+    client = Mock(**overrides)
+    client.list_combinations_for_product.return_value = []
+    return client
+
+
 @pytest.mark.django_db
 class TestCombinationExport:
     def test_export_creates_and_maps_new_combination(self):
@@ -456,7 +462,7 @@ class TestCombinationExport:
             product=product, icg_size="M", icg_color="Red", ean13="9788478290222"
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         result = export_combination(combination.pk, client=client)
@@ -492,7 +498,7 @@ class TestCombinationExport:
 
         combination = _make_combination(product=product, icg_size="M", icg_color="Red", ean13="***")
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         result = export_combination(combination.pk, client=client)
@@ -523,7 +529,7 @@ class TestCombinationExport:
 
         combination = _make_combination(product=product, icg_size="***", icg_color="Red")
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         result = export_combination(combination.pk, client=client)
@@ -548,7 +554,7 @@ class TestCombinationExport:
         combination.prestashop_id = 55
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_value_id.return_value = 300
         client.upsert_combination.return_value = 55
 
@@ -578,7 +584,7 @@ class TestCombinationExport:
 
         combination = _make_combination(product=product, icg_size="***", icg_color="***")
 
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_value_id.return_value = None
         client.create_attribute_value.return_value = 300
         client.upsert_combination.return_value = 100
@@ -617,7 +623,7 @@ class TestCombinationExport:
         combination.prestashop_id = 55
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         result = export_combination(combination.pk, client=client)
@@ -651,7 +657,7 @@ class TestCombinationExport:
         combination.prestashop_id = 88
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 88
 
         export_combination(combination.pk, client=client)
@@ -670,7 +676,7 @@ class TestCombinationExport:
         _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product)
 
-        client = Mock()
+        client = _make_mock_client()
         client.find_attribute_group_id_by_name.return_value = None
         client.create_attribute_group.side_effect = [10, 11]
         client.find_attribute_value_id.return_value = None
@@ -692,7 +698,7 @@ class TestCombinationExport:
     def test_export_requires_product_mapping(self):
         product = _make_product()
         combination = _make_combination(product=product)
-        client = Mock()
+        client = _make_mock_client()
 
         with pytest.raises(PrestashopError, match="must be exported before"):
             export_combination(combination.pk, client=client)
@@ -709,7 +715,7 @@ class TestCombinationExport:
         combination.prestashop_id = 77
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
 
         export_combination(combination.pk, client=client)
 
@@ -722,7 +728,7 @@ class TestCombinationExport:
         product = _make_product()
         combination = _make_combination(product=product, active=False)
 
-        client = Mock()
+        client = _make_mock_client()
 
         result = export_combination(combination.pk, client=client)
 
@@ -748,7 +754,7 @@ class TestCombinationExport:
         )
         combination = _make_combination(product=product)
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.side_effect = PrestashopError(
             "Prestashop returned HTTP 500 for combinations.",
             status_code=500,
@@ -782,7 +788,7 @@ class TestCombinationExport:
         combination.prestashop_id = 88
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
         call_count = 0
 
         def upsert_side_effect(*args, **kwargs):
@@ -824,7 +830,7 @@ class TestCombinationExport:
         combination.prestashop_id = 88
         combination.save(update_fields=["prestashop_id"])
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.side_effect = PrestashopError(
             "Prestashop returned HTTP 500 for combinations.",
             status_code=500,
@@ -836,6 +842,91 @@ class TestCombinationExport:
         combination.refresh_from_db()
         assert combination.prestashop_id == 88
         assert combination.sync_required is True
+
+    def test_export_maps_to_existing_combination_by_attribute_ids(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(
+            product=product, icg_size="M", icg_color="Red", ean13="9788478290222"
+        )
+        assert combination.prestashop_id is None
+
+        existing_ps_combination = Mock()
+        existing_ps_combination.combination_id = 77
+        existing_ps_combination.attribute_value_ids = [100, 200]
+
+        client = _make_mock_client()
+        client.list_combinations_for_product.return_value = [existing_ps_combination]
+        client.upsert_combination.return_value = 77
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 77}
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 77
+        assert combination.sync_required is False
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "9788478290222",
+            True,
+            [100, 200],
+            prestashop_id=77,
+            price="0",
+        )
+
+    def test_export_creates_new_when_no_existing_match_by_attribute_ids(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+
+        size_ag = AttributeGroup.objects.create(icg_type="size", name="Size", prestashop_id=10)
+        color_ag = AttributeGroup.objects.create(
+            icg_type="color", name=f"{product.reference}_color", prestashop_id=11, product=product
+        )
+        AttributeValue.objects.create(
+            attribute_group=size_ag, icg_value="M", name="M", prestashop_id=100
+        )
+        AttributeValue.objects.create(
+            attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
+        )
+
+        combination = _make_combination(
+            product=product, icg_size="M", icg_color="Red", ean13="9788478290222"
+        )
+
+        different_combination = Mock()
+        different_combination.combination_id = 77
+        different_combination.attribute_value_ids = [300, 400]
+
+        client = _make_mock_client()
+        client.list_combinations_for_product.return_value = [different_combination]
+        client.upsert_combination.return_value = 99
+
+        result = export_combination(combination.pk, client=client)
+
+        assert result == {"combination_id": combination.pk, "prestashop_combination_id": 99}
+        combination.refresh_from_db()
+        assert combination.prestashop_id == 99
+        assert combination.sync_required is False
+        client.upsert_combination.assert_called_once_with(
+            22,
+            "9788478290222",
+            True,
+            [100, 200],
+            prestashop_id=None,
+            price="0",
+        )
 
 
 # ─── Combination export task ────────────────────────────────────────

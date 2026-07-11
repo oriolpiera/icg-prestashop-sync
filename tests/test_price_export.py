@@ -111,6 +111,12 @@ def _response(payload: str, status_code: int = 200):
     return response
 
 
+def _make_mock_client(**overrides):
+    client = Mock(**overrides)
+    client.list_combinations_for_product.return_value = []
+    return client
+
+
 # ─── Tax rule resolution ────────────────────────────────────────────
 
 
@@ -165,7 +171,7 @@ class TestPriceExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_product.return_value = 22
         client.upsert_combination.return_value = 55
 
@@ -207,7 +213,7 @@ class TestPriceExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_product.return_value = 22
         client.upsert_combination.return_value = 55
 
@@ -239,7 +245,7 @@ class TestPriceExport:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_product.side_effect = PrestashopError(
             "Prestashop returned HTTP 500 for products.",
             status_code=500,
@@ -261,7 +267,7 @@ class TestPriceExport:
         combination = _make_combination(product=product)
         price = _make_price(combination, vat_rate=16.5)
 
-        client = Mock()
+        client = _make_mock_client()
 
         with pytest.raises(PrestashopError, match="Unsupported VAT rate"):
             export_price(price.pk, client=client)
@@ -300,7 +306,7 @@ class TestPriceExport:
             attribute_group=color_ag, icg_value="Blue", name="Blue", prestashop_id=201
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_product.return_value = 22
         client.upsert_combination.side_effect = [55, 56]
 
@@ -322,7 +328,7 @@ class TestPriceExport:
         combination.save(update_fields=["prestashop_id"])
         price = _make_price(combination, amount_ex_vat=90.00, vat_rate=21)
 
-        client = Mock()
+        client = _make_mock_client()
 
         result = export_price(price.pk, client=client)
 
@@ -357,7 +363,7 @@ class TestCombinationPricePassthrough:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         export_combination(combination.pk, client=client)
@@ -381,7 +387,7 @@ class TestCombinationPricePassthrough:
             attribute_group=color_ag, icg_value="Red", name="Red", prestashop_id=200
         )
 
-        client = Mock()
+        client = _make_mock_client()
         client.upsert_combination.return_value = 55
 
         export_combination(combination.pk, client=client)
@@ -399,7 +405,7 @@ class TestProductTaxRulesGroup:
         _make_tax_mapping(vat_rate=21, ps_group_id=1)
         product = _make_product()
 
-        client = Mock()
+        client = _make_mock_client()
         client.find_product_id_by_reference.return_value = None
         client.upsert_product.return_value = 77
 
@@ -416,7 +422,7 @@ class TestProductTaxRulesGroup:
     def test_product_export_without_tax_rules_group(self, _default_category):
         product = _make_product()
 
-        client = Mock()
+        client = _make_mock_client()
         client.find_product_id_by_reference.return_value = None
         client.upsert_product.return_value = 77
 

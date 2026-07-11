@@ -790,6 +790,13 @@ def export_combination(
 
         prestashop_combination_id = combination.prestashop_id
 
+        if prestashop_combination_id is None and attribute_value_ps_ids:
+            target_ids = set(attribute_value_ps_ids)
+            for existing in client.list_combinations_for_product(product_ps_id):
+                if set(existing.attribute_value_ids) == target_ids:
+                    prestashop_combination_id = existing.combination_id
+                    break
+
         price_obj = getattr(combination, "price", None)
         combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
 
