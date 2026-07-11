@@ -132,6 +132,7 @@ class Command(BaseCommand):
                                     )
                                 )
                                 continue
+                            continue
                     else:
                         self.stdout.write(
                             f"    Value '{value_name}' (PS {value_ps_id}): "
