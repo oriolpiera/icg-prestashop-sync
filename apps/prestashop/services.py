@@ -660,10 +660,12 @@ def _find_value_in_duplicate_groups(
     canonical_ps_id: int,
     client: PrestashopClient,
 ) -> int | None:
-    """Search for *value_name* in remote groups that share the same name as *canonical_ps_id*.
+    """Search for *value_name* in remote groups sharing the canonical group's name.
 
-    Returns the value PS ID and moves it into the canonical group, or ``None`` if
-    not found in any duplicate.
+    Returns the value PS ID after moving it into the canonical group, or
+    ``None`` if not found.  Does **not** trigger a full merge — that is the
+    responsibility of ``_merge_duplicate_remote_groups`` called from
+    ``ensure_attribute_group``.
     """
     ag = AttributeGroup.objects.filter(prestashop_id=canonical_ps_id).first()
     if ag is None:
@@ -699,12 +701,10 @@ def _find_value_in_duplicate_groups(
                 stale_av.attribute_group = ag
                 stale_av.save(update_fields=["attribute_group", "updated_at"])
 
-            # Also trigger merge of anything left in that orphan
-            _merge_duplicate_remote_groups(canonical_ps_id, remote_groups, client)
+            return found
         except PrestashopError as exc:
             logger.error("Failed to move value '%s' (PS %d): %s", value_name, found, exc)
             return None
-        return found
 
     return None
 
