@@ -627,6 +627,8 @@ def _merge_duplicate_remote_groups(
                         value_ps_id,
                         exc,
                     )
+                else:
+                    AttributeValue.objects.filter(prestashop_id=value_ps_id).delete()
             else:
                 try:
                     client.move_attribute_value_to_group(value_ps_id, canonical_ps_id)
