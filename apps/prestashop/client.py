@@ -155,6 +155,7 @@ class PrestashopClient:
     def __init__(self, session: Session | None = None) -> None:
         self.session = session or requests.Session()
         self._attribute_groups_cache: list[dict[str, str | int]] | None = None
+        self._combinations_cache: dict[int, list[PrestashopCombinationSummary]] = {}
 
     def credentials(self) -> PrestashopCredentials:
         typed_settings = cast(PrestashopSettings, settings)
@@ -1422,6 +1423,10 @@ class PrestashopClient:
     def list_combinations_for_product(
         self, product_ps_id: int
     ) -> list[PrestashopCombinationSummary]:
+        cached = self._combinations_cache.get(product_ps_id)
+        if cached is not None:
+            return cached
+
         response = self._request(
             "GET",
             "combinations",
@@ -1455,6 +1460,7 @@ class PrestashopClient:
                 )
             )
 
+        self._combinations_cache[product_ps_id] = combinations
         return combinations
 
     def upsert_combination(
@@ -1488,6 +1494,7 @@ class PrestashopClient:
                 raise PrestashopError(
                     "Prestashop create combination response did not include an id."
                 )
+            self._combinations_cache.pop(product_ps_id, None)
             return int(comb_id)
 
         root = self.get_combination_xml(prestashop_id)

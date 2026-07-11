@@ -723,12 +723,21 @@ def export_combination(
             combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
             ean13_clean = combination.ean13 and barcodenumber.check_code("ean13", combination.ean13)
             ean13 = combination.ean13 if ean13_clean else ""
+            prestashop_combination_id = combination.prestashop_id
+
+            if prestashop_combination_id is None:
+                target_ids = set(attribute_value_ps_ids)
+                for existing in client.list_combinations_for_product(product_ps_id):
+                    if set(existing.attribute_value_ids) == target_ids:
+                        prestashop_combination_id = existing.combination_id
+                        break
+
             prestashop_combination_id = client.upsert_combination(
                 product_ps_id,
                 ean13,
                 combination.active,
                 attribute_value_ps_ids,
-                prestashop_id=combination.prestashop_id,
+                prestashop_id=prestashop_combination_id,
                 price=combination_price,
             )
             if not combination.prestashop_id:
@@ -789,6 +798,13 @@ def export_combination(
             raise PrestashopError(f"Combination {combination} has neither size nor color.")
 
         prestashop_combination_id = combination.prestashop_id
+
+        if prestashop_combination_id is None:
+            target_ids = set(attribute_value_ps_ids)
+            for existing in client.list_combinations_for_product(product_ps_id):
+                if set(existing.attribute_value_ids) == target_ids:
+                    prestashop_combination_id = existing.combination_id
+                    break
 
         price_obj = getattr(combination, "price", None)
         combination_price = str(price_obj.amount_ex_vat) if price_obj else "0"
