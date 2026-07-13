@@ -664,7 +664,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
         with sync_lock(ICG_SALES_EXPORT_LOCK_KEY):
             for order in orders:
                 try:
-                    refresh_order_from_prestashop(order.order_id, client=client)
+                    db_order = refresh_order_from_prestashop(order.order_id, client=client)
                 except Exception as exc:
                     failed += 1
                     job = SyncJob.objects.create(
@@ -700,11 +700,11 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                     )
                     continue
 
-                if order.current_state != settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED:
+                if db_order.current_state != settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED:
                     logger.info(
                         "Skipping Prestashop order %s: current_state=%s (expected %s)",
                         order.order_id,
-                        order.current_state,
+                        db_order.current_state,
                         settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED,
                     )
                     skipped += 1
@@ -728,7 +728,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                         "customer_id": order.customer_id,
                         "payment": order.payment,
                         "date_add": order.date_add.isoformat(),
-                        "current_state": order.current_state,
+                        "current_state": db_order.current_state,
                     },
                 )
 

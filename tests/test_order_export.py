@@ -443,7 +443,10 @@ class TestOrderExportTask:
         ):
             client_factory.return_value.list_orders_created_after.return_value = orders
             writer_factory.return_value = Mock()
-            refresh_mock.return_value = Mock()
+            refresh_mock.side_effect = [
+                Mock(current_state=2),
+                Mock(current_state=2),
+            ]
             export_mock.side_effect = [
                 {"order_id": 1, "inserted_rows": 3},
                 {"order_id": 2, "inserted_rows": 4},
@@ -509,7 +512,7 @@ class TestOrderExportTask:
         ):
             client_factory.return_value.list_orders_created_after.return_value = orders
             writer_factory.return_value = Mock()
-            refresh_mock.return_value = Mock()
+            refresh_mock.return_value = Mock(current_state=2)
 
             result = export_new_orders_to_icg(limit=100)
 
@@ -573,7 +576,10 @@ class TestOrderExportTask:
         ):
             client_factory.return_value.list_orders_created_after.return_value = orders
             writer_factory.return_value = Mock()
-            refresh_mock.return_value = Mock()
+            refresh_mock.side_effect = [
+                Mock(current_state=10),
+                Mock(current_state=2),
+            ]
             export_mock.return_value = {"order_id": 2, "inserted_rows": 2}
 
             result = export_new_orders_to_icg(limit=100)
@@ -609,7 +615,10 @@ class TestOrderExportTask:
         ):
             client_factory.return_value.list_orders_created_after.return_value = orders
             writer_factory.return_value = Mock()
-            refresh_mock.return_value = Mock()
+            refresh_mock.side_effect = [
+                Mock(current_state=6),
+                Mock(current_state=8),
+            ]
 
             result = export_new_orders_to_icg(limit=100)
 
