@@ -79,6 +79,7 @@ class PrestashopOrderSummary:
     customer_id: int
     payment: str
     date_add: datetime
+    current_state: int = 0
 
 
 @dataclass(slots=True)
@@ -139,6 +140,7 @@ class PrestashopOrderSnapshot:
     total_shipping_tax_excl: Decimal
     lines: list[PrestashopOrderLine]
     discounts: list[PrestashopOrderDiscountLine]
+    current_state: int = 0
 
 
 class PrestashopError(Exception):
@@ -784,12 +786,15 @@ class PrestashopClient:
                 if date_add == cursor_at and order_id <= last_order_id:
                     continue
 
+            current_state = self._parse_int(node, "current_state") or 0
+
             orders.append(
                 PrestashopOrderSummary(
                     order_id=order_id,
                     customer_id=customer_id,
                     payment=(node.findtext("payment") or "").strip(),
                     date_add=date_add,
+                    current_state=current_state,
                 )
             )
 
@@ -825,6 +830,7 @@ class PrestashopClient:
             customer_id=customer_id,
             payment=(node.findtext("payment") or "").strip(),
             date_add=self._parse_prestashop_datetime(date_add_text),
+            current_state=self._parse_int(node, "current_state") or 0,
         )
 
     def get_order_snapshot(self, order_id: int) -> PrestashopOrderSnapshot:
@@ -868,6 +874,7 @@ class PrestashopClient:
             total_shipping_tax_excl=self._parse_decimal(node.findtext("total_shipping_tax_excl")),
             lines=lines,
             discounts=self.get_order_discount_lines(parsed_order_id),
+            current_state=self._parse_int(node, "current_state") or 0,
         )
 
     def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal | None]]:
