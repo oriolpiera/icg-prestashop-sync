@@ -42,6 +42,7 @@ class Command(BaseCommand):
 
         candidates = (
             PrestashopOrder.objects.filter(date_add__gte=cutoff)
+            .exclude(current_state=0)
             .filter(
                 Q(current_state=payment_accepted, export_status=ExportStatus.NEVER)
                 | Q(current_state=payment_accepted, export_status=ExportStatus.FAILED)
