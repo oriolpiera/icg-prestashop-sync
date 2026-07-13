@@ -193,6 +193,33 @@ class TestStockExport:
         assert payload["status_code"] == 500
         assert stock.sync_required is True
 
+    def test_export_resets_combination_on_404(self):
+        product = _make_product()
+        _make_product_prestashop_id(product, 22)
+        combination = _make_combination(product=product)
+        _make_combination_prestashop_id(combination, 55)
+        stock = _make_stock(combination=combination)
+
+        client = Mock()
+        client.upsert_stock.side_effect = PrestashopError(
+            "Prestashop returned HTTP 404 for combinations.",
+            status_code=404,
+            body="<errors />",
+        )
+
+        with pytest.raises(PrestashopError):
+            export_stock(stock.pk, client=client)
+
+        combination.refresh_from_db()
+        assert combination.prestashop_id is None
+        assert combination.sync_required is True
+        assert combination.last_sync_error == ""
+
+        stock.refresh_from_db()
+        payload = json.loads(stock.last_sync_error)
+        assert payload["status_code"] == 404
+        assert stock.sync_required is True
+
     def test_export_stock_skips_inactive_combination(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
