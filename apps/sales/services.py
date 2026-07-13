@@ -299,7 +299,7 @@ def _order_export_state_stale(
         return True
     if order.payment != snapshot.payment:
         return True
-    if order.current_state and order.current_state != snapshot.current_state:
+    if order.current_state != 0 and order.current_state != snapshot.current_state:
         return True
     if order.date_add != snapshot.date_add:
         return True
