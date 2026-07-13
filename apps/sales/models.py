@@ -53,6 +53,7 @@ class PrestashopOrder(TimeStampedModel):
         related_name="orders",
     )
     payment = models.CharField(max_length=255, blank=True)
+    current_state = models.PositiveIntegerField(default=0)
     date_add = models.DateTimeField()
     total_paid_tax_incl = models.DecimalField(max_digits=12, decimal_places=2)
     total_shipping_tax_incl = models.DecimalField(max_digits=12, decimal_places=2, default=0)

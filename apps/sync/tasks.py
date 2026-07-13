@@ -648,6 +648,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
     processed = 0
     inserted_rows = 0
     failed = 0
+    skipped = 0
 
     try:
         orders = client.list_orders_created_after(
@@ -662,6 +663,58 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
     try:
         with sync_lock(ICG_SALES_EXPORT_LOCK_KEY):
             for order in orders:
+                try:
+                    refresh_order_from_prestashop(order.order_id, client=client)
+                except Exception as exc:
+                    failed += 1
+                    job = SyncJob.objects.create(
+                        job_type=SyncJobType.EXPORT_ORDER,
+                        entity_type="prestashop_order",
+                        entity_key=str(order.order_id),
+                        status=SyncJobStatus.RUNNING,
+                        attempts=1,
+                        started_at=timezone.now(),
+                        payload={
+                            "entity_id": order.order_id,
+                            "order_id": order.order_id,
+                            "customer_id": order.customer_id,
+                            "payment": order.payment,
+                            "date_add": order.date_add.isoformat(),
+                            "current_state": order.current_state,
+                        },
+                    )
+                    _record_sync_error(job, exc)
+                    if not PrestashopOrder.objects.filter(prestashop_id=order.order_id).exists():
+                        logger.warning(
+                            (
+                                "Stopping order export batch at Prestashop order %s: "
+                                "refresh failed before mirror creation"
+                            ),
+                            order.order_id,
+                        )
+                        break
+                    advance_cursor(
+                        SyncCursorSource.ORDERS,
+                        order.date_add,
+                        str(order.order_id),
+                    )
+                    continue
+
+                if order.current_state != settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED:
+                    logger.info(
+                        "Skipping Prestashop order %s: current_state=%s (expected %s)",
+                        order.order_id,
+                        order.current_state,
+                        settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED,
+                    )
+                    skipped += 1
+                    advance_cursor(
+                        SyncCursorSource.ORDERS,
+                        order.date_add,
+                        str(order.order_id),
+                    )
+                    continue
+
                 job = SyncJob.objects.create(
                     job_type=SyncJobType.EXPORT_ORDER,
                     entity_type="prestashop_order",
@@ -675,34 +728,19 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                         "customer_id": order.customer_id,
                         "payment": order.payment,
                         "date_add": order.date_add.isoformat(),
+                        "current_state": order.current_state,
                     },
                 )
 
                 try:
-                    refresh_order_from_prestashop(order.order_id, client=client)
                     result = export_order_to_icg_from_mirror(order.order_id, writer=writer)
                 except Exception as exc:
                     failed += 1
                     _record_sync_error(job, exc)
-                    if not PrestashopOrder.objects.filter(prestashop_id=order.order_id).exists():
-                        logger.warning(
-                            (
-                                "Stopping order export batch at Prestashop order %s: "
-                                "refresh failed before mirror creation"
-                            ),
-                            order.order_id,
-                        )
-                        break
                 else:
                     processed += 1
                     inserted_rows += int(result.get("inserted_rows", 0))
                     _mark_job_succeeded(job, result)
-                    advance_cursor(
-                        SyncCursorSource.ORDERS,
-                        order.date_add,
-                        str(order.order_id),
-                    )
-                    continue
 
                 advance_cursor(
                     SyncCursorSource.ORDERS,
@@ -718,6 +756,7 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
         "processed": processed,
         "inserted_rows": inserted_rows,
         "failed": failed,
+        "skipped": skipped,
     }
 
 

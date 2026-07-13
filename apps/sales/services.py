@@ -203,6 +203,7 @@ def upsert_order_snapshot(
         defaults={
             "customer": customer,
             "payment": snapshot.payment,
+            "current_state": snapshot.current_state,
             "date_add": snapshot.date_add,
             "total_paid_tax_incl": snapshot.total_paid_tax_incl,
             "total_shipping_tax_incl": snapshot.total_shipping_tax_incl,
@@ -297,6 +298,8 @@ def _order_export_state_stale(
     if order.customer_id != customer.pk:
         return True
     if order.payment != snapshot.payment:
+        return True
+    if order.current_state != snapshot.current_state:
         return True
     if order.date_add != snapshot.date_add:
         return True
@@ -562,6 +565,7 @@ def _order_snapshot_from_record(order: PrestashopOrder) -> PrestashopOrderSnapsh
             )
             for discount in order.discounts.all()
         ],
+        current_state=order.current_state,
     )
 
 
