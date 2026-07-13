@@ -1064,6 +1064,28 @@ def export_stock(stock_id: int, client: PrestashopClient | None = None) -> dict[
             "prestashop_combination_id": stock.combination.prestashop_id,
             "quantity": stock.quantity,
         }
+    except PrestashopError as exc:
+        if exc.status_code == 404 and stock.combination.prestashop_id is not None:
+            logger.warning(
+                "Combination %s (prestashop_id=%d) not found in PrestaShop, resetting.",
+                stock.combination,
+                stock.combination.prestashop_id,
+            )
+            stock.combination.prestashop_id = None
+            stock.combination.sync_required = True
+            stock.combination.last_sync_error = ""
+            stock.combination.save(
+                update_fields=[
+                    "prestashop_id",
+                    "sync_required",
+                    "last_sync_error",
+                    "updated_at",
+                ]
+            )
+        stock.sync_required = True
+        stock.last_sync_error = format_sync_error(exc)
+        stock.save(update_fields=["sync_required", "last_sync_error", "updated_at"])
+        raise
     except Exception as exc:
         stock.sync_required = True
         stock.last_sync_error = format_sync_error(exc)
