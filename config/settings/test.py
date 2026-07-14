@@ -1,4 +1,13 @@
+import os
+
 from .base import *  # noqa: F403
+
+if os.getenv("DATABASE_HOST") == "postgres":
+    raise RuntimeError(
+        "config.settings.test refuses to start: DATABASE_HOST=postgres detected. "
+        "This looks like the production VPS environment. "
+        "Use config.settings.production for production or unset DATABASE_HOST for local testing."
+    )
 
 DATABASES = {
     "default": {
