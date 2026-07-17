@@ -478,6 +478,8 @@ def _try_release_conflicting_group(
         return False
 
     stale_ps_id = existing.prestashop_id
+    original_existing_name = existing.name
+    conflicting_name = conflicting.name
     try:
         with transaction.atomic():
             max_ps = (
@@ -492,9 +494,7 @@ def _try_release_conflicting_group(
             existing.name = expected_name
             existing.save(update_fields=["prestashop_id", "name", "updated_at"])
             existing.values.all().delete()
-            conflicting.prestashop_id = stale_ps_id
-            conflicting.save(update_fields=["prestashop_id", "updated_at"])
-            conflicting.values.all().delete()
+            conflicting.delete()
     except IntegrityError:
         logger.debug(
             "Swap failed for %s: could not swap PS #%d with #%d.",
@@ -505,11 +505,12 @@ def _try_release_conflicting_group(
         return False
 
     logger.info(
-        "Swapped color groups for %s: %r (→ PS #%d) and %r (→ PS #%d).",
+        "Swapped color group for %s: %r → %r (PS #%d). " "Deleted orphan %r (was PS #%d).",
         product.reference,
-        existing.name,
+        original_existing_name,
+        expected_name,
         target_ps_id,
-        conflicting.name,
+        conflicting_name,
         stale_ps_id,
     )
     return True
