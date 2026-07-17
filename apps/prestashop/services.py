@@ -451,6 +451,71 @@ def _preferred_color_group_name(product) -> str | None:
     return f"{product.prestashop_id}_color"
 
 
+def _try_release_conflicting_group(
+    existing: "AttributeGroup",
+    target_ps_id: int,
+    expected_name: str,
+    product: "Product",
+) -> bool:
+    from apps.catalog.models import AttributeGroup as AG
+
+    try:
+        conflicting = AG.objects.get(prestashop_id=target_ps_id)
+    except AG.DoesNotExist:
+        return False
+
+    if conflicting.pk == existing.pk:
+        return False
+
+    if conflicting.icg_type != "color" or conflicting.product_id != product.pk:
+        logger.debug(
+            "PS #%d is claimed by %r (product %s, pk=%d) — cannot auto-release.",
+            target_ps_id,
+            conflicting.name,
+            getattr(getattr(conflicting, "product", None), "reference", "global"),
+            conflicting.pk,
+        )
+        return False
+
+    stale_ps_id = existing.prestashop_id
+    original_existing_name = existing.name
+    conflicting_name = conflicting.name
+    try:
+        with transaction.atomic():
+            max_ps = (
+                AG.objects.order_by("-prestashop_id")
+                .values_list("prestashop_id", flat=True)
+                .first()
+            )
+            temp_id = (max_ps or 0) + 1
+            conflicting.prestashop_id = temp_id
+            conflicting.save(update_fields=["prestashop_id", "updated_at"])
+            existing.prestashop_id = target_ps_id
+            existing.name = expected_name
+            existing.save(update_fields=["prestashop_id", "name", "updated_at"])
+            existing.values.all().delete()
+            conflicting.delete()
+    except IntegrityError:
+        logger.debug(
+            "Swap failed for %s: could not swap PS #%d with #%d.",
+            product.reference,
+            target_ps_id,
+            stale_ps_id,
+        )
+        return False
+
+    logger.info(
+        "Swapped color group for %s: %r → %r (PS #%d). " "Deleted orphan %r (was PS #%d).",
+        product.reference,
+        original_existing_name,
+        expected_name,
+        target_ps_id,
+        conflicting_name,
+        stale_ps_id,
+    )
+    return True
+
+
 def _should_revalidate_local_color_group(existing, product) -> bool:
     if not getattr(product, "prestashop_id", None):
         return False
@@ -500,18 +565,22 @@ def ensure_attribute_group(
                             cleared = existing.values.all().delete()[0]
                 except IntegrityError:
                     existing.refresh_from_db(fields=["prestashop_id", "name"])
-                    logger.warning(
-                        "Cannot remap color group for %s to PS #%d (%s) — "
-                        "prestashop_id already claimed by another group. "
-                        "Combination will use cached group %s (PS #%d). "
-                        "Run 'manage.py import_missing_color_groups --apply' "
-                        "to resolve stale mappings in bulk.",
-                        product.reference,
-                        remote_match.prestashop_id,
-                        expected_name,
-                        existing.name,
-                        existing.prestashop_id,
+                    resolved = _try_release_conflicting_group(
+                        existing, remote_match.prestashop_id, expected_name, product
                     )
+                    if not resolved:
+                        logger.warning(
+                            "Cannot remap color group for %s to PS #%d (%s) — "
+                            "prestashop_id already claimed by another group. "
+                            "Combination will use cached group %s (PS #%d). "
+                            "Run 'manage.py import_missing_color_groups --apply' "
+                            "to resolve stale mappings in bulk.",
+                            product.reference,
+                            remote_match.prestashop_id,
+                            expected_name,
+                            existing.name,
+                            existing.prestashop_id,
+                        )
                 else:
                     if clearing_values:
                         logger.info(

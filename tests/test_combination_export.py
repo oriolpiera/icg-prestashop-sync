@@ -13,6 +13,7 @@ from apps.catalog.models import (
 from apps.prestashop.attribute_groups import expected_local_attribute_group_name
 from apps.prestashop.client import PrestashopClient, PrestashopError
 from apps.prestashop.services import (
+    _try_release_conflicting_group,
     ensure_attribute_group,
     ensure_attribute_value,
     export_combination,
@@ -355,6 +356,52 @@ class TestEnsureAttributeGroup:
 
         assert ps_id == 50
         client.list_attribute_groups.assert_not_called()
+
+    def test_try_release_conflicting_group_rejects_cross_product(self):
+        mfr_a = _make_manufacturer(icg_code="M-2001", prestashop_id=201)
+        product_a = _make_product(reference="A", icg_id=1, manufacturer=mfr_a)
+        _make_product_prestashop_id(product_a, 100)
+        mfr_b = _make_manufacturer(icg_code="M-2002", prestashop_id=202)
+        product_b = _make_product(reference="B", icg_id=2, manufacturer=mfr_b)
+        _make_product_prestashop_id(product_b, 200)
+
+        existing = AttributeGroup.objects.create(
+            icg_type="color", name="A_color", prestashop_id=30, product=product_a
+        )
+        AttributeGroup.objects.create(
+            icg_type="color", name="B_color", prestashop_id=77, product=product_b
+        )
+
+        result = _try_release_conflicting_group(
+            existing=existing,
+            target_ps_id=77,
+            expected_name="100_color",
+            product=product_a,
+        )
+
+        assert result is False
+        existing.refresh_from_db()
+        assert existing.prestashop_id == 30
+        assert existing.name == "A_color"
+
+    def test_try_release_conflicting_group_no_conflict_when_nonexistent(self):
+        product = _make_product(reference="C", icg_id=3)
+        _make_product_prestashop_id(product, 300)
+
+        existing = AttributeGroup.objects.create(
+            icg_type="color", name="C_color", prestashop_id=50, product=product
+        )
+
+        result = _try_release_conflicting_group(
+            existing=existing,
+            target_ps_id=9999,
+            expected_name="300_color",
+            product=product,
+        )
+
+        assert result is False
+        existing.refresh_from_db()
+        assert existing.prestashop_id == 50
 
 
 @pytest.mark.django_db
