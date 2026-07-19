@@ -368,16 +368,14 @@ class PrestashopClient:
         active: bool = True,
         parent_id: int | None = None,
     ) -> None:
-        root = self.get_category_xml(category_id)
-        cat_node = root.find("./category")
-        if cat_node is None:
-            raise PrestashopError("Prestashop category payload did not include a category node.")
+        root = ElementTree.Element("prestashop", {"xmlns:xlink": "http://www.w3.org/1999/xlink"})
+        category = ElementTree.SubElement(root, "category")
+        self._set_text(category, "id", str(category_id))
         if parent_id is not None:
-            self._set_text(cat_node, "id_parent", str(parent_id))
-        self._set_multilang_text(cat_node, "name", name)
-        self._set_multilang_text(cat_node, "link_rewrite", slugify(name) or "category")
-        self._set_text(cat_node, "active", "1" if active else "0")
-        self._remove_node(cat_node, "level_depth")
+            self._set_text(category, "id_parent", str(parent_id))
+        self._set_multilang_text(category, "name", name)
+        self._set_multilang_text(category, "link_rewrite", slugify(name) or "category")
+        self._set_text(category, "active", "1" if active else "0")
         payload = ElementTree.tostring(root, encoding="unicode")
         self._request("PUT", "categories", resource_id=category_id, data=payload)
 
