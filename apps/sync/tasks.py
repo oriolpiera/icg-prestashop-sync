@@ -700,9 +700,9 @@ def export_new_orders_to_icg(limit: int = 100) -> dict:
                     )
                     continue
 
-                if db_order.current_state != settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED:
+                if db_order.current_state not in settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED:
                     logger.info(
-                        "Skipping Prestashop order %s: current_state=%s (expected %s)",
+                        "Skipping Prestashop order %s: current_state=%s (expected one of %s)",
                         order.order_id,
                         db_order.current_state,
                         settings.PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED,
