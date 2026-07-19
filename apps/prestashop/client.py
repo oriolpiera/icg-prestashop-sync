@@ -1220,7 +1220,7 @@ class PrestashopClient:
             )
         self._set_text(group, "is_color_group", "1" if is_color_group else "0")
         self._set_text(group, "group_type", "select" if not is_color_group else "color")
-        self._set_text(group, "position", group.findtext("position") or "1")
+        # Let PrestaShop auto-assign the next available position.
         self._set_multilang_text(group, "name", name, fill_all_languages=True)
         self._set_multilang_text(group, "public_name", name, fill_all_languages=True)
         response = self._request(
@@ -1335,7 +1335,7 @@ class PrestashopClient:
             )
         self._set_text(value, "id_attribute_group", str(group_ps_id))
         self._set_text(value, "color", "")
-        self._set_text(value, "position", value.findtext("position") or "1")
+        # Let PrestaShop auto-assign the next available position.
         self._set_multilang_text(value, "name", name, fill_all_languages=True)
         response = self._request(
             "POST",

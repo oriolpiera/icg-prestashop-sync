@@ -1218,7 +1218,7 @@ class TestPrestashopClientCombinationExport:
         payload = post_call.kwargs["data"]
         assert "<is_color_group>0</is_color_group>" in payload
         assert "<group_type>select</group_type>" in payload
-        assert "<position>1</position>" in payload
+        assert "<position />" in payload
 
     def test_create_attribute_group_as_color_group(self, settings):
         session = Mock()
