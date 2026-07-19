@@ -3,6 +3,7 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
+from django.test import override_settings
 from django.utils import timezone
 
 from apps.catalog.models import Combination, Product
@@ -634,3 +635,49 @@ class TestOrderExportTask:
         assert cursor.last_modified_at == _aware(2026, 6, 30, 10)
         export_mock.assert_not_called()
         assert SyncJob.objects.count() == 0
+
+    @override_settings(PRESTASHOP_ORDER_STATE_PAYMENT_ACCEPTED={2, 5})
+    def test_task_exports_orders_matching_any_of_multiple_accepted_states(self):
+        orders = [
+            PrestashopOrderSummary(1, 7, "Redsys Card", _aware(2026, 6, 30, 9), current_state=2),
+            PrestashopOrderSummary(2, 8, "Bank transfer", _aware(2026, 6, 30, 10), current_state=5),
+            PrestashopOrderSummary(3, 9, "PayPal", _aware(2026, 6, 30, 11), current_state=6),
+        ]
+
+        with (
+            patch("apps.sync.tasks.PrestashopClient") as client_factory,
+            patch("apps.sync.tasks.ICGFacturasWebWriter") as writer_factory,
+            patch("apps.sync.tasks.refresh_order_from_prestashop") as refresh_mock,
+            patch("apps.sync.tasks.export_order_to_icg_from_mirror") as export_mock,
+        ):
+            client_factory.return_value.list_orders_created_after.return_value = orders
+            writer_factory.return_value = Mock()
+            refresh_mock.side_effect = [
+                Mock(current_state=2),
+                Mock(current_state=5),
+                Mock(current_state=6),
+            ]
+            export_mock.side_effect = [
+                {"order_id": 1, "inserted_rows": 1},
+                {"order_id": 2, "inserted_rows": 2},
+            ]
+
+            result = export_new_orders_to_icg(limit=100)
+
+        assert result == {
+            "status": "success",
+            "processed": 2,
+            "inserted_rows": 3,
+            "failed": 0,
+            "skipped": 1,
+        }
+        cursor = get_or_create_cursor(SyncCursorSource.ORDERS)
+        assert cursor.last_source_key == "3"
+        assert cursor.last_modified_at == _aware(2026, 6, 30, 11)
+        assert export_mock.call_count == 2
+        export_mock.assert_any_call(1, writer=writer_factory.return_value)
+        export_mock.assert_any_call(2, writer=writer_factory.return_value)
+        jobs = list(SyncJob.objects.order_by("entity_key"))
+        assert len(jobs) == 2
+        assert jobs[0].status == SyncJobStatus.SUCCEEDED
+        assert jobs[1].status == SyncJobStatus.SUCCEEDED
