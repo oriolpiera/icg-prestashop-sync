@@ -1218,7 +1218,7 @@ class TestPrestashopClientCombinationExport:
         payload = post_call.kwargs["data"]
         assert "<is_color_group>0</is_color_group>" in payload
         assert "<group_type>select</group_type>" in payload
-        assert "<position>1</position>" in payload
+        assert "<position />" in payload
 
     def test_create_attribute_group_as_color_group(self, settings):
         session = Mock()
@@ -1247,3 +1247,33 @@ class TestPrestashopClientCombinationExport:
         payload = post_call.kwargs["data"]
         assert "<is_color_group>1</is_color_group>" in payload
         assert "<group_type>color</group_type>" in payload
+
+    def test_create_attribute_value(self, settings):
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><product_option_value>"
+                "<id></id>"
+                "<id_attribute_group></id_attribute_group>"
+                "<color></color>"
+                "<position></position>"
+                "<name><language id='1'></language></name>"
+                "</product_option_value></prestashop>"
+            ),
+            _response(
+                "<prestashop><product_option_value><id>100</id></product_option_value></prestashop>"
+            ),
+        ]
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        client = PrestashopClient(session=session)
+        value_id = client.create_attribute_value("Red", group_ps_id=10)
+
+        assert value_id == 100
+        post_call = session.request.call_args_list[1]
+        payload = post_call.kwargs["data"]
+        assert "<id_attribute_group>10</id_attribute_group>" in payload
+        assert "<color />" in payload
+        assert "<position />" in payload
