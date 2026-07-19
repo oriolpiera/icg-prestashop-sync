@@ -43,10 +43,10 @@ class Command(BaseCommand):
             PrestashopOrder.objects.filter(date_add__gte=cutoff)
             .exclude(current_state=0)
             .filter(
-                Q(current_state=payment_accepted, export_status=ExportStatus.NEVER)
-                | Q(current_state=payment_accepted, export_status=ExportStatus.FAILED)
+                Q(current_state__in=payment_accepted, export_status=ExportStatus.NEVER)
+                | Q(current_state__in=payment_accepted, export_status=ExportStatus.FAILED)
                 | (
-                    ~Q(current_state=payment_accepted)
+                    ~Q(current_state__in=payment_accepted)
                     & Q(export_status__in=[ExportStatus.NEVER, ExportStatus.FAILED])
                 ),
             )
@@ -88,7 +88,7 @@ class Command(BaseCommand):
                         continue
 
                     order.refresh_from_db()
-                    if order.current_state == payment_accepted:
+                    if order.current_state in payment_accepted:
                         try:
                             result = export_order_to_icg_from_mirror(order.prestashop_id)
                             exported += 1
