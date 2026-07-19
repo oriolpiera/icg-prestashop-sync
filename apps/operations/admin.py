@@ -915,6 +915,7 @@ class PrestashopOrderAdmin(admin.ModelAdmin):
     list_display = (
         "prestashop_id",
         "customer",
+        "current_state",
         "payment",
         "total_paid_tax_incl",
         "total_shipping_tax_incl",
@@ -924,11 +925,12 @@ class PrestashopOrderAdmin(admin.ModelAdmin):
         "exported_to_icg_at",
         "last_export_error_short",
     )
-    list_filter = (ExportStatusFilter, "payment", "date_add")
+    list_filter = (ExportStatusFilter, "current_state", "payment", "date_add")
     search_fields = ("prestashop_id", "customer__firstname", "customer__lastname", "payment")
     readonly_fields = (
         "prestashop_id",
         "customer",
+        "current_state",
         "payment",
         "date_add",
         "total_paid_tax_incl",

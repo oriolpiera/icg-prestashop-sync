@@ -9,8 +9,7 @@ from apps.prestashop.client import PrestashopClient
 from apps.sales.models import ExportStatus, PrestashopOrder
 from apps.sales.services import export_order_to_icg_from_mirror, refresh_order_from_prestashop
 from apps.sync.locking import LockAcquisitionError, sync_lock
-
-ICG_SALES_EXPORT_LOCK_KEY = "icg_sales_export"
+from apps.sync.tasks import ICG_SALES_EXPORT_LOCK_KEY
 
 
 class Command(BaseCommand):
@@ -46,7 +45,10 @@ class Command(BaseCommand):
             .filter(
                 Q(current_state__in=payment_accepted, export_status=ExportStatus.NEVER)
                 | Q(current_state__in=payment_accepted, export_status=ExportStatus.FAILED)
-                | ~Q(current_state__in=payment_accepted),
+                | (
+                    ~Q(current_state__in=payment_accepted)
+                    & Q(export_status__in=[ExportStatus.NEVER, ExportStatus.FAILED])
+                ),
             )
             .order_by("date_add")
         )
