@@ -397,3 +397,29 @@ class TestPrestashopClientCategoryExport:
         payload = session.request.call_args.kwargs["data"]
         assert "<id_parent>2</id_parent>" in payload
         assert "<active>1</active>" in payload
+
+    def test_update_category_removes_level_depth(self, settings):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+        response_get = Mock(
+            status_code=200,
+            text=(
+                "<prestashop><category><id>42</id><name><language id='1'>Old</language></name>"
+                "<link_rewrite><language id='1'>old</language></link_rewrite>"
+                "<active>1</active><level_depth>3</level_depth>"
+                "<id_parent>2</id_parent></category></prestashop>"
+            ),
+        )
+        response_put = Mock(status_code=200, text="<prestashop />")
+        session = Mock()
+        session.request.side_effect = [response_get, response_put]
+
+        client = PrestashopClient(session=session)
+        client.update_category(42, "New Name", active=False, parent_id=5)
+
+        put_payload = session.request.call_args_list[1].kwargs["data"]
+        assert "<level_depth>" not in put_payload
+        assert "New Name" in put_payload
+        assert "<active>0</active>" in put_payload
+        assert "<id_parent>5</id_parent>" in put_payload

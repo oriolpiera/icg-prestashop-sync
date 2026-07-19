@@ -377,6 +377,7 @@ class PrestashopClient:
         self._set_multilang_text(cat_node, "name", name)
         self._set_multilang_text(cat_node, "link_rewrite", slugify(name) or "category")
         self._set_text(cat_node, "active", "1" if active else "0")
+        self._remove_node(cat_node, "level_depth")
         payload = ElementTree.tostring(root, encoding="unicode")
         self._request("PUT", "categories", resource_id=category_id, data=payload)
 
