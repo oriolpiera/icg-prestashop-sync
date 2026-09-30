@@ -1015,6 +1015,7 @@ class PrestashopClient:
 
         vat_rate = line.vat_rate
         vat_rate_resolved = False
+        vat_rate_source = "the order row"
 
         mapped_vat_rate = (
             self._resolve_vat_rate_from_tax_rules_group(tax_rules_group_id)
@@ -1024,15 +1025,8 @@ class PrestashopClient:
         if mapped_vat_rate is not None:
             vat_rate = mapped_vat_rate
             vat_rate_resolved = True
+            vat_rate_source = "the mapped tax rules group"
         else:
-            if tax_rules_group_id is not None:
-                logger.warning(
-                    "Prestashop order %s line %s references unknown tax rules group %s; "
-                    "falling back to the tax rate frozen on the order detail row.",
-                    order_id,
-                    line.order_detail_id,
-                    tax_rules_group_id,
-                )
             # PrestaShop freezes the rate it actually charged on the order_detail
             # row. It is the most faithful source when the tax rules group cannot
             # be mapped, and it also covers lines the product catalog never taxed.
@@ -1040,6 +1034,7 @@ class PrestashopClient:
             if detail_tax_rate is not None:
                 vat_rate = self._normalize_supported_vat_rate(detail_tax_rate)
                 vat_rate_resolved = True
+                vat_rate_source = "the tax rate frozen on the order detail row"
             elif (
                 not line.vat_rate_present
                 and total_price_tax_incl is not None
@@ -1049,6 +1044,17 @@ class PrestashopClient:
                     self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
                 )
                 vat_rate_resolved = True
+                vat_rate_source = "the rate derived from the line totals"
+
+            if tax_rules_group_id is not None:
+                logger.warning(
+                    "Prestashop order %s line %s references unknown tax rules group %s; "
+                    "resolved the VAT rate from %s instead.",
+                    order_id,
+                    line.order_detail_id,
+                    tax_rules_group_id,
+                    vat_rate_source,
+                )
 
         if (
             not line.vat_rate_present

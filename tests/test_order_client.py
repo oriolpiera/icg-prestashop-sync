@@ -552,7 +552,7 @@ class TestPrestashopOrderClient:
 
     @pytest.mark.django_db
     def test_get_order_snapshot_derives_tax_rate_when_group_unknown_and_frozen_rate_absent(
-        self, settings
+        self, settings, caplog
     ):
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
         settings.PRESTASHOP_API_KEY = "secret"
@@ -588,9 +588,59 @@ class TestPrestashopOrderClient:
         ]
         client = PrestashopClient(session=session)
 
-        snapshot = client.get_order_snapshot(42)
+        with caplog.at_level("WARNING", logger="apps.prestashop.client"):
+            snapshot = client.get_order_snapshot(42)
 
         assert snapshot.lines[0].vat_rate == Decimal("21.00")
+        # The warning must name the source actually used, not always the frozen rate.
+        assert "the rate derived from the line totals" in caplog.text
+        assert "frozen on the order detail row" not in caplog.text
+
+    @pytest.mark.django_db
+    def test_get_order_snapshot_warns_that_it_used_the_frozen_rate_for_unknown_group(
+        self, settings, caplog
+    ):
+        settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
+        settings.PRESTASHOP_API_KEY = "secret"
+        settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
+
+        session = Mock()
+        session.request.side_effect = [
+            _response(
+                "<prestashop><order><id>42</id><id_customer>7</id_customer>"
+                "<payment>Redsys Card</payment><date_add>2026-06-30 11:00:00</date_add>"
+                "<total_paid_tax_incl>39.78</total_paid_tax_incl>"
+                "<total_shipping_tax_incl>0.00</total_shipping_tax_incl>"
+                "<total_shipping_tax_excl>0.00</total_shipping_tax_excl>"
+                "<associations><order_rows>"
+                "<order_row><id>901</id><product_id>100</product_id><product_attribute_id>200</product_attribute_id>"
+                "<product_name>Untaxed bottle</product_name><product_quantity>1</product_quantity>"
+                "<unit_price_tax_incl>1.305</unit_price_tax_incl>"
+                "<total_price_tax_incl>1.310</total_price_tax_incl>"
+                "<tax_rate>0.000</tax_rate>"
+                "</order_row></order_rows></associations>"
+                "</order></prestashop>"
+            ),
+            _response(
+                "<prestashop><order_details>"
+                "<order_detail><id>901</id><id_order>42</id_order>"
+                "<id_tax_rules_group>0</id_tax_rules_group>"
+                "<tax_rate>0.000</tax_rate>"
+                "<unit_price_tax_incl>1.305</unit_price_tax_incl>"
+                "<total_price_tax_incl>1.310</total_price_tax_incl>"
+                "<total_price_tax_excl>1.310</total_price_tax_excl>"
+                "</order_detail>"
+                "</order_details></prestashop>"
+            ),
+            _response("<prestashop><order_cart_rules></order_cart_rules></prestashop>"),
+        ]
+        client = PrestashopClient(session=session)
+
+        with caplog.at_level("WARNING", logger="apps.prestashop.client"):
+            snapshot = client.get_order_snapshot(42)
+
+        assert snapshot.lines[0].vat_rate == Decimal("0.00")
+        assert "the tax rate frozen on the order detail row" in caplog.text
 
     def test_get_order_snapshot_preserves_explicit_order_row_tax_rate_over_derived_rounded_value(
         self, settings
