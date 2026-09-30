@@ -348,6 +348,19 @@ def test_map_snapshot_to_facturas_web_supports_4_percent_vat(_catalog_mapping):
 
 
 @pytest.mark.django_db
+def test_map_snapshot_to_facturas_web_supports_zero_vat(_catalog_mapping):
+    snapshot = _snapshot()
+    snapshot.lines[0].vat_rate = Decimal("0.00")
+    snapshot.discounts = []
+    snapshot.total_shipping_tax_incl = Decimal("0.00")
+    snapshot.total_shipping_tax_excl = Decimal("0.00")
+
+    rows = map_snapshot_to_facturas_web(snapshot, exported_at=_aware(2026, 6, 30, 12, 0, 0))
+
+    assert rows[0].tipo_iva == 0
+
+
+@pytest.mark.django_db
 class TestOrderExportTask:
     def test_export_order_to_icg_returns_inserted_rows(self, _catalog_mapping):
         client = Mock()
