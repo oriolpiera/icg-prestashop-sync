@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -10,6 +11,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 from requests import Response, Session
 from requests.auth import HTTPBasicAuth
+
+logger = logging.getLogger(__name__)
 
 
 class PrestashopSettings(Protocol):
@@ -61,6 +64,15 @@ class PrestashopAddress:
     phone_mobile: str | None
     dni: str | None
     vat_number: str | None
+
+
+def _detail_decimal(
+    detail: dict[str, Decimal | int | None],
+    key: str,
+) -> Decimal | None:
+    """Read a decimal field from an untyped order_detail payload node."""
+    value = detail.get(key)
+    return value if isinstance(value, Decimal) else None
 
 
 @dataclass(slots=True)
@@ -854,7 +866,7 @@ class PrestashopClient:
             raise PrestashopError(f"Prestashop order {order_id} payload did not include date_add.")
 
         lines = self._parse_order_lines(node, order_id)
-        detail_map: dict[int, dict[str, Decimal | None]] = {}
+        detail_map: dict[int, dict[str, Decimal | int | None]] = {}
         if lines:
             try:
                 detail_map = self.get_order_line_details(parsed_order_id)
@@ -862,7 +874,10 @@ class PrestashopClient:
                 if any(self._line_requires_detail_enrichment(line) for line in lines):
                     raise
         if detail_map:
-            lines = [self._merge_order_line_with_detail(line, detail_map) for line in lines]
+            lines = [
+                self._merge_order_line_with_detail(line, detail_map, order_id=parsed_order_id)
+                for line in lines
+            ]
 
         return PrestashopOrderSnapshot(
             order_id=parsed_order_id,
@@ -877,20 +892,21 @@ class PrestashopClient:
             current_state=self._parse_int(node, "current_state") or 0,
         )
 
-    def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal | None]]:
+    def get_order_line_details(self, order_id: int) -> dict[int, dict[str, Decimal | int | None]]:
         response = self._request(
             "GET",
             "order_details",
             params={"display": "full", "filter[id_order]": str(order_id)},
         )
         root = self._parse_xml(response.text)
-        details: dict[int, dict[str, Decimal | None]] = {}
+        details: dict[int, dict[str, Decimal | int | None]] = {}
         for node in root.findall("./order_details/order_detail"):
             detail_id = self._parse_int(node, "id")
             if detail_id is None:
                 continue
             details[detail_id] = {
                 "id_tax_rules_group": self._parse_int(node, "id_tax_rules_group"),
+                "tax_rate": self._parse_decimal_or_none(node.findtext("tax_rate")),
                 "unit_price_tax_incl": self._parse_decimal_or_none(
                     node.findtext("unit_price_tax_incl")
                 ),
@@ -973,7 +989,9 @@ class PrestashopClient:
     def _merge_order_line_with_detail(
         self,
         line: PrestashopOrderLine,
-        detail_map: dict[int, dict[str, Decimal | None]],
+        detail_map: dict[int, dict[str, Decimal | int | None]],
+        *,
+        order_id: int | None = None,
     ) -> PrestashopOrderLine:
         if line.order_detail_id is None:
             return line
@@ -982,10 +1000,12 @@ class PrestashopClient:
         if detail is None:
             return line
 
-        tax_rules_group_id = detail["id_tax_rules_group"]
-        unit_price_tax_incl = detail["unit_price_tax_incl"]
-        total_price_tax_incl = detail["total_price_tax_incl"]
-        total_price_tax_excl = detail["total_price_tax_excl"]
+        tax_rules_group_id = detail.get("id_tax_rules_group")
+        if not isinstance(tax_rules_group_id, int):
+            tax_rules_group_id = None
+        unit_price_tax_incl = _detail_decimal(detail, "unit_price_tax_incl")
+        total_price_tax_incl = _detail_decimal(detail, "total_price_tax_incl")
+        total_price_tax_excl = _detail_decimal(detail, "total_price_tax_excl")
 
         if not line.total_price_tax_incl_present and total_price_tax_incl is None:
             raise PrestashopError(
@@ -994,19 +1014,52 @@ class PrestashopClient:
             )
 
         vat_rate = line.vat_rate
-        if tax_rules_group_id is not None:
-            vat_rate = self._resolve_vat_rate_from_tax_rules_group(tax_rules_group_id)
-        elif (
-            not line.vat_rate_present
-            and total_price_tax_incl is not None
-            and total_price_tax_excl is not None
-        ):
-            vat_rate = self._normalize_supported_vat_rate(
-                self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
-            )
+        vat_rate_resolved = False
+        vat_rate_source = "the order row"
 
-        if not line.vat_rate_present and (
-            total_price_tax_incl is None or total_price_tax_excl is None
+        mapped_vat_rate = (
+            self._resolve_vat_rate_from_tax_rules_group(tax_rules_group_id)
+            if tax_rules_group_id is not None
+            else None
+        )
+        if mapped_vat_rate is not None:
+            vat_rate = mapped_vat_rate
+            vat_rate_resolved = True
+            vat_rate_source = "the mapped tax rules group"
+        else:
+            # PrestaShop freezes the rate it actually charged on the order_detail
+            # row. It is the most faithful source when the tax rules group cannot
+            # be mapped, and it also covers lines the product catalog never taxed.
+            detail_tax_rate = _detail_decimal(detail, "tax_rate")
+            if detail_tax_rate is not None:
+                vat_rate = self._normalize_supported_vat_rate(detail_tax_rate)
+                vat_rate_resolved = True
+                vat_rate_source = "the tax rate frozen on the order detail row"
+            elif (
+                not line.vat_rate_present
+                and total_price_tax_incl is not None
+                and total_price_tax_excl is not None
+            ):
+                vat_rate = self._normalize_supported_vat_rate(
+                    self._derive_vat_rate(total_price_tax_incl, total_price_tax_excl)
+                )
+                vat_rate_resolved = True
+                vat_rate_source = "the rate derived from the line totals"
+
+            if tax_rules_group_id is not None:
+                logger.warning(
+                    "Prestashop order %s line %s references unknown tax rules group %s; "
+                    "resolved the VAT rate from %s instead.",
+                    order_id,
+                    line.order_detail_id,
+                    tax_rules_group_id,
+                    vat_rate_source,
+                )
+
+        if (
+            not line.vat_rate_present
+            and not vat_rate_resolved
+            and (total_price_tax_incl is None or total_price_tax_excl is None)
         ):
             raise PrestashopError(
                 "Prestashop order detail payload did not include enough tax data.",
@@ -1028,9 +1081,7 @@ class PrestashopClient:
             total_price_tax_incl_present=line.total_price_tax_incl_present
             or total_price_tax_incl is not None,
             vat_rate=vat_rate,
-            vat_rate_present=(
-                line.vat_rate_present or tax_rules_group_id is not None or vat_rate > 0
-            ),
+            vat_rate_present=line.vat_rate_present or vat_rate_resolved or vat_rate > 0,
             override_combination_id=line.override_combination_id,
         )
 
@@ -1147,20 +1198,14 @@ class PrestashopClient:
             return closest
         return normalized
 
-    def _resolve_vat_rate_from_tax_rules_group(self, tax_rules_group_id: int) -> Decimal:
+    def _resolve_vat_rate_from_tax_rules_group(self, tax_rules_group_id: int) -> Decimal | None:
         from apps.catalog.models import TaxRuleMapping
 
         mapping = TaxRuleMapping.objects.filter(
             prestashop_tax_rules_group_id=tax_rules_group_id
         ).first()
         if mapping is None:
-            raise PrestashopError(
-                (
-                    "Prestashop order detail payload referenced unknown tax rules group "
-                    f"{tax_rules_group_id}."
-                ),
-                status_code=400,
-            )
+            return None
         return mapping.vat_rate.quantize(Decimal("0.01"))
 
     def _parse_int(self, node: ElementTree.Element, tag: str) -> int | None:
