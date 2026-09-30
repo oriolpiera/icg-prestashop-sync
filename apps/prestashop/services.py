@@ -883,22 +883,25 @@ def export_combination(
 
         if _is_product_unsyncable(product):
             if combination.prestashop_id:
-                client.deactivate_combination(combination.prestashop_id)
-            _clear_sync_fields(combination)
+                client.delete_combination(combination.prestashop_id)
+                combination.prestashop_id = None
+            _clear_sync_fields(combination, extra_fields=["prestashop_id"])
             return {
                 "combination_id": combination.pk,
-                "prestashop_combination_id": combination.prestashop_id or 0,
+                "prestashop_combination_id": 0,
             }
 
         if not combination.active:
             if combination.prestashop_id:
-                client.deactivate_combination(combination.prestashop_id)
+                client.delete_combination(combination.prestashop_id)
+                combination.prestashop_id = None
 
             combination.sync_required = False
             combination.last_sync_error = ""
             combination.last_synced_at = timezone.now().astimezone(UTC)
             combination.save(
                 update_fields=[
+                    "prestashop_id",
                     "sync_required",
                     "last_sync_error",
                     "last_synced_at",
@@ -907,7 +910,7 @@ def export_combination(
             )
             return {
                 "combination_id": combination.pk,
-                "prestashop_combination_id": combination.prestashop_id or 0,
+                "prestashop_combination_id": 0,
             }
 
         if not combination.product.prestashop_id:
@@ -970,7 +973,6 @@ def export_combination(
             prestashop_combination_id = client.upsert_combination(
                 product_ps_id,
                 ean13,
-                combination.active,
                 attribute_value_ps_ids,
                 prestashop_id=prestashop_combination_id,
                 price=combination_price,
@@ -1050,7 +1052,6 @@ def export_combination(
         prestashop_combination_id = client.upsert_combination(
             product_ps_id,
             ean13,
-            combination.active,
             attribute_value_ps_ids,
             prestashop_id=prestashop_combination_id,
             price=combination_price,

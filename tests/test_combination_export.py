@@ -523,7 +523,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "9788478290222",
-            True,
             [100, 200],
             prestashop_id=None,
             price="0",
@@ -558,7 +557,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [100, 200],
             prestashop_id=None,
             price="0",
@@ -586,7 +584,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [200],
             prestashop_id=None,
             price="0",
@@ -612,7 +609,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [300],
             prestashop_id=55,
             price="0",
@@ -643,7 +639,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [300],
             prestashop_id=None,
             price="0",
@@ -681,7 +676,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [300],
             prestashop_id=77,
             price="0",
@@ -714,7 +708,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "",
-            True,
             [200],
             prestashop_id=55,
             price="0",
@@ -747,7 +740,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "9788478290222",
-            True,
             [100, 200],
             prestashop_id=88,
             price="0",
@@ -790,7 +782,7 @@ class TestCombinationExport:
         assert "must be exported before" in payload["message"]
         assert combination.sync_required is True
 
-    def test_export_deactivates_inactive_combination(self):
+    def test_export_deletes_inactive_combination(self):
         product = _make_product()
         _make_product_prestashop_id(product, 22)
         combination = _make_combination(product=product, active=False)
@@ -801,10 +793,11 @@ class TestCombinationExport:
 
         export_combination(combination.pk, client=client)
 
-        client.deactivate_combination.assert_called_once_with(77)
+        client.delete_combination.assert_called_once_with(77)
         client.upsert_combination.assert_not_called()
         combination.refresh_from_db()
         assert combination.sync_required is False
+        assert combination.prestashop_id is None
 
     def test_export_inactive_combination_without_product_mapping_succeeds(self):
         product = _make_product()
@@ -818,7 +811,7 @@ class TestCombinationExport:
         combination.refresh_from_db()
         assert combination.sync_required is False
         assert combination.last_sync_error == ""
-        client.deactivate_combination.assert_not_called()
+        client.delete_combination.assert_not_called()
         client.upsert_combination.assert_not_called()
 
     def test_export_stores_structured_error(self):
@@ -962,7 +955,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "9788478290222",
-            True,
             [100, 200],
             prestashop_id=77,
             price="0",
@@ -1004,7 +996,6 @@ class TestCombinationExport:
         client.upsert_combination.assert_called_once_with(
             22,
             "9788478290222",
-            True,
             [100, 200],
             prestashop_id=None,
             price="0",
@@ -1116,14 +1107,13 @@ class TestPrestashopClientCombinationExport:
         settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
 
         client = PrestashopClient(session=session)
-        comb_id = client.upsert_combination(22, "1234567890123", True, [100, 200])
+        comb_id = client.upsert_combination(22, "1234567890123", [100, 200])
 
         assert comb_id == 55
         post_call = session.request.call_args_list[1]
         payload = post_call.kwargs["data"]
         assert "<id_product>22</id_product>" in payload
         assert "<ean13>1234567890123</ean13>" in payload
-        assert "<active>1</active>" in payload
         assert "<id>100</id>" in payload
         assert "<id>200</id>" in payload
 
@@ -1138,7 +1128,7 @@ class TestPrestashopClientCombinationExport:
         settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
 
         client = PrestashopClient(session=session)
-        comb_id = client.upsert_combination(22, "9999999999999", True, [300, 400], prestashop_id=55)
+        comb_id = client.upsert_combination(22, "9999999999999", [300, 400], prestashop_id=55)
 
         assert comb_id == 55
         put_call = session.request.call_args_list[1]
@@ -1147,10 +1137,9 @@ class TestPrestashopClientCombinationExport:
         assert "<id>300</id>" in payload
         assert "<id>400</id>" in payload
 
-    def test_deactivate_combination(self, settings):
+    def test_delete_combination(self, settings):
         session = Mock()
         session.request.side_effect = [
-            _response(_existing_combination_xml(55)),
             _response("<prestashop><combination><id>55</id></combination></prestashop>"),
         ]
         settings.PRESTASHOP_BASE_URL = "https://shop.example.com"
@@ -1158,20 +1147,11 @@ class TestPrestashopClientCombinationExport:
         settings.PRESTASHOP_DEFAULT_LANGUAGE_ID = 1
 
         client = PrestashopClient(session=session)
-        client.deactivate_combination(55)
+        client.delete_combination(55)
 
-        put_call = session.request.call_args_list[1]
-        assert put_call.args[0] == "PUT"
-        payload = put_call.kwargs["data"]
-        assert "<active>0</active>" in payload
-        from xml.etree import ElementTree
-
-        root = ElementTree.fromstring(payload)
-        comb_active = root.find("./combination/active")
-        assert comb_active is not None
-        assert comb_active.text == "0"
-        root_active = root.find("./active")
-        assert root_active is None
+        delete_call = session.request.call_args_list[0]
+        assert delete_call.args[0] == "DELETE"
+        assert "/combinations/55" in delete_call.args[1]
 
     def test_find_attribute_group_uses_exact_match_filter(self, settings):
         response = _response(

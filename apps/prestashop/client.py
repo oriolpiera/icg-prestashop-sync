@@ -1519,7 +1519,6 @@ class PrestashopClient:
         self,
         product_ps_id: int,
         ean13: str,
-        active: bool,
         attribute_value_ps_ids: list[int],
         *,
         prestashop_id: int | None = None,
@@ -1531,7 +1530,6 @@ class PrestashopClient:
                 root,
                 product_ps_id=product_ps_id,
                 ean13=ean13,
-                active=active,
                 attribute_value_ps_ids=attribute_value_ps_ids,
                 price=price,
             )
@@ -1554,7 +1552,6 @@ class PrestashopClient:
             root,
             product_ps_id=product_ps_id,
             ean13=ean13,
-            active=active,
             attribute_value_ps_ids=attribute_value_ps_ids,
             price=price,
         )
@@ -1566,21 +1563,6 @@ class PrestashopClient:
         )
         return prestashop_id
 
-    def deactivate_combination(self, prestashop_id: int) -> None:
-        root = self.get_combination_xml(prestashop_id)
-        comb_node = root.find("./combination")
-        if comb_node is None:
-            raise PrestashopError(
-                "Prestashop combination payload did not include a combination node."
-            )
-        self._set_text(comb_node, "active", "0")
-        self._request(
-            "PUT",
-            "combinations",
-            resource_id=prestashop_id,
-            data=ElementTree.tostring(root, encoding="unicode"),
-        )
-
     def delete_combination(self, prestashop_id: int) -> None:
         self._request("DELETE", "combinations", resource_id=prestashop_id)
 
@@ -1590,7 +1572,6 @@ class PrestashopClient:
         *,
         product_ps_id: int,
         ean13: str,
-        active: bool,
         attribute_value_ps_ids: list[int],
         price: str,
     ) -> None:
@@ -1602,7 +1583,6 @@ class PrestashopClient:
 
         self._set_text(comb_node, "id_product", str(product_ps_id))
         self._set_text(comb_node, "ean13", ean13)
-        self._set_text(comb_node, "active", "1" if active else "0")
         self._set_text(comb_node, "price", price)
         self._set_text(comb_node, "minimal_quantity", "1")
 
